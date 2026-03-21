@@ -46,14 +46,14 @@ function getSwipeGestureAction(direction) {
   if (direction === "right") {
     return {
       pillSide: "left",
-      label: "Sessions",
+      label: "会话",
       run: () => Promise.resolve(openSessionsSidebar()),
     };
   }
   if (direction === "left") {
     return {
       pillSide: "right",
-      label: "New Session",
+      label: "新建会话",
       run: () => Promise.resolve(createNewSessionShortcut()),
     };
   }

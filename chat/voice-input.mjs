@@ -564,7 +564,7 @@ export async function openVoiceInputLiveTranscription(options = {}) {
   if (!isVoiceInputConfigured(config)) {
     throw createVoiceInputError(
       'VOICE_INPUT_NOT_CONFIGURED',
-      'Voice input is not configured yet. Add the provider details in Settings first.',
+      '语音输入尚未配置。请先到“设置”中填写 provider 详细信息。',
       503,
     );
   }
@@ -788,7 +788,7 @@ export async function transcribeVoiceInputAudio(audio, options = {}) {
   if (!isVoiceInputConfigured(config)) {
     throw createVoiceInputError(
       'VOICE_INPUT_NOT_CONFIGURED',
-      'Voice input is not configured yet. Add the provider details in Settings first.',
+      '语音输入尚未配置。请先到“设置”中填写 provider 详细信息。',
       503,
     );
   }

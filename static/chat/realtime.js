@@ -414,13 +414,13 @@ function handleWsMessage(msg) {
 function updateStatus(connState, session = getCurrentSession()) {
   if (typeof shareSnapshotMode !== "undefined" && shareSnapshotMode) {
     statusDot.className = "status-dot";
-    statusText.textContent = "read-only snapshot";
+    statusText.textContent = "只读快照";
     msgInput.disabled = true;
     msgInput.readOnly = true;
-    msgInput.placeholder = "Read-only snapshot";
+    msgInput.placeholder = "只读快照";
     sendBtn.style.display = "";
     sendBtn.disabled = true;
-    sendBtn.title = "Read-only";
+    sendBtn.title = "只读";
     cancelBtn.style.display = "none";
     imgBtn.disabled = true;
     inlineToolSelect.disabled = true;
@@ -437,12 +437,12 @@ function updateStatus(connState, session = getCurrentSession()) {
   const archived = session?.archived === true;
   if (connState === "disconnected") {
     statusDot.className = "status-dot";
-    statusText.textContent = "Reconnecting…";
+    statusText.textContent = "正在重连…";
     msgInput.disabled = !currentSessionId || archived;
-    msgInput.placeholder = archived ? "Archived session — restore to continue" : "Message...";
+    msgInput.placeholder = archived ? "会话已归档，恢复后继续" : "输入消息…";
     sendBtn.style.display = "";
     sendBtn.disabled = !currentSessionId || archived;
-    sendBtn.title = "Send";
+    sendBtn.title = "发送";
     return;
   }
   const visualStatus = getSessionVisualStatus(session);
@@ -453,28 +453,28 @@ function updateStatus(connState, session = getCurrentSession()) {
   const showArchivedOnly = archived && visualStatus.key === "idle";
   if (showArchivedOnly) {
     statusDot.className = "status-dot";
-    statusText.textContent = "archived";
+    statusText.textContent = "已归档";
   } else if (visualStatus.label) {
     statusDot.className = visualStatus.dotClass
       ? `status-dot ${visualStatus.dotClass}`
       : "status-dot";
     statusText.textContent = archived
-      ? `${visualStatus.label} · archived`
+      ? `${visualStatus.label} · 已归档`
       : visualStatus.label;
   } else {
     statusDot.className = "status-dot";
-    statusText.textContent = currentSessionId ? "idle" : "connected";
+    statusText.textContent = currentSessionId ? "空闲" : "已连接";
   }
   const hasSession = !!currentSessionId;
   msgInput.disabled = !hasSession || archived;
   msgInput.placeholder = archived
-    ? "Archived session — restore to continue"
+    ? "会话已归档，恢复后继续"
     : inputBusy
-      ? "Queue follow-up..."
-      : "Message...";
+      ? "后续消息排队中…"
+      : "输入消息…";
   sendBtn.style.display = "";
   sendBtn.disabled = !hasSession || archived;
-  sendBtn.title = inputBusy ? "Queue follow-up" : "Send";
+  sendBtn.title = inputBusy ? "后续消息排队" : "发送";
   cancelBtn.style.display = runIsActive && hasSession ? "flex" : "none";
   imgBtn.disabled = !hasSession || archived;
   inlineToolSelect.disabled = visitorMode || archived;

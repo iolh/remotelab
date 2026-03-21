@@ -221,11 +221,11 @@ vm.runInNewContext(
 await new Promise((resolve) => setTimeout(resolve, 0));
 
 assert.equal(typeof context.window.RemoteLabVoiceInput.getDiagnosticsText, 'function', 'diagnostics helper should be exposed');
-assert.match(context.window.RemoteLabVoiceInput.getDiagnosticsText(), /Voice diagnostics initialized/, 'diagnostics should bootstrap immediately');
+assert.match(context.window.RemoteLabVoiceInput.getDiagnosticsText(), /(Voice diagnostics initialized|语音诊断已初始化)/, 'diagnostics should bootstrap immediately');
 
 const diagnosticsPanels = findByClassName(elements.get('voiceSettingsMount'), 'voice-input-diagnostics');
 assert.equal(diagnosticsPanels.length, 1, 'settings should render the diagnostics panel');
-assert.match(diagnosticsPanels[0].textContent, /Loaded voice input config/, 'diagnostics panel should show recent events');
+assert.match(diagnosticsPanels[0].textContent, /(Loaded voice input config|已加载语音输入配置)/, 'diagnostics panel should show recent events');
 
 await context.handleVoiceInputClick();
 assert.equal(MockRecognition.instance.started, true, 'browser direct recognition should start');
@@ -249,8 +249,8 @@ assert.equal(submitCall.options.headers['Content-Type'], 'application/json');
 assert.equal(JSON.parse(submitCall.options.body).providedTranscript, '实时字幕测试');
 assert.equal(context.sendMessageCalls, 0, 'voice transcript should stay in the composer by default');
 assert.equal(context.msgInput.value, '洗过的一句话', 'cleaned transcript should remain in the composer for manual review');
-assert.match(context.window.RemoteLabVoiceInput.getDiagnosticsText(), /Browser direct start requested/, 'browser direct start should be logged');
-assert.match(context.window.RemoteLabVoiceInput.getDiagnosticsText(), /Voice submit completed/, 'final voice submission should be logged');
+assert.match(context.window.RemoteLabVoiceInput.getDiagnosticsText(), /(Browser direct start requested|请求启动浏览器直跑识别)/, 'browser direct start should be logged');
+assert.match(context.window.RemoteLabVoiceInput.getDiagnosticsText(), /(Voice submit completed|语音提交完成)/, 'final voice submission should be logged');
 
 voiceInputConfig = {
   enabled: true,

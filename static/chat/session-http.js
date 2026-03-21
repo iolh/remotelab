@@ -456,7 +456,7 @@ function applyAttachedSessionState(id, session) {
   const displayName = getSessionDisplayName(session);
   headerTitle.textContent = displayName;
   if (typeof shareSnapshotMode !== "undefined" && shareSnapshotMode) {
-    const titleSuffix = getShareSnapshotViewValue("titleSuffix", "Shared Snapshot");
+    const titleSuffix = getShareSnapshotViewValue("titleSuffix", "共享快照");
     document.title = `${displayName} · ${titleSuffix}`;
   }
   if (typeof reconcileComposerPendingSendWithSession === "function") {
@@ -711,7 +711,7 @@ function startParallelCurrentSessionBootstrap() {
 async function bootstrapViaHttp({ deferOwnerRestore = false } = {}) {
   if (visitorMode && visitorSessionId) {
     currentSessionId = visitorSessionId;
-    attachSession(visitorSessionId, { id: visitorSessionId, name: "Session", status: "idle" });
+    attachSession(visitorSessionId, { id: visitorSessionId, name: "会话", status: "idle" });
     await refreshCurrentSession();
     return;
   }

@@ -205,7 +205,7 @@ function ensureVoiceDiagnosticsBootstrapped() {
   if (voiceState.diagnosticsBootstrapped) return;
   voiceState.diagnosticsBootstrapped = true;
   writeVoiceInputDiagnostics(readVoiceInputDiagnostics());
-  appendVoiceDiagnostic("Voice diagnostics initialized", {
+  appendVoiceDiagnostic("语音诊断已初始化", {
     requestedMode: readVoiceInputPrefs().captureMode,
     browserDirect: supportsBrowserDirectVoiceInput(),
     relayConfigured: canUseServerRelayVoiceInput(),
@@ -392,36 +392,36 @@ function syncVoiceInputButton() {
   voiceInputBtn.classList.toggle("is-busy", voiceState.busy && !voiceState.recording);
   voiceInputBtn.setAttribute("aria-pressed", voiceState.recording ? "true" : "false");
   if (voiceState.recording) {
-    voiceInputBtn.title = "Stop recording";
-    voiceInputBtn.setAttribute("aria-label", "Stop recording");
+    voiceInputBtn.title = "结束录音";
+    voiceInputBtn.setAttribute("aria-label", "结束录音");
     return;
   }
   if (voiceState.busy) {
-    voiceInputBtn.title = "Transcribing voice";
-    voiceInputBtn.setAttribute("aria-label", "Transcribing voice");
+    voiceInputBtn.title = "正在转写语音";
+    voiceInputBtn.setAttribute("aria-label", "正在转写语音");
     return;
   }
   if (voiceState.config?.enabled === false) {
-    voiceInputBtn.title = "Voice input is turned off in Settings";
+    voiceInputBtn.title = "设置里已关闭语音输入";
     voiceInputBtn.setAttribute("aria-label", voiceInputBtn.title);
     return;
   }
   if (browserAvailable || relayAvailable) {
     voiceInputBtn.title = captureMode === VOICE_CAPTURE_MODE_BROWSER_DIRECT
-      ? "Record voice in the browser"
-      : "Record voice";
+      ? "在浏览器内录音"
+      : "开始录音";
     voiceInputBtn.setAttribute("aria-label", voiceInputBtn.title);
     return;
   }
   if (!voiceState.config?.configured) {
     voiceInputBtn.title = isOwnerView()
-      ? "Configure relay voice input or use a browser with built-in speech recognition"
-      : "Voice input is unavailable";
+      ? "请先配置 relay 语音输入，或改用自带语音识别的浏览器"
+      : "语音输入当前不可用";
     voiceInputBtn.setAttribute("aria-label", voiceInputBtn.title);
     return;
   }
-  voiceInputBtn.title = "Record voice";
-  voiceInputBtn.setAttribute("aria-label", "Record voice");
+  voiceInputBtn.title = "开始录音";
+  voiceInputBtn.setAttribute("aria-label", "开始录音");
 }
 
 function stopVoiceInputClock() {
@@ -432,11 +432,11 @@ function stopVoiceInputClock() {
 function startVoiceInputClock() {
   stopVoiceInputClock();
   voiceState.startedAt = Date.now();
-  setVoiceInputStatus(`Recording… tap again to finish · ${formatRecordingDuration(0)}`, { persist: true });
+  setVoiceInputStatus(`录音中…再次点击即可结束 · ${formatRecordingDuration(0)}`, { persist: true });
   voiceState.timerId = scheduleInterval?.(() => {
     if (!voiceState.recording || !voiceState.startedAt) return;
     setVoiceInputStatus(
-      `Recording… tap again to finish · ${formatRecordingDuration(Date.now() - voiceState.startedAt)}`,
+      `录音中…再次点击即可结束 · ${formatRecordingDuration(Date.now() - voiceState.startedAt)}`,
       { persist: true },
     );
   }, 400);
@@ -567,7 +567,7 @@ function finalizeBrowserDirectRecognition(state, options = {}) {
   if (!state || state.finalized) return;
   state.finalized = true;
   cancelTimeout?.(state.restartTimerId);
-  appendVoiceDiagnostic("Browser direct finalized", {
+  appendVoiceDiagnostic("浏览器直跑识别已收尾", {
     transcriptLength: buildBrowserDirectPreviewText(state, {
       includeInterim: options.includeInterim !== false,
     }).length,
@@ -588,7 +588,7 @@ async function cleanupBrowserDirectRecognition() {
   const state = voiceState.browserRecognition;
   voiceState.browserRecognition = null;
   if (!state) return;
-  appendVoiceDiagnostic("Browser direct cleanup", {
+  appendVoiceDiagnostic("浏览器直跑识别已清理", {
     finalized: state.finalized === true,
     stopRequested: state.stopRequested === true,
   });
@@ -624,7 +624,7 @@ async function startBrowserDirectRecognition() {
     state.resolveFinal = resolve;
   });
   voiceState.browserRecognition = state;
-  appendVoiceDiagnostic("Browser direct start requested", {
+  appendVoiceDiagnostic("请求启动浏览器直跑识别", {
     language: voiceState.config?.language || "zh-CN",
     requestedMode: readVoiceInputPrefs().captureMode,
   });
@@ -635,7 +635,7 @@ async function startBrowserDirectRecognition() {
   recognition.maxAlternatives = 1;
 
   recognition.onstart = () => {
-    appendVoiceDiagnostic("Browser direct recognition started", {
+    appendVoiceDiagnostic("浏览器直跑识别已启动", {
       language: recognition.lang,
       continuous: recognition.continuous,
       interimResults: recognition.interimResults,
@@ -643,23 +643,23 @@ async function startBrowserDirectRecognition() {
   };
 
   recognition.onaudiostart = () => {
-    appendVoiceDiagnostic("Browser direct audio start");
+    appendVoiceDiagnostic("浏览器直跑音频采集开始");
   };
 
   recognition.onspeechstart = () => {
-    appendVoiceDiagnostic("Browser direct speech start");
+    appendVoiceDiagnostic("浏览器直跑检测到语音开始");
   };
 
   recognition.onspeechend = () => {
-    appendVoiceDiagnostic("Browser direct speech end");
+    appendVoiceDiagnostic("浏览器直跑检测到语音结束");
   };
 
   recognition.onaudioend = () => {
-    appendVoiceDiagnostic("Browser direct audio end");
+    appendVoiceDiagnostic("浏览器直跑音频采集结束");
   };
 
   recognition.onnomatch = () => {
-    appendVoiceDiagnostic("Browser direct no-match event");
+    appendVoiceDiagnostic("浏览器直跑未匹配到语音");
   };
 
   recognition.onresult = (event) => {
@@ -677,7 +677,7 @@ async function startBrowserDirectRecognition() {
     state.sessionFinalTranscript = normalizeBrowserDirectTranscript(sessionFinal);
     state.sessionInterimTranscript = normalizeBrowserDirectTranscript(sessionInterim);
     updateVoiceComposerPreview(buildBrowserDirectPreviewText(state));
-    appendVoiceDiagnostic("Browser direct result", {
+    appendVoiceDiagnostic("浏览器直跑识别结果", {
       finalLength: state.sessionFinalTranscript.length,
       interimLength: state.sessionInterimTranscript.length,
       preview: buildBrowserDirectPreviewText(state).slice(0, 120),
@@ -686,7 +686,7 @@ async function startBrowserDirectRecognition() {
 
   recognition.onerror = (event) => {
     const message = mapBrowserDirectRecognitionError(event?.error);
-    appendVoiceDiagnostic("Browser direct error", {
+    appendVoiceDiagnostic("浏览器直跑识别报错", {
       code: event?.error || "",
       message,
       transcriptLength: buildBrowserDirectPreviewText(state).length,
@@ -705,7 +705,7 @@ async function startBrowserDirectRecognition() {
       state.sessionFinalTranscript,
     ]);
     state.sessionFinalTranscript = "";
-    appendVoiceDiagnostic("Browser direct recognition ended", {
+    appendVoiceDiagnostic("浏览器直跑识别已结束", {
       stopRequested: state.stopRequested === true,
       committedLength: state.committedTranscript.length,
       interimLength: state.sessionInterimTranscript.length,
@@ -724,11 +724,11 @@ async function startBrowserDirectRecognition() {
     state.sessionInterimTranscript = "";
     state.restartTimerId = scheduleTimeout?.(() => {
       try {
-        appendVoiceDiagnostic("Browser direct recognition restarting");
+        appendVoiceDiagnostic("浏览器直跑识别准备重启");
         recognition.start();
       } catch (error) {
         state.lastError = error?.message || "浏览器语音识别重启失败。";
-        appendVoiceDiagnostic("Browser direct restart failed", {
+        appendVoiceDiagnostic("浏览器直跑识别重启失败", {
           error: state.lastError,
         });
         state.stopRequested = true;
@@ -744,7 +744,7 @@ async function startBrowserDirectRecognition() {
   try {
     recognition.start();
   } catch (error) {
-    appendVoiceDiagnostic("Browser direct start threw", {
+    appendVoiceDiagnostic("启动浏览器直跑识别时抛错", {
       error: error?.message || String(error || ""),
     });
     throw error;
@@ -756,7 +756,7 @@ function requestBrowserDirectRecognitionStop() {
   const state = voiceState.browserRecognition;
   if (!state) return;
   state.stopRequested = true;
-  appendVoiceDiagnostic("Browser direct stop requested", {
+  appendVoiceDiagnostic("请求停止浏览器直跑识别", {
     transcriptLength: buildBrowserDirectPreviewText(state, { includeInterim: true }).length,
   });
   cancelTimeout?.(state.restartTimerId);
@@ -780,7 +780,7 @@ async function waitForBrowserDirectRecognitionResult(timeoutMs = 2200) {
       state.finalPromise,
       new Promise((resolve) => {
         scheduleTimeout?.(() => {
-          appendVoiceDiagnostic("Browser direct wait timed out", {
+          appendVoiceDiagnostic("等待浏览器直跑结果超时", {
             timeoutMs,
             transcriptLength: buildVoiceComposerValue("", buildBrowserDirectPreviewText(state, { includeInterim: true })).length,
           });
@@ -812,7 +812,7 @@ async function cleanupLiveVoicePreview() {
   const live = voiceState.live;
   voiceState.live = null;
   if (!live) return;
-  appendVoiceDiagnostic("Server relay cleanup", {
+  appendVoiceDiagnostic("服务器 relay 实时预览已清理", {
     finalized: live.finalized === true,
     stopRequested: live.stopRequested === true,
   });
@@ -879,7 +879,7 @@ async function startLiveVoicePreview(stream) {
 
   const socket = new WebSocket(resolveVoiceInputWsUrl(currentSessionId));
   live.socket = socket;
-  appendVoiceDiagnostic("Server relay live stream requested", {
+  appendVoiceDiagnostic("请求启动服务器 relay 实时预览", {
     sessionId: currentSessionId,
     language: voiceState.config?.language || "",
   });
@@ -908,7 +908,7 @@ async function startLiveVoicePreview(stream) {
   };
 
   socket.addEventListener("open", () => {
-    appendVoiceDiagnostic("Server relay websocket opened");
+    appendVoiceDiagnostic("服务器 relay WebSocket 已连接");
     socket.send(JSON.stringify({
       type: "start",
       sessionId: currentSessionId,
@@ -926,7 +926,7 @@ async function startLiveVoicePreview(stream) {
     if (payload?.type === "started") {
       live.canSendAudio = true;
       flushPendingChunks();
-      appendVoiceDiagnostic("Server relay live stream started");
+      appendVoiceDiagnostic("服务器 relay 实时预览已启动");
       return;
     }
     if (payload?.type === "partial") {
@@ -934,7 +934,7 @@ async function startLiveVoicePreview(stream) {
       updateVoiceComposerPreview(live.latestTranscript || "");
       if (!live.loggedFirstPartial && live.latestTranscript) {
         live.loggedFirstPartial = true;
-        appendVoiceDiagnostic("Server relay first partial", {
+        appendVoiceDiagnostic("服务器 relay 收到首条中间结果", {
           transcriptLength: live.latestTranscript.length,
           preview: live.latestTranscript.slice(0, 120),
         });
@@ -946,7 +946,7 @@ async function startLiveVoicePreview(stream) {
       live.latestTranscript = transcript || live.latestTranscript;
       live.finalized = true;
       updateVoiceComposerPreview(live.latestTranscript || "");
-      appendVoiceDiagnostic("Server relay final transcript", {
+      appendVoiceDiagnostic("服务器 relay 返回最终转写", {
         transcriptLength: live.latestTranscript.length,
         preview: live.latestTranscript.slice(0, 120),
       });
@@ -957,7 +957,7 @@ async function startLiveVoicePreview(stream) {
       live.canSendAudio = false;
       live.stopRequested = true;
       disconnectLiveVoiceAudio(live);
-      appendVoiceDiagnostic("Server relay error", {
+      appendVoiceDiagnostic("服务器 relay 返回错误", {
         error: payload.error || "",
       });
       setVoiceInputStatus(payload.error || "实时字幕暂时不可用，结束后会回退到普通转写。", { error: true });
@@ -967,7 +967,7 @@ async function startLiveVoicePreview(stream) {
 
   socket.addEventListener("close", () => {
     if (live.finalized) return;
-    appendVoiceDiagnostic("Server relay websocket closed before final", {
+    appendVoiceDiagnostic("服务器 relay 在最终结果前断开连接", {
       transcriptLength: live.latestTranscript.length,
     });
     live.resolveFinal({ transcript: live.latestTranscript || "", streamFailed: true });
@@ -975,7 +975,7 @@ async function startLiveVoicePreview(stream) {
 
   socket.addEventListener("error", () => {
     if (live.finalized) return;
-    appendVoiceDiagnostic("Server relay websocket error");
+    appendVoiceDiagnostic("服务器 relay WebSocket 出错");
     live.resolveFinal({ transcript: live.latestTranscript || "", streamFailed: true, error: "实时字幕连接失败。" });
   });
 
@@ -986,7 +986,7 @@ function requestLiveVoicePreviewStop() {
   const live = voiceState.live;
   if (!live) return;
   live.stopRequested = true;
-  appendVoiceDiagnostic("Server relay stop requested", {
+  appendVoiceDiagnostic("请求停止服务器 relay 实时预览", {
     transcriptLength: live.latestTranscript.length,
   });
   disconnectLiveVoiceAudio(live);
@@ -1005,7 +1005,7 @@ async function waitForLiveVoicePreviewResult(timeoutMs = 3200) {
       live.finalPromise,
       new Promise((resolve) => {
         scheduleTimeout?.(() => {
-          appendVoiceDiagnostic("Server relay wait timed out", {
+          appendVoiceDiagnostic("等待服务器 relay 结果超时", {
             timeoutMs,
             transcriptLength: live.latestTranscript.length,
           });
@@ -1020,7 +1020,7 @@ async function waitForLiveVoicePreviewResult(timeoutMs = 3200) {
 
 async function submitVoiceAudio(file, options = {}) {
   if (!currentSessionId) {
-    appendVoiceDiagnostic("Voice submit skipped: no session", {
+    appendVoiceDiagnostic("跳过语音提交：当前没有会话", {
       hasFile: !!file,
       providedTranscriptLength: typeof options?.providedTranscript === "string" ? options.providedTranscript.trim().length : 0,
     });
@@ -1028,7 +1028,7 @@ async function submitVoiceAudio(file, options = {}) {
     return;
   }
   if (typeof hasPendingComposerSend === "function" && hasPendingComposerSend()) {
-    appendVoiceDiagnostic("Voice submit skipped: pending composer send");
+    appendVoiceDiagnostic("跳过语音提交：输入框消息仍在发送",);
     setVoiceInputStatus("当前消息还在发送中，等它结束后再录。", { error: true });
     return;
   }
@@ -1038,7 +1038,7 @@ async function submitVoiceAudio(file, options = {}) {
     : "";
   const shouldUploadAudio = !!file && (prefs.attachOriginalAudio || !providedTranscript);
   if (!shouldUploadAudio && !providedTranscript) {
-    appendVoiceDiagnostic("Voice submit skipped: empty payload", {
+    appendVoiceDiagnostic("跳过语音提交：没有可发送内容", {
       attachOriginalAudio: prefs.attachOriginalAudio === true,
       hasFile: !!file,
     });
@@ -1046,7 +1046,7 @@ async function submitVoiceAudio(file, options = {}) {
     setVoiceInputStatus("这次没有录到可发送的内容。", { error: true });
     return;
   }
-  appendVoiceDiagnostic("Submitting voice transcript", {
+  appendVoiceDiagnostic("开始提交语音转写", {
     shouldUploadAudio,
     fileName: file?.name || "",
     fileType: file?.type || "",
@@ -1094,7 +1094,7 @@ async function submitVoiceAudio(file, options = {}) {
       : providedTranscript;
     const insertedIntoEmptyComposer = finishVoiceComposerPreview(finalTranscript, { keepLiveText: !finalTranscript });
     const committedTranscript = typeof msgInput.value === "string" ? msgInput.value.trim() : "";
-    appendVoiceDiagnostic("Voice submit completed", {
+    appendVoiceDiagnostic("语音提交完成", {
       finalTranscriptLength: finalTranscript.length,
       rewriteApplied: data?.rewriteApplied === true,
       attachedAudio: !!data?.attachment,
@@ -1102,7 +1102,7 @@ async function submitVoiceAudio(file, options = {}) {
       committedTranscriptLength: committedTranscript.length,
     });
     if (prefs.autoSend && insertedIntoEmptyComposer && committedTranscript && typeof sendMessage === "function") {
-      appendVoiceDiagnostic("Voice submit triggered auto-send", {
+      appendVoiceDiagnostic("语音提交后触发自动发送", {
         committedTranscriptLength: committedTranscript.length,
       });
       setVoiceInputStatus(data?.rewriteApplied ? "已结合基础记忆清洗，正在发送…" : "已转写，正在发送…", { persist: true });
@@ -1131,7 +1131,7 @@ async function submitVoiceAudio(file, options = {}) {
     setVoiceInputStatus("这次没有识别出文本。再试一遍或者直接手动输入。", { error: true });
   } catch (error) {
     const fallbackTranscript = providedTranscript || voiceState.composerPreview?.transcript || "";
-    appendVoiceDiagnostic("Voice submit failed", {
+    appendVoiceDiagnostic("语音提交失败", {
       error: error?.message || "",
       fallbackTranscriptLength: fallbackTranscript.length,
     });
@@ -1147,7 +1147,7 @@ async function submitVoiceAudio(file, options = {}) {
 
 async function startServerRelayVoiceRecording() {
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-    appendVoiceDiagnostic("Server relay unavailable in browser", {
+    appendVoiceDiagnostic("当前浏览器无法使用服务器 relay 录音", {
       hasGetUserMedia: !!navigator.mediaDevices?.getUserMedia,
       hasMediaRecorder: typeof MediaRecorder !== "undefined",
     });
@@ -1155,7 +1155,7 @@ async function startServerRelayVoiceRecording() {
     return;
   }
   try {
-    appendVoiceDiagnostic("Starting server relay recording", {
+    appendVoiceDiagnostic("开始服务器 relay 录音", {
       language: voiceState.config?.language || "",
     });
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1164,7 +1164,7 @@ async function startServerRelayVoiceRecording() {
     const audioTrackCount = typeof stream?.getAudioTracks === "function"
       ? stream.getAudioTracks().length
       : 0;
-    appendVoiceDiagnostic("Server relay microphone granted", {
+    appendVoiceDiagnostic("服务器 relay 已拿到麦克风权限", {
       audioTrackCount,
       mimeType: mimeType || recorder.mimeType || "default",
     });
@@ -1177,7 +1177,7 @@ async function startServerRelayVoiceRecording() {
         voiceState.chunks.push(event.data);
         if (!loggedFirstChunk) {
           loggedFirstChunk = true;
-          appendVoiceDiagnostic("Server relay first audio chunk", {
+          appendVoiceDiagnostic("服务器 relay 收到首个音频分片", {
             chunkSize: event.data.size,
             chunkType: event.data.type || recorder.mimeType || mimeType || "",
           });
@@ -1190,7 +1190,7 @@ async function startServerRelayVoiceRecording() {
       const liveResult = await waitForLiveVoicePreviewResult();
       resetVoiceRecorderState();
       const providedTranscript = typeof liveResult?.transcript === "string" ? liveResult.transcript.trim() : "";
-      appendVoiceDiagnostic("Server relay recorder stopped", {
+      appendVoiceDiagnostic("服务器 relay 录音已停止", {
         chunkCount: chunks.length,
         resolvedType,
         providedTranscriptLength: providedTranscript.length,
@@ -1198,7 +1198,7 @@ async function startServerRelayVoiceRecording() {
         timedOut: liveResult?.timedOut === true,
       });
       if (chunks.length === 0 && !providedTranscript) {
-        appendVoiceDiagnostic("Server relay stop produced no payload");
+        appendVoiceDiagnostic("服务器 relay 停止后没有产生有效内容");
         clearVoiceComposerPreview();
         setVoiceInputStatus("没有录到有效音频，再试一次。", { error: true });
         return;
@@ -1211,7 +1211,7 @@ async function startServerRelayVoiceRecording() {
       });
     }, { once: true });
     recorder.start();
-    appendVoiceDiagnostic("Server relay recorder started", {
+    appendVoiceDiagnostic("服务器 relay 录音已开始", {
       mimeType: recorder.mimeType || mimeType || "default",
     });
     startVoiceComposerPreview();
@@ -1221,13 +1221,13 @@ async function startServerRelayVoiceRecording() {
     try {
       await startLiveVoicePreview(stream);
     } catch (error) {
-      appendVoiceDiagnostic("Server relay live preview failed to start", {
+      appendVoiceDiagnostic("服务器 relay 实时预览启动失败", {
         error: error?.message || "",
       });
       setVoiceInputStatus("实时字幕暂时不可用，结束后会回退到普通转写。", { error: true });
     }
   } catch (error) {
-    appendVoiceDiagnostic("Server relay microphone request failed", {
+    appendVoiceDiagnostic("服务器 relay 请求麦克风失败", {
       error: error?.message || "",
       name: error?.name || "",
     });
@@ -1240,7 +1240,7 @@ async function startServerRelayVoiceRecording() {
 }
 
 async function startBrowserDirectVoiceRecording() {
-  appendVoiceDiagnostic("Starting browser direct recording", {
+  appendVoiceDiagnostic("开始浏览器直跑录音", {
     language: voiceState.config?.language || "zh-CN",
   });
   startVoiceComposerPreview();
@@ -1249,9 +1249,9 @@ async function startBrowserDirectVoiceRecording() {
   startVoiceInputClock();
   try {
     await startBrowserDirectRecognition();
-    appendVoiceDiagnostic("Browser direct recording active");
+    appendVoiceDiagnostic("浏览器直跑录音进行中");
   } catch (error) {
-    appendVoiceDiagnostic("Browser direct recording failed to start", {
+    appendVoiceDiagnostic("浏览器直跑录音启动失败", {
       error: error?.message || "",
     });
     await cleanupBrowserDirectRecognition();
@@ -1262,7 +1262,7 @@ async function startBrowserDirectVoiceRecording() {
 }
 
 async function stopVoiceRecording() {
-  appendVoiceDiagnostic("Voice recording stop requested", {
+  appendVoiceDiagnostic("请求停止录音", {
     browserDirect: !!voiceState.browserRecognition,
     relayRecorderState: voiceState.recorder?.state || "",
   });
@@ -1272,7 +1272,7 @@ async function stopVoiceRecording() {
     const liveResult = await waitForBrowserDirectRecognitionResult();
     resetVoiceRecorderState();
     const providedTranscript = typeof liveResult?.transcript === "string" ? liveResult.transcript.trim() : "";
-    appendVoiceDiagnostic("Browser direct stop resolved", {
+    appendVoiceDiagnostic("浏览器直跑停止流程完成", {
       providedTranscriptLength: providedTranscript.length,
       streamFailed: liveResult?.streamFailed === true,
       timedOut: liveResult?.timedOut === true,
@@ -1290,14 +1290,14 @@ async function stopVoiceRecording() {
   if (!voiceState.recorder || voiceState.recorder.state === "inactive") return;
   requestLiveVoicePreviewStop();
   setVoiceInputStatus("正在结束录音…", { persist: true });
-  appendVoiceDiagnostic("Stopping server relay recorder", {
+  appendVoiceDiagnostic("正在停止服务器 relay 录音", {
     pendingChunks: voiceState.chunks.length,
   });
   voiceState.recorder.stop();
 }
 
 async function startVoiceRecording() {
-  appendVoiceDiagnostic("Voice recording start requested", {
+  appendVoiceDiagnostic("请求开始录音", {
     requestedMode: readVoiceInputPrefs().captureMode,
     resolvedMode: resolveVoiceCaptureMode(),
     browserDirectSupported: supportsBrowserDirectVoiceInput(),
@@ -1305,7 +1305,7 @@ async function startVoiceRecording() {
     hasSession: !!currentSessionId,
   });
   if (!canUseVoiceInput()) {
-    appendVoiceDiagnostic("Voice input unavailable", {
+    appendVoiceDiagnostic("语音输入不可用", {
       browserDirectSupported: supportsBrowserDirectVoiceInput(),
       relayConfigured: canUseServerRelayVoiceInput(),
       shareSnapshotMode: typeof shareSnapshotMode !== "undefined" && !!shareSnapshotMode,
@@ -1319,7 +1319,7 @@ async function startVoiceRecording() {
     return;
   }
   if (!currentSessionId) {
-    appendVoiceDiagnostic("Voice recording blocked: no session");
+    appendVoiceDiagnostic("无法开始录音：当前没有会话");
     setVoiceInputStatus("先打开一个会话，再开始录音。", { error: true });
     return;
   }
@@ -1330,7 +1330,7 @@ async function startVoiceRecording() {
       await startBrowserDirectVoiceRecording();
       return;
     } catch (error) {
-      appendVoiceDiagnostic("Browser direct start failed", {
+      appendVoiceDiagnostic("浏览器直跑启动失败", {
         error: error?.message || "",
         willFallbackToRelay: canUseServerRelayVoiceInput(),
       });
@@ -1344,19 +1344,19 @@ async function startVoiceRecording() {
     }
   }
 
-  appendVoiceDiagnostic("Routing recording to server relay");
+  appendVoiceDiagnostic("录音请求已切到服务器 relay");
   await startServerRelayVoiceRecording();
 }
 
 async function handleVoiceInputClick() {
-  appendVoiceDiagnostic("Voice input button clicked", {
+  appendVoiceDiagnostic("点击了语音输入按钮", {
     busy: voiceState.busy === true,
     recording: voiceState.recording === true,
     requestedMode: readVoiceInputPrefs().captureMode,
     resolvedMode: resolveVoiceCaptureMode(),
   });
   if (voiceState.busy) {
-    appendVoiceDiagnostic("Voice input click ignored: busy");
+    appendVoiceDiagnostic("忽略语音按钮点击：当前正忙");
     return;
   }
   if (voiceState.recording) {
@@ -1369,24 +1369,24 @@ async function handleVoiceInputClick() {
 async function loadVoiceInputConfig() {
   ensureVoiceDiagnosticsBootstrapped();
   if (typeof fetchJsonOrRedirect !== "function") {
-    appendVoiceDiagnostic("Voice config load skipped: fetch unavailable");
+    appendVoiceDiagnostic("跳过加载语音配置：fetch 不可用");
     return voiceState.config;
   }
   if (voiceState.loadingConfig) return voiceState.config;
-  appendVoiceDiagnostic("Loading voice input config");
+  appendVoiceDiagnostic("正在加载语音输入配置");
   voiceState.loadingConfig = true;
   syncVoiceInputButton();
   try {
     const data = await fetchJsonOrRedirect("/api/voice-input/config");
     voiceState.config = data?.config || null;
-    appendVoiceDiagnostic("Loaded voice input config", {
+    appendVoiceDiagnostic("已加载语音输入配置", {
       enabled: voiceState.config?.enabled !== false,
       configured: voiceState.config?.configured === true,
       providerLabel: voiceState.config?.providerLabel || "",
       language: voiceState.config?.language || "",
     });
   } catch (error) {
-    appendVoiceDiagnostic("Voice config load failed", {
+    appendVoiceDiagnostic("加载语音配置失败", {
       error: error?.message || "",
     });
     voiceState.config = null;
@@ -1425,24 +1425,24 @@ function renderVoiceInputSettings() {
 
   const title = document.createElement("div");
   title.className = "settings-section-title";
-  title.textContent = "Voice Input";
+  title.textContent = "语音输入";
 
   const note = document.createElement("div");
   note.className = "settings-section-note";
-  note.textContent = "Server relay keeps speech recognition on RemoteLab's configured ASR path and supports optional raw-audio attachments. Browser direct stays available as a faster opt-in mode when you specifically want the browser recognizer.";
+  note.textContent = "服务端中继会让语音识别走 RemoteLab 已配置的 ASR 路径，并支持可选的原始音频附件。浏览器直连则是一个更快的可选模式，适合你明确想使用浏览器原生识别器时启用。";
 
   const form = document.createElement("div");
   form.className = "settings-inline-form";
 
   const enableRow = document.createElement("div");
   enableRow.className = "settings-app-picker-grid";
-  const enabledControl = createVoiceSettingsCheckbox("Enable voice input", config.enabled !== false);
-  const attachControl = createVoiceSettingsCheckbox("Attach original audio by default (server relay only)", prefs.attachOriginalAudio !== false);
-  const autoSendControl = createVoiceSettingsCheckbox("Auto-send when transcript lands in an empty composer", prefs.autoSend === true);
-  const rewriteControl = createVoiceSettingsCheckbox("Use persistent collaboration memory to clean up the transcript", prefs.rewriteWithContext !== false);
+  const enabledControl = createVoiceSettingsCheckbox("启用语音输入", config.enabled !== false);
+  const attachControl = createVoiceSettingsCheckbox("默认附带原始音频（仅服务端中继）", prefs.attachOriginalAudio !== false);
+  const autoSendControl = createVoiceSettingsCheckbox("转写结果落入空白输入框时自动发送", prefs.autoSend === true);
+  const rewriteControl = createVoiceSettingsCheckbox("使用持久协作记忆润色转写结果", prefs.rewriteWithContext !== false);
   if (captureMode === VOICE_CAPTURE_MODE_BROWSER_DIRECT) {
     attachControl.input.disabled = true;
-    attachControl.chip.title = "Browser direct mode currently sends text only. Switch to Server relay if you want to keep the raw audio attachment.";
+    attachControl.chip.title = "浏览器直连模式当前只发送文本。如果你想保留原始音频附件，请切换到服务端中继。";
   }
   enableRow.appendChild(enabledControl.chip);
   enableRow.appendChild(attachControl.chip);
@@ -1454,11 +1454,11 @@ function renderVoiceInputSettings() {
   const browserModeOption = document.createElement("option");
   browserModeOption.value = VOICE_CAPTURE_MODE_BROWSER_DIRECT;
   browserModeOption.textContent = browserDirectSupported
-    ? "Browser direct (opt-in, fastest)"
-    : "Browser direct (not supported in this browser)";
+    ? "浏览器直连（可选，最快）"
+    : "浏览器直连（当前浏览器不支持）";
   const relayModeOption = document.createElement("option");
   relayModeOption.value = VOICE_CAPTURE_MODE_SERVER_RELAY;
-  relayModeOption.textContent = "Server relay (recommended)";
+  relayModeOption.textContent = "服务端中继（推荐）";
   modeInput.appendChild(browserModeOption);
   modeInput.appendChild(relayModeOption);
   modeInput.value = normalizeVoiceCaptureMode(prefs.captureMode);
@@ -1466,42 +1466,42 @@ function renderVoiceInputSettings() {
   const appIdInput = document.createElement("input");
   appIdInput.className = "settings-inline-input";
   appIdInput.type = "text";
-  appIdInput.placeholder = "Volcengine App ID";
+  appIdInput.placeholder = "火山引擎 App ID";
   appIdInput.value = config.appId || "";
 
   const accessKeyInput = document.createElement("input");
   accessKeyInput.className = "settings-inline-input";
   accessKeyInput.type = "password";
-  accessKeyInput.placeholder = config.hasAccessKey ? "Access key already configured — leave blank to keep it" : "Volcengine Access Key";
+  accessKeyInput.placeholder = config.hasAccessKey ? "Access Key 已配置，留空则保持不变" : "火山引擎 Access Key";
 
   const resourceIdInput = document.createElement("input");
   resourceIdInput.className = "settings-inline-input";
   resourceIdInput.type = "text";
-  resourceIdInput.placeholder = "Resource ID";
+  resourceIdInput.placeholder = "资源 ID";
   resourceIdInput.value = config.resourceId || "";
 
   const endpointInput = document.createElement("input");
   endpointInput.className = "settings-inline-input";
   endpointInput.type = "text";
-  endpointInput.placeholder = "Voice websocket endpoint";
+  endpointInput.placeholder = "语音 WebSocket 端点";
   endpointInput.value = config.endpoint || "";
 
   const streamEndpointInput = document.createElement("input");
   streamEndpointInput.className = "settings-inline-input";
   streamEndpointInput.type = "text";
-  streamEndpointInput.placeholder = "Live caption websocket endpoint";
+  streamEndpointInput.placeholder = "实时字幕 WebSocket 端点";
   streamEndpointInput.value = config.streamEndpoint || "";
 
   const languageInput = document.createElement("input");
   languageInput.className = "settings-inline-input";
   languageInput.type = "text";
-  languageInput.placeholder = "Language hint, e.g. zh-CN";
+  languageInput.placeholder = "语言提示，例如 zh-CN";
   languageInput.value = config.language || "";
 
   const modelLabelInput = document.createElement("input");
   modelLabelInput.className = "settings-inline-input";
   modelLabelInput.type = "text";
-  modelLabelInput.placeholder = "Model label shown in UI";
+  modelLabelInput.placeholder = "界面中显示的模型名称";
   modelLabelInput.value = config.modelLabel || "";
 
   const actionRow = document.createElement("div");
@@ -1510,17 +1510,17 @@ function renderVoiceInputSettings() {
   const saveBtn = document.createElement("button");
   saveBtn.className = "settings-app-btn settings-inline-primary";
   saveBtn.type = "button";
-  saveBtn.textContent = "Save Voice Input";
+  saveBtn.textContent = "保存语音设置";
 
   const status = document.createElement("div");
   status.className = "settings-app-empty inline-status";
   status.textContent = captureMode === VOICE_CAPTURE_MODE_BROWSER_DIRECT
     ? (browserDirectSupported
-      ? "Browser direct mode is active. Live words stay in this browser while you speak, and only the final transcript goes back to RemoteLab after stop."
-      : "This browser does not expose a direct speech-recognition API, so the mic falls back to the server relay when available.")
+      ? "当前启用的是浏览器直连模式。你说话时的实时识别会留在当前浏览器中，停止后只会把最终转写结果发回 RemoteLab。"
+      : "当前浏览器没有提供可直接使用的语音识别 API，因此在可用时会自动回退到服务端中继。")
     : (config.configured
-      ? `${config.providerLabel || "Provider"} relay is active. Recognition goes through RemoteLab's configured voice path. Current model: ${config.modelLabel || "voice"}.`
-      : "Server relay is not configured yet. Save provider details below if you want RemoteLab-handled speech recognition and audio uploads.");
+      ? `${config.providerLabel || "服务提供方"} 中继已启用。识别会通过 RemoteLab 配置好的语音路径处理。当前模型：${config.modelLabel || "voice"}。`
+      : "服务端中继尚未配置。如果你希望由 RemoteLab 处理语音识别和音频上传，请在下方保存 provider 详情。");
 
   const diagnosticsSummary = document.createElement("div");
   diagnosticsSummary.className = "settings-app-empty voice-input-diagnostics-summary";
@@ -1531,7 +1531,7 @@ function renderVoiceInputSettings() {
   const copyDiagnosticsBtn = document.createElement("button");
   copyDiagnosticsBtn.className = "settings-app-btn";
   copyDiagnosticsBtn.type = "button";
-  copyDiagnosticsBtn.textContent = "Copy diagnostics";
+  copyDiagnosticsBtn.textContent = "复制诊断信息";
   copyDiagnosticsBtn.addEventListener("click", async () => {
     try {
       await copyVoiceDiagnosticsToClipboard();
@@ -1543,7 +1543,7 @@ function renderVoiceInputSettings() {
   const clearDiagnosticsBtn = document.createElement("button");
   clearDiagnosticsBtn.className = "settings-app-btn";
   clearDiagnosticsBtn.type = "button";
-  clearDiagnosticsBtn.textContent = "Clear diagnostics";
+  clearDiagnosticsBtn.textContent = "清空诊断信息";
   clearDiagnosticsBtn.addEventListener("click", () => {
     clearVoiceDiagnostics();
     setVoiceInputStatus("语音诊断日志已清空。", { persist: true });
@@ -1563,7 +1563,7 @@ function renderVoiceInputSettings() {
       autoSend: autoSendControl.input.checked,
       rewriteWithContext: rewriteControl.input.checked,
     });
-    appendVoiceDiagnostic("Saving voice settings", {
+    appendVoiceDiagnostic("正在保存语音设置", {
       requestedMode: modeInput.value,
       enabled: enabledControl.input.checked,
       attachOriginalAudio: attachControl.input.checked,
@@ -1574,7 +1574,7 @@ function renderVoiceInputSettings() {
       hasEndpoint: !!endpointInput.value.trim(),
       hasStreamEndpoint: !!streamEndpointInput.value.trim(),
     });
-    status.textContent = "Saving…";
+    status.textContent = "正在保存…";
     saveBtn.disabled = true;
     try {
       const payload = {
@@ -1596,23 +1596,23 @@ function renderVoiceInputSettings() {
       });
       voiceState.config = data?.config || voiceState.config;
       accessKeyInput.value = "";
-      appendVoiceDiagnostic("Voice settings saved", {
+      appendVoiceDiagnostic("语音设置已保存", {
         requestedMode: nextPrefs.captureMode,
         resolvedMode: resolveVoiceCaptureMode(nextPrefs),
         configured: voiceState.config?.configured === true,
       });
       status.textContent = normalizeVoiceCaptureMode(nextPrefs.captureMode) === VOICE_CAPTURE_MODE_BROWSER_DIRECT
         ? (browserDirectSupported
-          ? "Saved. New recordings now run live recognition in this browser first, then send only the final transcript back for cleanup."
-          : "Saved. Browser direct mode is selected, but this browser will still fall back to the server relay until it exposes native speech recognition.")
-        : "Saved. New recordings now use the server relay path for live captions and optional audio attachments.";
+          ? "已保存。新的录音会先在当前浏览器中进行实时识别，然后只把最终转写结果发回进行整理。"
+          : "已保存。虽然已选择浏览器直连模式，但在当前浏览器提供原生语音识别之前，仍会回退到服务端中继。")
+        : "已保存。新的录音现在会使用服务端中继路径来生成实时字幕，并可选择附带原始音频。";
       syncVoiceInputButton();
       renderVoiceInputSettings();
     } catch (error) {
-      appendVoiceDiagnostic("Voice settings save failed", {
+      appendVoiceDiagnostic("保存语音设置失败", {
         error: error?.message || "",
       });
-      status.textContent = error?.message || "Failed to save voice input settings.";
+      status.textContent = error?.message || "保存语音输入设置失败。";
     } finally {
       saveBtn.disabled = false;
     }
@@ -1651,10 +1651,10 @@ voiceFileInput?.addEventListener("change", () => {
   const file = voiceFileInput.files?.[0];
   voiceFileInput.value = "";
   if (!file) {
-    appendVoiceDiagnostic("Voice file picker dismissed");
+    appendVoiceDiagnostic("已取消选择语音文件");
     return;
   }
-  appendVoiceDiagnostic("Voice file selected manually", {
+  appendVoiceDiagnostic("手动选择了语音文件", {
     fileName: file.name || "",
     fileType: file.type || "",
     fileSize: typeof file.size === "number" ? file.size : 0,

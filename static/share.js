@@ -20,9 +20,9 @@
   let inThinkingBlock = false;
 
   function formatDate(value) {
-    if (!value) return "Unknown";
+    if (!value) return "未知";
     const dt = new Date(value);
-    if (Number.isNaN(dt.getTime())) return "Unknown";
+    if (Number.isNaN(dt.getTime())) return "未知";
     return dt.toLocaleString([], {
       year: "numeric",
       month: "short",
@@ -56,7 +56,7 @@
       const copied = document.execCommand("copy");
       textarea.remove();
       if (copied) resolve();
-      else reject(new Error("copy failed"));
+      else reject(new Error("复制失败"));
     });
   }
 
@@ -66,8 +66,8 @@
       : `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5" y="3" width="8" height="10" rx="1.5" ry="1.5" fill="none" stroke="currentColor" stroke-width="1.4"></rect><path d="M3 10.5V4.5C3 3.67 3.67 3 4.5 3H10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>`;
     button.innerHTML = icon;
     button.classList.toggle("copied", copied);
-    button.title = copied ? "Copied" : "Copy code";
-    button.setAttribute("aria-label", copied ? "Copied" : "Copy code");
+    button.title = copied ? "已复制" : "复制代码";
+    button.setAttribute("aria-label", copied ? "已复制" : "复制代码");
   }
 
   function enhanceCodeBlocks(root) {
@@ -179,7 +179,7 @@
 
     const header = document.createElement("div");
     header.className = "thinking-header";
-    header.innerHTML = `${renderShareIcon("gear", "thinking-icon")}<span class="thinking-label">Thinking…</span><span class="thinking-chevron">${renderShareIcon("chevron-down")}</span>`;
+    header.innerHTML = `${renderShareIcon("gear", "thinking-icon")}<span class="thinking-label">思考中…</span><span class="thinking-chevron">${renderShareIcon("chevron-down")}</span>`;
 
     const body = document.createElement("div");
     body.className = "thinking-body";
@@ -205,8 +205,8 @@
     if (!currentThinkingBlock) return;
     const toolList = [...currentThinkingBlock.tools];
     currentThinkingBlock.label.textContent = toolList.length > 0
-      ? `Thought · used ${toolList.join(", ")}`
-      : "Thought";
+      ? `思考过程 · 使用了 ${toolList.join(", ")}`
+      : "思考过程";
     inThinkingBlock = false;
     currentThinkingBlock = null;
   }
@@ -224,7 +224,7 @@
     const filename = typeof attachment?.filename === "string"
       ? attachment.filename.trim()
       : "";
-    return filename || "attachment";
+    return filename || "附件";
   }
 
   function createAttachmentNode(attachment) {
@@ -318,7 +318,7 @@
 
     const header = document.createElement("div");
     header.className = "tool-header";
-    header.innerHTML = `<span class="tool-name">${esc(event.toolName || "tool")}</span><span class="tool-toggle">${renderShareIcon("chevron-right")}</span>`;
+    header.innerHTML = `<span class="tool-name">${esc(event.toolName || "工具")}</span><span class="tool-toggle">${renderShareIcon("chevron-right")}</span>`;
 
     const body = document.createElement("div");
     body.className = "tool-body";
@@ -346,14 +346,14 @@
 
     const header = document.createElement("div");
     header.className = "tool-header expanded";
-    header.innerHTML = `<span class="tool-name">${esc(event.toolName || "tool")}</span><span class="tool-toggle">${renderShareIcon("chevron-right")}</span>`;
+    header.innerHTML = `<span class="tool-name">${esc(event.toolName || "工具")}</span><span class="tool-toggle">${renderShareIcon("chevron-right")}</span>`;
 
     const body = document.createElement("div");
     body.className = "tool-body expanded";
 
     const label = document.createElement("div");
     label.className = "tool-result-label";
-    label.innerHTML = `Result${event.exitCode !== undefined ? `<span class="exit-code ${event.exitCode === 0 ? "ok" : "fail"}">${event.exitCode === 0 ? "exit 0" : "exit " + event.exitCode}</span>` : ""}`;
+    label.innerHTML = `结果${event.exitCode !== undefined ? `<span class="exit-code ${event.exitCode === 0 ? "ok" : "fail"}">${event.exitCode === 0 ? "退出码 0" : "退出码 " + event.exitCode}</span>` : ""}`;
 
     const pre = document.createElement("pre");
     pre.className = "tool-result";
@@ -385,7 +385,7 @@
     const body = targetCard.querySelector(".tool-body");
     const label = document.createElement("div");
     label.className = "tool-result-label";
-    label.innerHTML = `Result${event.exitCode !== undefined ? `<span class="exit-code ${event.exitCode === 0 ? "ok" : "fail"}">${event.exitCode === 0 ? "exit 0" : "exit " + event.exitCode}</span>` : ""}`;
+    label.innerHTML = `结果${event.exitCode !== undefined ? `<span class="exit-code ${event.exitCode === 0 ? "ok" : "fail"}">${event.exitCode === 0 ? "退出码 0" : "退出码 " + event.exitCode}</span>` : ""}`;
 
     const pre = document.createElement("pre");
     pre.className = "tool-result";
@@ -437,7 +437,7 @@
     }
     const div = document.createElement("div");
     div.className = "context-barrier";
-    div.textContent = event.content || "Older messages above this marker are no longer in live context.";
+    div.textContent = event.content || "此标记以上的旧消息已不再处于当前实时上下文中。";
     messagesInner.appendChild(div);
   }
 
@@ -461,13 +461,13 @@
     const output = event.outputTokens || 0;
     const div = document.createElement("div");
     div.className = "usage-info";
-    const parts = [`${formatCompactTokens(contextSize)} live context`];
-    if (percent !== null) parts.push(`${percent.toFixed(1)}% window`);
-    if (output > 0) parts.push(`${formatCompactTokens(output)} out`);
+    const parts = [`${formatCompactTokens(contextSize)} 实时上下文`];
+    if (percent !== null) parts.push(`${percent.toFixed(1)}% 窗口`);
+    if (output > 0) parts.push(`${formatCompactTokens(output)} 输出`);
     div.textContent = parts.join(" · ");
     div.title = percent !== null
-      ? `Live context: ${contextSize.toLocaleString()} / ${contextWindowSize.toLocaleString()} (${percent.toFixed(1)}%)`
-      : `Live context: ${contextSize.toLocaleString()}`;
+      ? `实时上下文：${contextSize.toLocaleString()} / ${contextWindowSize.toLocaleString()}（${percent.toFixed(1)}%）`
+      : `实时上下文：${contextSize.toLocaleString()}`;
     messagesInner.appendChild(div);
   }
 
@@ -503,24 +503,24 @@
   }
 
   function renderMeta() {
-    const name = snapshot.session?.name || snapshot.session?.tool || "Shared session snapshot";
-    const tool = snapshot.session?.tool || "Unknown tool";
+    const name = snapshot.session?.name || snapshot.session?.tool || "共享会话快照";
+    const tool = snapshot.session?.tool || "未知工具";
     const timestampLabel = typeof view.timestampLabel === "string" && view.timestampLabel
       ? view.timestampLabel
-      : "Shared";
+      : "分享时间";
     const titleSuffix = typeof view.titleSuffix === "string" && view.titleSuffix
       ? view.titleSuffix
-      : "Shared Snapshot";
+      : "共享快照";
     const badge = typeof view.badge === "string" && view.badge
       ? view.badge
-      : "Read-only snapshot";
+      : "只读快照";
     const note = typeof view.note === "string" && view.note
       ? view.note
-      : "This link exposes only this captured conversation snapshot. It cannot send messages, join a live session, or browse any other RemoteLab content.";
+      : "此链接仅公开当前捕获到的对话快照。它不能发送消息、加入实时会话，也不能浏览其他 RemoteLab 内容。";
     const items = [
-      { label: "Tool", value: tool },
+      { label: "工具", value: tool },
       { label: timestampLabel, value: formatDate(snapshot.createdAt) },
-      { label: "Events", value: String(Array.isArray(snapshot.events) ? snapshot.events.length : 0) },
+      { label: "事件数", value: String(Array.isArray(snapshot.events) ? snapshot.events.length : 0) },
     ];
 
     document.title = `${name} · ${titleSuffix}`;
@@ -537,7 +537,7 @@
     messagesInner.innerHTML = "";
     const events = Array.isArray(snapshot.events) ? snapshot.events : [];
     if (events.length === 0) {
-      messagesInner.innerHTML = '<div class="empty-state">This snapshot is empty.</div>';
+      messagesInner.innerHTML = '<div class="empty-state">这个快照还是空的。</div>';
       return;
     }
     for (const event of events) {

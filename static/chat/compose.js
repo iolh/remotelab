@@ -27,8 +27,8 @@ function syncComposerPendingUi() {
 
   const hasAttachments = Array.isArray(pendingComposerSend?.images) && pendingComposerSend.images.length > 0;
   composerPendingState.textContent = hasAttachments && !pendingComposerSend?.text
-    ? "Sending attachment…"
-    : "Sending…";
+    ? "正在发送附件…"
+    : "正在发送…";
   composerPendingState.classList.add("visible");
 }
 

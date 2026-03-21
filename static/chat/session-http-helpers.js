@@ -114,25 +114,25 @@ function enhanceRenderedContentLinks(root) {
 
       if (visitorMode) {
         link.removeAttribute("href");
-        link.title = "Local file links are unavailable in visitor mode";
+        link.title = "访客模式下不可打开本地文件链接";
         return;
       }
 
       if (!supportsDesktopEditorLinks()) {
         link.removeAttribute("href");
-        link.title = "Open this link from a desktop browser";
+        link.title = "请在桌面浏览器中打开这个链接";
         return;
       }
 
       const editorHref = buildVscodeEditorHref(href);
       if (!editorHref) {
         link.removeAttribute("href");
-        link.title = "Unsupported local file link";
+        link.title = "暂不支持这种本地文件链接";
         return;
       }
 
       link.href = editorHref;
-      link.title = "Open in VS Code";
+      link.title = "在 VS Code 中打开";
       return;
     }
 
@@ -266,7 +266,7 @@ function buildShareSnapshotSessionRecord(snapshot = getActiveShareSnapshotPayloa
     ? snapshot.session.name.trim()
     : (typeof snapshot?.session?.tool === "string" && snapshot.session.tool.trim()
       ? snapshot.session.tool.trim()
-      : "Shared session snapshot");
+      : "共享会话快照");
   const lastEventAt = getShareSnapshotLastEventAt(snapshot);
   return {
     id: buildShareSnapshotSessionId(snapshot),
@@ -280,7 +280,7 @@ function buildShareSnapshotSessionRecord(snapshot = getActiveShareSnapshotPayloa
     updatedAt: lastEventAt,
     lastEventAt,
     sourceId: "share_snapshot",
-    sourceName: getShareSnapshotViewValue("badge", "Shared Snapshot"),
+    sourceName: getShareSnapshotViewValue("badge", "共享快照"),
     messageCount: displayEvents.filter((event) => event?.type === "message").length,
     activity: {
       run: { state: "idle" },

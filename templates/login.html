@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -13,7 +13,7 @@
   <link rel="icon" href="/favicon.ico?v={{ASSET_VERSION}}" sizes="any">
   <link rel="icon" href="/icon.svg?v={{ASSET_VERSION}}" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png?v={{ASSET_VERSION}}">
-  <title>RemoteLab — Sign In</title>
+  <title>RemoteLab - 登录</title>
   <style nonce="{{NONCE}}">
     :root {
       color-scheme: light;
@@ -179,36 +179,36 @@
 <body>
   <div class="card">
     <div class="logo">RemoteLab</div>
-    <div class="tagline">Sign in to continue</div>
+    <div class="tagline">登录后继续</div>
 
-    <div class="error {{ERROR_CLASS}}">Invalid credentials. Please try again.</div>
+    <div class="error {{ERROR_CLASS}}">凭据无效，请重试。</div>
 
     <!-- Password form -->
     <form id="pw-form" method="POST" action="/login">
       <input type="hidden" name="type" value="password">
-      <label for="username-input">Username</label>
+      <label for="username-input">用户名</label>
       <input type="text" id="username-input" name="username"
-             placeholder="Enter username"
+             placeholder="请输入用户名"
              autocomplete="username" autocorrect="off" autocapitalize="none">
-      <label for="password-input">Password</label>
+      <label for="password-input">密码</label>
       <input type="password" id="password-input" name="password"
-             placeholder="Enter password"
+             placeholder="请输入密码"
              autocomplete="current-password">
-      <button type="submit" class="btn">Sign In</button>
+      <button type="submit" class="btn">登录</button>
     </form>
 
     <!-- Token form -->
     <form id="token-form" class="hidden" method="POST" action="/login">
       <input type="hidden" name="type" value="token">
-      <label for="token-input">Access Token</label>
+      <label for="token-input">访问令牌</label>
       <input type="text" id="token-input" name="token" class="mono"
-             placeholder="Paste your token"
+             placeholder="请输入或粘贴访问令牌"
              autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-      <button type="submit" class="btn">Sign In</button>
+      <button type="submit" class="btn">登录</button>
     </form>
 
     <div class="switch">
-      <a href="#" id="toggle-link">Use access token instead</a>
+      <a href="#" id="toggle-link">改用访问令牌登录</a>
     </div>
 
     <div class="build-stamp" title="{{BUILD_TITLE}}">{{BUILD_LABEL}}</div>
@@ -224,11 +224,11 @@
       if (usePw) {
         tokenForm.classList.add('hidden');
         pwForm.classList.remove('hidden');
-        toggleLink.textContent = 'Use access token instead';
+        toggleLink.textContent = '改用访问令牌登录';
       } else {
         pwForm.classList.add('hidden');
         tokenForm.classList.remove('hidden');
-        toggleLink.textContent = 'Use username & password';
+        toggleLink.textContent = '使用用户名和密码';
       }
     }
 

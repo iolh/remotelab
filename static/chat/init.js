@@ -31,7 +31,7 @@ function applyShareSnapshotMode(snapshot) {
   shareSnapshotPayload = snapshot;
   applyVisitorMode();
   document.body.classList.add("share-snapshot-mode");
-  if (statusText) statusText.textContent = "read-only snapshot";
+  if (statusText) statusText.textContent = "只读快照";
 }
 
 // ---- Init ----

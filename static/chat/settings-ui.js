@@ -20,7 +20,7 @@ function buildAppShareUrl(app) {
 
 function summarizeAppDescription(app) {
   if (app?.id === BASIC_CHAT_TEMPLATE_APP_ID) {
-    return "Default normal conversation app for everyday RemoteLab sessions.";
+    return "默认的日常对话应用，适合普通 RemoteLab 会话。";
   }
   const welcome = typeof app?.welcomeMessage === "string" ? app.welcomeMessage.trim() : "";
   if (welcome) {
@@ -31,14 +31,14 @@ function summarizeAppDescription(app) {
     return `${systemPrompt.slice(0, 120)}${systemPrompt.length > 120 ? "…" : ""}`;
   }
   return app?.shareEnabled === false
-    ? "Internal starter app. Opens owner sessions only."
-    : "Shareable app.";
+    ? "内部起始应用，仅用于所有者会话。"
+    : "可分享应用。";
 }
 
 function getAppKindLabel(app) {
   const labels = [];
-  labels.push(app?.builtin ? "Built-in" : "Custom");
-  labels.push(app?.shareEnabled === false ? "Internal" : "Shareable");
+  labels.push(app?.builtin ? "内置" : "自定义");
+  labels.push(app?.shareEnabled === false ? "内部" : "可分享");
   return labels.join(" · ");
 }
 
@@ -68,7 +68,7 @@ function getAdminSessionPrincipal() {
   return {
     kind: "owner",
     id: ADMIN_USER_FILTER_VALUE,
-    name: "Admin",
+    name: "管理员",
     appIds: [],
     defaultAppId: BASIC_CHAT_TEMPLATE_APP_ID,
   };
@@ -85,7 +85,7 @@ function getPrincipalForUser(user) {
   return {
     kind: "user",
     id: user.id,
-    name: user.name || "User",
+    name: user.name || "用户",
     appIds: Array.isArray(user.appIds) ? user.appIds.filter(Boolean) : [],
     defaultAppId: typeof user.defaultAppId === "string" ? user.defaultAppId.trim() : "",
   };
@@ -172,7 +172,7 @@ function renderAppToolSelectOptions(selectEl, selectedValue = "") {
   if (toolOptions.length === 0) {
     const option = document.createElement("option");
     option.value = "";
-    option.textContent = "No tools available";
+    option.textContent = "没有可用工具";
     selectEl.appendChild(option);
     selectEl.disabled = true;
     return;
@@ -203,7 +203,7 @@ function syncNewUserDefaultAppOptions(selectedAppIds = getSelectedNewUserAppIds(
   if (selectedApps.length === 0) {
     const option = document.createElement("option");
     option.value = "";
-    option.textContent = "Choose at least one app";
+    option.textContent = "请至少选择一个应用";
     newUserDefaultAppSelect.appendChild(option);
     newUserDefaultAppSelect.disabled = true;
     if (createUserBtn) createUserBtn.disabled = true;
@@ -230,15 +230,15 @@ function renderUserAppOptions() {
   const apps = getOrderedSettingsApps();
   newUserAppsPicker.innerHTML = "";
   if (apps.length === 0) {
-    newUserAppsPicker.innerHTML = '<div class="settings-app-empty">Create an app first.</div>';
+    newUserAppsPicker.innerHTML = '<div class="settings-app-empty">请先创建一个应用。</div>';
     syncNewUserDefaultAppOptions([]);
-    setUserFormStatus("Create at least one app before adding a user.");
+    setUserFormStatus("添加用户前请至少创建一个应用。");
     return;
   }
 
   const title = document.createElement("div");
   title.className = "settings-app-kind";
-  title.textContent = "Allowed apps";
+  title.textContent = "允许使用的应用";
   newUserAppsPicker.appendChild(title);
 
   const grid = document.createElement("div");
@@ -270,7 +270,7 @@ function renderUserAppOptions() {
 
   newUserAppsPicker.appendChild(grid);
   syncNewUserDefaultAppOptions(activeIds);
-  setUserFormStatus("Admin stays the default view. New users get a starter session automatically.");
+  setUserFormStatus("管理员仍保留默认视图，新用户会自动获得一个起始会话。");
 }
 
 function focusNewUserComposer() {
@@ -295,21 +295,21 @@ async function handleCreateUser() {
   if (!newUserDefaultAppSelect || newUserDefaultAppSelect.disabled) return false;
   const appIds = getSelectedNewUserAppIds();
   if (appIds.length === 0) {
-    setUserFormStatus("Choose at least one app.");
+    setUserFormStatus("请至少选择一个应用。");
     return false;
   }
   const defaultAppId = newUserDefaultAppSelect.value || appIds[0];
   const tool = preferredTool || selectedTool || toolsList[0]?.id || "";
   if (!tool) {
-    setUserFormStatus("Choose a tool first.");
+    setUserFormStatus("请先选择一个工具。");
     return false;
   }
   const name = typeof newUserNameInput?.value === "string" ? newUserNameInput.value.trim() : "";
   if (createUserBtn) createUserBtn.disabled = true;
-  setUserFormStatus("Creating user…");
+  setUserFormStatus("正在创建用户…");
   try {
     const result = await createUserRecord({
-      name: name || "New user",
+      name: name || "新用户",
       appIds,
       defaultAppId,
       folder: "~",
@@ -323,10 +323,10 @@ async function handleCreateUser() {
     const user = result?.user;
     refreshAppCatalog();
     renderSessionList();
-    setUserFormStatus(`Created ${user?.name || "user"}. Copy a share link below when you are ready.`);
+    setUserFormStatus(`已创建 ${user?.name || "用户"}。准备好后可在下方复制分享链接。`);
     return true;
   } catch (error) {
-    setUserFormStatus(error?.message || "Failed to create user.");
+    setUserFormStatus(error?.message || "创建用户失败。");
     return false;
   } finally {
     if (createUserBtn) createUserBtn.disabled = false;
@@ -341,11 +341,11 @@ function copyShareUrl(shareUrl, button) {
       } else if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareUrl);
       } else {
-        throw new Error("clipboard unavailable");
+        throw new Error("剪贴板不可用");
       }
-      setTemporaryButtonText(button, "Copied");
+      setTemporaryButtonText(button, "已复制");
     } catch {
-      setTemporaryButtonText(button, "Copy failed");
+      setTemporaryButtonText(button, "复制失败");
     }
   })();
 }
@@ -358,16 +358,16 @@ function buildVisitorShareUrl(visitor) {
 
 async function ensureUserShareUrl(user) {
   if (!user?.id) {
-    throw new Error("User not found.");
+    throw new Error("未找到用户。");
   }
   const appId = user.defaultAppId || user.appIds?.[0] || "";
   const app = getAppRecordById(appId);
   if (!app || app.shareEnabled === false) {
-    throw new Error("Choose a shareable default app first.");
+    throw new Error("请先选择一个可分享的默认应用。");
   }
 
   const visitorPayload = {
-    name: user.name || "New user",
+    name: user.name || "新用户",
     appId: app.id,
   };
   const existingVisitorId = typeof user.shareVisitorId === "string" ? user.shareVisitorId.trim() : "";
@@ -392,15 +392,15 @@ async function ensureUserShareUrl(user) {
 
   const shareUrl = buildVisitorShareUrl(visitor);
   if (!shareUrl) {
-    throw new Error("Failed to build share link.");
+    throw new Error("生成分享链接失败。");
   }
   return shareUrl;
 }
 
 async function patchManagedUser(user, updates, {
   statusEl = null,
-  pendingText = "Saving…",
-  successText = "Saved.",
+  pendingText = "正在保存…",
+  successText = "已保存。",
   onSuccess = null,
 } = {}) {
   if (!user?.id) return null;
@@ -418,7 +418,7 @@ async function patchManagedUser(user, updates, {
     return updated;
   } catch (error) {
     if (statusEl) {
-      statusEl.textContent = error?.message || "Failed to save user.";
+      statusEl.textContent = error?.message || "保存用户失败。";
     }
     return null;
   }
@@ -428,15 +428,15 @@ async function handleCreateApp() {
   const name = typeof newAppNameInput?.value === "string" ? newAppNameInput.value.trim() : "";
   const tool = typeof newAppToolSelect?.value === "string" ? newAppToolSelect.value.trim() : "";
   if (!name) {
-    setAppFormStatus("Name is required.");
+    setAppFormStatus("名称不能为空。");
     return false;
   }
   if (!tool) {
-    setAppFormStatus("Choose a tool first.");
+    setAppFormStatus("请先选择一个工具。");
     return false;
   }
   if (createAppConfigBtn) createAppConfigBtn.disabled = true;
-  setAppFormStatus("Creating app…");
+  setAppFormStatus("正在创建应用…");
   try {
     const app = await createAppRecord({
       name,
@@ -452,12 +452,12 @@ async function handleCreateApp() {
     const shareUrl = buildAppShareUrl(app);
     setAppFormStatus(
       shareUrl
-        ? `Created ${app?.name || "app"}. Use Copy Link below to share it.`
-        : `Created ${app?.name || "app"}.`,
+        ? `已创建 ${app?.name || "应用"}。可使用下方的复制链接按钮分享。`
+        : `已创建 ${app?.name || "应用"}。`,
     );
     return true;
   } catch (error) {
-    setAppFormStatus(error?.message || "Failed to create app.");
+    setAppFormStatus(error?.message || "创建应用失败。");
     return false;
   } finally {
     if (createAppConfigBtn) createAppConfigBtn.disabled = false;
@@ -482,7 +482,7 @@ function focusNewAppComposer() {
 function renderSettingsAppsPanel() {
   if (!settingsAppsList) return;
   if (visitorMode) {
-    settingsAppsList.innerHTML = '<div class="settings-app-empty">Apps are only available to the owner.</div>';
+    settingsAppsList.innerHTML = '<div class="settings-app-empty">只有所有者可以管理应用。</div>';
     return;
   }
 
@@ -490,7 +490,7 @@ function renderSettingsAppsPanel() {
   const apps = getOrderedSettingsApps();
   settingsAppsList.innerHTML = "";
   if (apps.length === 0) {
-    settingsAppsList.innerHTML = '<div class="settings-app-empty">No apps yet.</div>';
+    settingsAppsList.innerHTML = '<div class="settings-app-empty">还没有应用。</div>';
     return;
   }
 
@@ -502,7 +502,7 @@ function renderSettingsAppsPanel() {
     header.className = "settings-app-card-header";
     const name = document.createElement("div");
     name.className = "settings-app-name";
-    name.textContent = app.name || "Untitled App";
+    name.textContent = app.name || "未命名应用";
     const kind = document.createElement("div");
     kind.className = "settings-app-kind";
     kind.textContent = getAppKindLabel(app);
@@ -517,7 +517,7 @@ function renderSettingsAppsPanel() {
 
     const meta = document.createElement("div");
     meta.className = "settings-app-meta";
-    meta.textContent = `Default tool · ${(app.tool || preferredTool || selectedTool || "not set")}`;
+    meta.textContent = `默认工具 · ${(app.tool || preferredTool || selectedTool || "未设置")}`;
     card.appendChild(meta);
 
     const shareUrl = buildAppShareUrl(app);
@@ -546,18 +546,18 @@ function renderSettingsAppsPanel() {
       const welcomeInput = document.createElement("textarea");
       welcomeInput.className = "settings-inline-textarea";
       welcomeInput.value = typeof app.welcomeMessage === "string" ? app.welcomeMessage : "";
-      welcomeInput.placeholder = "Optional first assistant message";
+      welcomeInput.placeholder = "可选的首条助手消息";
       editor.appendChild(welcomeInput);
 
       const systemPromptInput = document.createElement("textarea");
       systemPromptInput.className = "settings-inline-textarea";
       systemPromptInput.value = typeof app.systemPrompt === "string" ? app.systemPrompt : "";
-      systemPromptInput.placeholder = "Optional system prompt";
+      systemPromptInput.placeholder = "可选的系统提示词";
       editor.appendChild(systemPromptInput);
 
       const inlineStatus = document.createElement("div");
       inlineStatus.className = "settings-app-empty inline-status";
-      inlineStatus.textContent = "Custom apps are editable here.";
+      inlineStatus.textContent = "可以在这里编辑自定义应用。";
       editor.appendChild(inlineStatus);
       card.appendChild(editor);
 
@@ -567,10 +567,10 @@ function renderSettingsAppsPanel() {
       const saveBtn = document.createElement("button");
       saveBtn.type = "button";
       saveBtn.className = "settings-app-btn";
-      saveBtn.textContent = "Save";
+      saveBtn.textContent = "保存";
       saveBtn.addEventListener("click", async () => {
         saveBtn.disabled = true;
-        inlineStatus.textContent = "Saving…";
+        inlineStatus.textContent = "正在保存…";
         try {
           const updated = await updateAppRecord(app.id, {
             name: nameInput.value,
@@ -578,9 +578,9 @@ function renderSettingsAppsPanel() {
             welcomeMessage: welcomeInput.value,
             systemPrompt: systemPromptInput.value,
           });
-          inlineStatus.textContent = `Saved ${updated?.name || "app"}.`;
+          inlineStatus.textContent = `已保存 ${updated?.name || "应用"}。`;
         } catch (error) {
-          inlineStatus.textContent = error?.message || "Failed to save app.";
+          inlineStatus.textContent = error?.message || "保存应用失败。";
         } finally {
           saveBtn.disabled = false;
         }
@@ -590,15 +590,15 @@ function renderSettingsAppsPanel() {
       const deleteBtn = document.createElement("button");
       deleteBtn.type = "button";
       deleteBtn.className = "settings-app-btn";
-      deleteBtn.textContent = "Delete";
+      deleteBtn.textContent = "删除";
       deleteBtn.addEventListener("click", async () => {
         deleteBtn.disabled = true;
-        inlineStatus.textContent = "Deleting…";
+        inlineStatus.textContent = "正在删除…";
         try {
           await deleteAppRecord(app.id);
         } catch (error) {
           deleteBtn.disabled = false;
-          inlineStatus.textContent = error?.message || "Failed to delete app.";
+          inlineStatus.textContent = error?.message || "删除应用失败。";
         }
       });
       actions.appendChild(deleteBtn);
@@ -607,7 +607,7 @@ function renderSettingsAppsPanel() {
         const copyLinkBtn = document.createElement("button");
         copyLinkBtn.type = "button";
         copyLinkBtn.className = "settings-app-btn";
-        copyLinkBtn.textContent = "Copy Link";
+        copyLinkBtn.textContent = "复制链接";
         copyLinkBtn.addEventListener("click", () => {
           void copyShareUrl(shareUrl, copyLinkBtn);
         });
@@ -626,7 +626,7 @@ function renderSettingsAppsPanel() {
       const copyLinkBtn = document.createElement("button");
       copyLinkBtn.type = "button";
       copyLinkBtn.className = "settings-app-btn";
-      copyLinkBtn.textContent = "Copy Link";
+      copyLinkBtn.textContent = "复制链接";
       copyLinkBtn.addEventListener("click", () => {
         void copyShareUrl(shareUrl, copyLinkBtn);
       });
@@ -641,14 +641,14 @@ function renderSettingsAppsPanel() {
 function renderSettingsUsersPanel() {
   if (!settingsUsersList) return;
   if (visitorMode) {
-    settingsUsersList.innerHTML = '<div class="settings-app-empty">Users are only available to the owner.</div>';
+    settingsUsersList.innerHTML = '<div class="settings-app-empty">只有所有者可以管理用户。</div>';
     return;
   }
 
   settingsUsersList.innerHTML = "";
   const users = Array.isArray(availableUsers) ? availableUsers : [];
   if (users.length === 0) {
-    settingsUsersList.innerHTML = '<div class="settings-app-empty">No extra users yet. Admin stays the default view.</div>';
+    settingsUsersList.innerHTML = '<div class="settings-app-empty">还没有额外用户，管理员仍保留默认视图。</div>';
     return;
   }
 
@@ -661,12 +661,12 @@ function renderSettingsUsersPanel() {
     header.className = "settings-app-card-header";
     const name = document.createElement("div");
     name.className = "settings-app-name";
-    name.textContent = user.name || "Unnamed user";
+    name.textContent = user.name || "未命名用户";
     const kind = document.createElement("div");
     kind.className = "settings-app-kind";
     const allowedApps = allApps.filter((app) => Array.isArray(user.appIds) && user.appIds.includes(app.id));
     const defaultApp = allowedApps.find((app) => app.id === user.defaultAppId) || allowedApps[0] || null;
-    kind.textContent = `${allowedApps.length} app${allowedApps.length === 1 ? "" : "s"} · default ${defaultApp?.name || "Basic Chat"}`;
+    kind.textContent = `${allowedApps.length} 个应用 · 默认 ${defaultApp?.name || "基础对话"}`;
     header.appendChild(name);
     header.appendChild(kind);
     card.appendChild(header);
@@ -674,8 +674,8 @@ function renderSettingsUsersPanel() {
     const description = document.createElement("div");
     description.className = "settings-app-description";
     description.textContent = allowedApps.length > 0
-      ? `Allowed apps: ${allowedApps.map((app) => app.name || app.id).join(", ")}`
-      : "No apps selected yet.";
+      ? `允许使用的应用：${allowedApps.map((app) => app.name || app.id).join(", ")}`
+      : "还没有选择任何应用。";
     card.appendChild(description);
 
     const editor = document.createElement("div");
@@ -689,7 +689,7 @@ function renderSettingsUsersPanel() {
 
     const pickerLabel = document.createElement("div");
     pickerLabel.className = "settings-app-kind";
-    pickerLabel.textContent = "Allowed apps";
+    pickerLabel.textContent = "允许使用的应用";
     editor.appendChild(pickerLabel);
 
     const chipGrid = document.createElement("div");
@@ -718,7 +718,7 @@ function renderSettingsUsersPanel() {
       if (selectedApps.length === 0) {
         const option = document.createElement("option");
         option.value = "";
-        option.textContent = "Choose at least one app";
+        option.textContent = "请至少选择一个应用";
         defaultSelect.appendChild(option);
         defaultSelect.disabled = true;
         return;
@@ -743,7 +743,7 @@ function renderSettingsUsersPanel() {
 
     const inlineStatus = document.createElement("div");
     inlineStatus.className = "settings-app-empty inline-status";
-    inlineStatus.textContent = "Changes save immediately. Copy the share link when you are ready to send this user out.";
+    inlineStatus.textContent = "修改会立即保存，准备分享给该用户时可复制分享链接。";
     editor.appendChild(inlineStatus);
     card.appendChild(editor);
 
@@ -755,7 +755,7 @@ function renderSettingsUsersPanel() {
       }
       const updated = await patchManagedUser(user, { name: nextName }, {
         statusEl: inlineStatus,
-        successText: `Saved ${nextName}.`,
+        successText: `已保存 ${nextName}。`,
       });
       if (updated?.name) {
         user.name = updated.name;
@@ -768,7 +768,7 @@ function renderSettingsUsersPanel() {
       if (!nextDefaultAppId || nextDefaultAppId === user.defaultAppId) return;
       const updated = await patchManagedUser(user, { defaultAppId: nextDefaultAppId }, {
         statusEl: inlineStatus,
-        successText: "Default app updated.",
+        successText: "默认应用已更新。",
       });
       if (updated?.defaultAppId) {
         user.defaultAppId = updated.defaultAppId;
@@ -782,7 +782,7 @@ function renderSettingsUsersPanel() {
         if (appIds.length === 0) {
           checkbox.checked = true;
           syncDefaultOptions();
-          inlineStatus.textContent = "Choose at least one app.";
+          inlineStatus.textContent = "请至少选择一个应用。";
           return;
         }
         syncDefaultOptions();
@@ -792,7 +792,7 @@ function renderSettingsUsersPanel() {
           defaultAppId: nextDefaultAppId,
         }, {
           statusEl: inlineStatus,
-          successText: "Allowed apps updated.",
+          successText: "允许使用的应用已更新。",
         });
         if (updated) {
           user.appIds = Array.isArray(updated.appIds) ? updated.appIds : appIds;
@@ -808,16 +808,16 @@ function renderSettingsUsersPanel() {
     const copyLinkBtn = document.createElement("button");
     copyLinkBtn.type = "button";
     copyLinkBtn.className = "settings-app-btn";
-    copyLinkBtn.textContent = "Copy Share Link";
+    copyLinkBtn.textContent = "复制分享链接";
     copyLinkBtn.addEventListener("click", async () => {
       copyLinkBtn.disabled = true;
-      inlineStatus.textContent = "Preparing share link…";
+      inlineStatus.textContent = "正在准备分享链接…";
       try {
         const shareUrl = await ensureUserShareUrl(user);
         await copyShareUrl(shareUrl, copyLinkBtn);
-        inlineStatus.textContent = "Share link copied.";
+        inlineStatus.textContent = "分享链接已复制。";
       } catch (error) {
-        inlineStatus.textContent = error?.message || "Failed to prepare share link.";
+        inlineStatus.textContent = error?.message || "准备分享链接失败。";
       } finally {
         copyLinkBtn.disabled = false;
       }
@@ -827,10 +827,10 @@ function renderSettingsUsersPanel() {
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "settings-app-btn";
-    deleteBtn.textContent = "Delete";
+    deleteBtn.textContent = "删除";
     deleteBtn.addEventListener("click", async () => {
       deleteBtn.disabled = true;
-      inlineStatus.textContent = "Deleting…";
+      inlineStatus.textContent = "正在删除…";
       try {
         await deleteUserRecord(user.id);
         if (activeUserFilter === user.id) {
@@ -841,7 +841,7 @@ function renderSettingsUsersPanel() {
         }
       } catch (error) {
         deleteBtn.disabled = false;
-        inlineStatus.textContent = error?.message || "Failed to delete user.";
+        inlineStatus.textContent = error?.message || "删除用户失败。";
       }
     });
     actions.appendChild(deleteBtn);

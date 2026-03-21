@@ -489,10 +489,10 @@ function renderSourceFilterOptions() {
   sourceFilterSelect.innerHTML = "";
 
   const options = [
-    [FILTER_ALL_VALUE, `All Origins (${getSessionCountForSourceFilter(FILTER_ALL_VALUE)})`],
-    [SOURCE_FILTER_CHAT_VALUE, `Chat UI (${getSessionCountForSourceFilter(SOURCE_FILTER_CHAT_VALUE)})`],
-    [SOURCE_FILTER_BOT_VALUE, `Bots (${getSessionCountForSourceFilter(SOURCE_FILTER_BOT_VALUE)})`],
-    [SOURCE_FILTER_AUTOMATION_VALUE, `Automation (${getSessionCountForSourceFilter(SOURCE_FILTER_AUTOMATION_VALUE)})`],
+    [FILTER_ALL_VALUE, `全部来源 (${getSessionCountForSourceFilter(FILTER_ALL_VALUE)})`],
+    [SOURCE_FILTER_CHAT_VALUE, `聊天界面 (${getSessionCountForSourceFilter(SOURCE_FILTER_CHAT_VALUE)})`],
+    [SOURCE_FILTER_BOT_VALUE, `机器人 (${getSessionCountForSourceFilter(SOURCE_FILTER_BOT_VALUE)})`],
+    [SOURCE_FILTER_AUTOMATION_VALUE, `自动化 (${getSessionCountForSourceFilter(SOURCE_FILTER_AUTOMATION_VALUE)})`],
   ];
   for (const [value, label] of options) {
     const option = document.createElement("option");
@@ -525,7 +525,7 @@ function renderSessionAppFilterOptions() {
 
   const allOption = document.createElement("option");
   allOption.value = FILTER_ALL_VALUE;
-  allOption.textContent = `All Apps (${getSessionCountForTemplateApp(FILTER_ALL_VALUE)})`;
+  allOption.textContent = `全部应用 (${getSessionCountForTemplateApp(FILTER_ALL_VALUE)})`;
   sessionAppFilterSelect.appendChild(allOption);
 
   for (const app of catalog) {
@@ -561,20 +561,20 @@ function renderUserFilterOptions() {
 
   const adminOption = document.createElement("option");
   adminOption.value = ADMIN_USER_FILTER_VALUE;
-  adminOption.textContent = `Admin (${getSessionCountForUser(ADMIN_USER_FILTER_VALUE)})`;
+  adminOption.textContent = `管理员 (${getSessionCountForUser(ADMIN_USER_FILTER_VALUE)})`;
   userFilterSelect.appendChild(adminOption);
 
   const customUsers = availableUsers.slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
   for (const user of customUsers) {
     const option = document.createElement("option");
     option.value = user.id;
-    option.textContent = `${user.name || "User"} (${getSessionCountForUser(user.id)})`;
+    option.textContent = `${user.name || "用户"} (${getSessionCountForUser(user.id)})`;
     userFilterSelect.appendChild(option);
   }
 
   const allOption = document.createElement("option");
   allOption.value = USER_FILTER_ALL_VALUE;
-  allOption.textContent = `All Users (${getSessionCountForUser(USER_FILTER_ALL_VALUE)})`;
+  allOption.textContent = `全部用户 (${getSessionCountForUser(USER_FILTER_ALL_VALUE)})`;
   userFilterSelect.appendChild(allOption);
 
   userFilterSelect.value = normalizeUserFilter(activeUserFilter);
