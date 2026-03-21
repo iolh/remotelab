@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Screenshot placeholder — open minimum permissions</title>
+  <desc id="desc">Replace with a real screenshot of the Feishu permission page for IM read and send scopes.</desc>
+  <rect width="1280" height="720" fill="#f8fafc"/>
+  <rect x="40" y="40" width="1200" height="640" rx="24" fill="#ffffff" stroke="#94a3b8" stroke-width="6" stroke-dasharray="18 14"/>
+  <text x="640" y="258" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" font-size="40" font-weight="700" fill="#0f172a">Screenshot Placeholder</text>
+  <text x="640" y="320" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" font-size="28" fill="#334155">Step 3 — Open minimum permissions</text>
+  <text x="640" y="382" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" font-size="22" fill="#475569">Suggested shot: IM read/send permissions enabled</text>
+  <text x="640" y="444" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" font-size="22" fill="#64748b">Replace this file later with a real capture.</text>
+</svg>

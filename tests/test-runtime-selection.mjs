@@ -1,0 +1,64 @@
+#!/usr/bin/env node
+import assert from 'assert/strict';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { pathToFileURL } from 'url';
+
+const repoRoot = process.cwd();
+const tempHome = mkdtempSync(join(tmpdir(), 'remotelab-runtime-selection-'));
+process.env.HOME = tempHome;
+
+try {
+  const {
+    loadUiRuntimeSelection,
+    saveUiRuntimeSelection,
+  } = await import(pathToFileURL(join(repoRoot, 'lib', 'runtime-selection.mjs')).href);
+
+  assert.equal(await loadUiRuntimeSelection(), null);
+
+  const first = await saveUiRuntimeSelection({
+    selectedTool: 'claude',
+    selectedModel: 'claude-sonnet-4-5',
+    thinkingEnabled: true,
+    reasoningKind: 'toggle',
+  });
+  assert.equal(first.selectedTool, 'claude');
+  assert.equal(first.selectedModel, 'claude-sonnet-4-5');
+  assert.equal(first.selectedEffort, '');
+  assert.equal(first.thinkingEnabled, true);
+  assert.equal(first.reasoningKind, 'toggle');
+
+  const loadedFirst = await loadUiRuntimeSelection();
+  assert.equal(loadedFirst?.selectedTool, 'claude');
+  assert.equal(loadedFirst?.selectedModel, 'claude-sonnet-4-5');
+  assert.equal(loadedFirst?.selectedEffort, '');
+  assert.equal(loadedFirst?.thinkingEnabled, true);
+  assert.equal(loadedFirst?.reasoningKind, 'toggle');
+
+  const second = await saveUiRuntimeSelection({
+    selectedTool: 'codex',
+    selectedModel: 'gpt-5-codex',
+    selectedEffort: 'high',
+    reasoningKind: 'enum',
+    thinkingEnabled: true,
+  });
+  assert.equal(second.selectedTool, 'codex');
+  assert.equal(second.selectedModel, 'gpt-5-codex');
+  assert.equal(second.selectedEffort, 'high');
+  assert.equal(second.thinkingEnabled, true);
+  assert.equal(second.reasoningKind, 'enum');
+
+  const loadedSecond = await loadUiRuntimeSelection();
+  assert.equal(loadedSecond?.selectedTool, 'codex');
+  assert.equal(loadedSecond?.selectedModel, 'gpt-5-codex');
+  assert.equal(loadedSecond?.selectedEffort, 'high');
+  assert.equal(loadedSecond?.thinkingEnabled, true);
+  assert.equal(loadedSecond?.reasoningKind, 'enum');
+
+  await assert.rejects(() => saveUiRuntimeSelection({ reasoningKind: 'toggle' }), /selectedTool is required/);
+} finally {
+  rmSync(tempHome, { recursive: true, force: true });
+}
+
+console.log('runtime selection tests passed');

@@ -1,0 +1,195 @@
+#!/usr/bin/env node
+import assert from 'assert/strict';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, dirname } from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
+
+const repoRoot = dirname(fileURLToPath(import.meta.url));
+const tempHome = mkdtempSync(join(tmpdir(), 'remotelab-usage-context-'));
+
+process.env.HOME = tempHome;
+
+const { createClaudeAdapter } = await import(
+  pathToFileURL(join(repoRoot, 'chat', 'adapters', 'claude.mjs')).href
+);
+const { createCodexAdapter } = await import(
+  pathToFileURL(join(repoRoot, 'chat', 'adapters', 'codex.mjs')).href
+);
+const {
+  buildCodexContextMetricsPayload,
+  readLatestCodexSessionMetrics,
+} = await import(
+  pathToFileURL(join(repoRoot, 'chat', 'codex-session-metrics.mjs')).href
+);
+const { createShareSnapshot } = await import(
+  pathToFileURL(join(repoRoot, 'chat', 'shares.mjs')).href
+);
+const { CHAT_SHARE_SNAPSHOTS_DIR } = await import(
+  pathToFileURL(join(repoRoot, 'lib', 'config.mjs')).href
+);
+
+try {
+  const claude = createClaudeAdapter();
+  claude.parseLine(JSON.stringify({
+    type: 'assistant',
+    message: {
+      content: [{ type: 'text', text: 'Done.' }],
+      usage: {
+        input_tokens: 1200,
+        cache_creation_input_tokens: 300,
+        cache_read_input_tokens: 450,
+      },
+    },
+  }));
+
+  const claudeUsageEvents = claude.parseLine(JSON.stringify({
+    type: 'result',
+    usage: {
+      input_tokens: 1200,
+      cache_creation_input_tokens: 300,
+      cache_read_input_tokens: 450,
+      output_tokens: 80,
+    },
+  }));
+  const claudeUsage = claudeUsageEvents.find((event) => event.type === 'usage');
+
+  assert.ok(claudeUsage, 'Claude adapter should emit a usage event');
+  assert.equal(claudeUsage.contextTokens, 1950, 'Claude context size should include cached tokens');
+  assert.equal(claudeUsage.inputTokens, 1200, 'Claude inputTokens should preserve raw provider input');
+  assert.equal(claudeUsage.outputTokens, 80, 'Claude outputTokens should be preserved');
+  assert.equal(claudeUsage.contextSource, 'provider_turn_usage', 'Claude usage should identify its context source');
+
+  const codex = createCodexAdapter();
+  const codexRawUsageEvents = codex.parseLine(JSON.stringify({
+    type: 'turn.completed',
+    usage: {
+      input_tokens: 8068,
+      cached_input_tokens: 7040,
+      output_tokens: 31,
+    },
+  }));
+  const codexUsageFromRawStdout = codexRawUsageEvents.find((event) => event.type === 'usage');
+
+  assert.equal(codexUsageFromRawStdout, undefined, 'Codex raw turn.completed usage should not masquerade as live context');
+
+  const codexThreadId = '019cd5f7-3c2b-7571-bb3c-9cde8f3a6598';
+  const codexSessionDir = join(tempHome, '.codex', 'sessions', '2026', '03', '10');
+  mkdirSync(codexSessionDir, { recursive: true });
+  writeFileSync(join(codexSessionDir, `rollout-2026-03-10T12-17-55-${codexThreadId}.jsonl`), [
+    JSON.stringify({
+      timestamp: '2026-03-10T04:18:13.710Z',
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {
+          total_token_usage: {
+            input_tokens: 35991,
+            cached_input_tokens: 25472,
+            output_tokens: 442,
+            reasoning_output_tokens: 269,
+            total_tokens: 36433,
+          },
+          last_token_usage: {
+            input_tokens: 12225,
+            cached_input_tokens: 11904,
+            output_tokens: 50,
+            reasoning_output_tokens: 0,
+            total_tokens: 12275,
+          },
+          model_context_window: 258400,
+        },
+      },
+    }),
+    JSON.stringify({
+      timestamp: '2026-03-10T04:18:17.666Z',
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {
+          total_token_usage: {
+            input_tokens: 48317,
+            cached_input_tokens: 37632,
+            output_tokens: 531,
+            reasoning_output_tokens: 269,
+            total_tokens: 48848,
+          },
+          last_token_usage: {
+            input_tokens: 12326,
+            cached_input_tokens: 12160,
+            output_tokens: 89,
+            reasoning_output_tokens: 0,
+            total_tokens: 12415,
+          },
+          model_context_window: 258400,
+        },
+      },
+    }),
+  ].join('\n'), 'utf8');
+
+  const codexMetrics = await readLatestCodexSessionMetrics(codexThreadId);
+  assert.ok(codexMetrics, 'Codex session metrics should be readable from the session JSONL');
+  assert.equal(codexMetrics.contextTokens, 12326, 'Codex live context should use last_token_usage.input_tokens');
+  assert.equal(codexMetrics.inputTokens, 48317, 'Codex raw turn input should preserve total_token_usage.input_tokens');
+  assert.equal(codexMetrics.outputTokens, 531, 'Codex output tokens should preserve total_token_usage.output_tokens');
+  assert.equal(codexMetrics.contextWindowTokens, 258400, 'Codex context window should be preserved when available');
+
+  const codexUsageEvents = codex.parseLine(JSON.stringify(buildCodexContextMetricsPayload(codexMetrics)));
+  const codexUsage = codexUsageEvents.find((event) => event.type === 'usage');
+
+  assert.ok(codexUsage, 'Codex adapter should emit a usage event from RemoteLab-injected context metrics');
+  assert.equal(codexUsage.contextTokens, 12326, 'Codex usage should use the latest live context size');
+  assert.equal(codexUsage.inputTokens, 48317, 'Codex usage should preserve raw turn input for diagnostics');
+  assert.equal(codexUsage.outputTokens, 531, 'Codex usage should preserve total turn output');
+  assert.equal(codexUsage.contextWindowTokens, 258400, 'Codex usage should carry context window when available');
+  assert.equal(codexUsage.contextSource, 'provider_last_token_count', 'Codex usage should identify the provider-backed context source');
+
+  const snapshot = await createShareSnapshot(
+    { name: 'Usage test', tool: 'codex', created: new Date().toISOString() },
+    [
+      {
+        type: 'usage',
+        id: 'evt_legacy',
+        timestamp: 1,
+        role: 'system',
+        inputTokens: 321,
+        outputTokens: 12,
+      },
+      {
+        type: 'usage',
+        id: 'evt_new',
+        timestamp: 2,
+        role: 'system',
+        contextTokens: 654,
+        inputTokens: 111,
+        outputTokens: 22,
+        contextWindowTokens: 258400,
+        contextSource: 'provider_last_token_count',
+      },
+      {
+        type: 'usage',
+        id: 'evt_no_context',
+        timestamp: 3,
+        role: 'system',
+        inputTokens: 999,
+        outputTokens: 33,
+        contextSource: 'provider_last_token_count',
+      },
+    ],
+  );
+
+  const stored = JSON.parse(
+    readFileSync(join(CHAT_SHARE_SNAPSHOTS_DIR, `${snapshot.id}.json`), 'utf8'),
+  );
+  const [legacyUsage, newUsage, noContextUsage] = stored.events;
+
+  assert.equal(legacyUsage.contextTokens, undefined, 'usage events without explicit contextTokens should stay unlabeled');
+  assert.equal(newUsage.contextTokens, 654, 'new usage events should preserve explicit contextTokens');
+  assert.equal(newUsage.contextWindowTokens, 258400, 'new usage events should preserve context window data');
+  assert.equal(newUsage.contextSource, 'provider_last_token_count', 'new usage events should preserve context source');
+  assert.equal(noContextUsage.contextTokens, undefined, 'new-source usage events should not fall back to raw input when live context is unavailable');
+
+  console.log('test-usage-context-metric: ok');
+} finally {
+  rmSync(tempHome, { recursive: true, force: true });
+}
