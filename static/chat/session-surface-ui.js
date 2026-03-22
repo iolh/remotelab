@@ -41,6 +41,19 @@ function getOpenWorkflowConclusions(session) {
   return entries.filter((entry) => ["pending", "needs_decision"].includes(String(entry?.status || "").trim()));
 }
 
+function getWorkflowConclusionsByStatus(session, statuses = []) {
+  const allowed = new Set((Array.isArray(statuses) ? statuses : []).map((status) => String(status || "").trim()));
+  const entries = Array.isArray(session?.workflowPendingConclusions) ? session.workflowPendingConclusions : [];
+  return entries.filter((entry) => allowed.has(String(entry?.status || "").trim()));
+}
+
+function formatWorkflowConclusionHandledAt(stamp) {
+  if (!stamp) return "";
+  const parsed = new Date(stamp).getTime();
+  if (!Number.isFinite(parsed)) return "";
+  return messageTimeFormatter.format(parsed);
+}
+
 async function updateWorkflowConclusionStatus(sessionId, conclusionId, status, button) {
   if (!sessionId || !conclusionId || !status) return;
   const buttons = button?.closest?.(".workflow-conclusion-actions")?.querySelectorAll?.("button") || [];
@@ -98,19 +111,39 @@ function renderWorkflowSummaryPanel(session) {
   conclusionSection.className = "workflow-summary-section";
   const conclusionHeading = document.createElement("div");
   conclusionHeading.className = "workflow-summary-heading";
-  conclusionHeading.textContent = "待处理结论";
+  conclusionHeading.textContent = "主线吸收区";
   conclusionSection.appendChild(conclusionHeading);
 
-  const openConclusions = getOpenWorkflowConclusions(session);
-  if (openConclusions.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "workflow-summary-empty";
-    empty.textContent = "当前没有待处理的辅助线结论。";
-    conclusionSection.appendChild(empty);
-  } else {
+  const pendingConclusions = getWorkflowConclusionsByStatus(session, ["pending"]);
+  const decisionConclusions = getWorkflowConclusionsByStatus(session, ["needs_decision"]);
+  const handledConclusions = getWorkflowConclusionsByStatus(session, ["accepted", "ignored"])
+    .sort((left, right) => {
+      const rightStamp = new Date(right?.handledAt || right?.createdAt || 0).getTime();
+      const leftStamp = new Date(left?.handledAt || left?.createdAt || 0).getTime();
+      return rightStamp - leftStamp;
+    })
+    .slice(0, 4);
+
+  const renderConclusionGroup = (title, conclusions, { emptyText, handled = false } = {}) => {
+    const group = document.createElement("div");
+    group.className = "workflow-summary-subsection";
+
+    const heading = document.createElement("div");
+    heading.className = "workflow-summary-subheading";
+    heading.textContent = title;
+    group.appendChild(heading);
+
+    if (!conclusions.length) {
+      const empty = document.createElement("div");
+      empty.className = "workflow-summary-empty";
+      empty.textContent = emptyText;
+      group.appendChild(empty);
+      return group;
+    }
+
     const list = document.createElement("div");
     list.className = "workflow-conclusion-list";
-    for (const conclusion of openConclusions) {
+    for (const conclusion of conclusions) {
       const item = document.createElement("div");
       item.className = "workflow-conclusion-item";
 
@@ -121,10 +154,10 @@ function renderWorkflowSummaryPanel(session) {
       label.className = "workflow-conclusion-label";
       label.textContent = conclusion.label || "结果回灌";
 
+      const normalizedStatus = String(conclusion.status || "").trim();
       const status = document.createElement("span");
-      status.className = "workflow-conclusion-status"
-        + (conclusion.status === "needs_decision" ? " needs-decision" : "");
-      status.textContent = normalizeWorkflowConclusionStatusLabel(conclusion.status);
+      status.className = `workflow-conclusion-status ${normalizedStatus || "pending"}`.trim();
+      status.textContent = normalizeWorkflowConclusionStatusLabel(normalizedStatus);
 
       const source = document.createElement("span");
       source.className = "workflow-conclusion-source";
@@ -135,6 +168,15 @@ function renderWorkflowSummaryPanel(session) {
       meta.appendChild(label);
       meta.appendChild(status);
       meta.appendChild(source);
+
+      const handledAt = handled ? formatWorkflowConclusionHandledAt(conclusion.handledAt || "") : "";
+      if (handledAt) {
+        const handledStamp = document.createElement("span");
+        handledStamp.className = "workflow-conclusion-handled-at";
+        handledStamp.textContent = `处理于 ${handledAt}`;
+        meta.appendChild(handledStamp);
+      }
+
       item.appendChild(meta);
 
       const summary = document.createElement("div");
@@ -144,11 +186,16 @@ function renderWorkflowSummaryPanel(session) {
 
       const actions = document.createElement("div");
       actions.className = "workflow-conclusion-actions";
-      const options = [
-        { status: "accepted", label: "已吸收" },
-        { status: "needs_decision", label: "待决策" },
-        { status: "ignored", label: "忽略" },
-      ];
+      const options = handled
+        ? [
+            { status: "pending", label: "改回待处理" },
+            { status: "needs_decision", label: "改成待决策" },
+          ]
+        : [
+            { status: "accepted", label: "已吸收" },
+            { status: "needs_decision", label: "待决策" },
+            { status: "ignored", label: "忽略" },
+          ];
       for (const option of options) {
         const actionBtn = document.createElement("button");
         actionBtn.className = "workflow-conclusion-btn";
@@ -162,7 +209,27 @@ function renderWorkflowSummaryPanel(session) {
       item.appendChild(actions);
       list.appendChild(item);
     }
-    conclusionSection.appendChild(list);
+
+    group.appendChild(list);
+    return group;
+  };
+
+  if (pendingConclusions.length === 0 && decisionConclusions.length === 0 && handledConclusions.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "workflow-summary-empty";
+    empty.textContent = "当前还没有辅助线结论进入主线。";
+    conclusionSection.appendChild(empty);
+  } else {
+    conclusionSection.appendChild(renderConclusionGroup("待处理", pendingConclusions, {
+      emptyText: "当前没有待处理结论。",
+    }));
+    conclusionSection.appendChild(renderConclusionGroup("待决策", decisionConclusions, {
+      emptyText: "当前没有待用户决策的结论。",
+    }));
+    conclusionSection.appendChild(renderConclusionGroup("最近已处理", handledConclusions, {
+      emptyText: "最近还没有已吸收或已忽略的结论。",
+      handled: true,
+    }));
   }
 
   wrap.appendChild(conclusionSection);

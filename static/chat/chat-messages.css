@@ -95,12 +95,23 @@
   gap: 8px;
 }
 
+.workflow-summary-subsection {
+  display: grid;
+  gap: 8px;
+}
+
 .workflow-summary-heading {
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--text-secondary);
   text-transform: uppercase;
+}
+
+.workflow-summary-subheading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .workflow-summary-task {
@@ -157,12 +168,32 @@
   color: var(--text-secondary);
 }
 
+.workflow-conclusion-status.pending {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  color: color-mix(in srgb, var(--accent) 65%, var(--text));
+}
+
 .workflow-conclusion-status.needs-decision {
   background: color-mix(in srgb, var(--notice) 14%, var(--bg));
   color: color-mix(in srgb, var(--notice) 65%, var(--text));
 }
 
+.workflow-conclusion-status.accepted {
+  background: color-mix(in srgb, var(--success) 14%, var(--bg));
+  color: color-mix(in srgb, var(--success) 65%, var(--text));
+}
+
+.workflow-conclusion-status.ignored {
+  background: color-mix(in srgb, var(--danger, #d95c5c) 12%, var(--bg));
+  color: color-mix(in srgb, var(--danger, #d95c5c) 65%, var(--text));
+}
+
 .workflow-conclusion-source {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.workflow-conclusion-handled-at {
   color: var(--text-secondary);
   font-size: 12px;
 }
