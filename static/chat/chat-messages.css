@@ -120,6 +120,34 @@
   line-height: 1.6;
 }
 
+.workflow-decision-brief {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--notice) 18%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--notice) 7%, var(--bg));
+}
+
+.workflow-decision-text {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.workflow-decision-list {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-decision-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--notice) 12%, var(--border));
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .workflow-summary-empty {
   color: var(--text-secondary);
   font-size: 13px;

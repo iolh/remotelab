@@ -95,6 +95,16 @@ function renderWorkflowSummaryPanel(session) {
   const wrap = document.createElement("div");
   wrap.className = "workflow-summary-grid";
 
+  const pendingConclusions = getWorkflowConclusionsByStatus(session, ["pending"]);
+  const decisionConclusions = getWorkflowConclusionsByStatus(session, ["needs_decision"]);
+  const handledConclusions = getWorkflowConclusionsByStatus(session, ["accepted", "ignored"])
+    .sort((left, right) => {
+      const rightStamp = new Date(right?.handledAt || right?.createdAt || 0).getTime();
+      const leftStamp = new Date(left?.handledAt || left?.createdAt || 0).getTime();
+      return rightStamp - leftStamp;
+    })
+    .slice(0, 4);
+
   const taskSection = document.createElement("section");
   taskSection.className = "workflow-summary-section";
   const taskHeading = document.createElement("div");
@@ -107,22 +117,47 @@ function renderWorkflowSummaryPanel(session) {
   taskSection.appendChild(taskBody);
   wrap.appendChild(taskSection);
 
+  const decisionSection = document.createElement("section");
+  decisionSection.className = "workflow-summary-section workflow-decision-brief";
+  const decisionHeading = document.createElement("div");
+  decisionHeading.className = "workflow-summary-heading";
+  decisionHeading.textContent = "待我决策";
+  decisionSection.appendChild(decisionHeading);
+
+  const decisionText = document.createElement("div");
+  decisionText.className = "workflow-decision-text";
+  if (decisionConclusions.length === 0) {
+    decisionText.textContent = "当前没有必须由你拍板的辅助线结论。";
+  } else {
+    const pendingHint = pendingConclusions.length > 0
+      ? `另外还有 ${pendingConclusions.length} 条待处理结论可稍后再看。`
+      : "处理完这些后，主线就能更顺地继续往前推进。";
+    decisionText.textContent = `现在有 ${decisionConclusions.length} 条结论在等你拍板。${pendingHint}`;
+  }
+  decisionSection.appendChild(decisionText);
+
+  if (decisionConclusions.length > 0) {
+    const decisionList = document.createElement("div");
+    decisionList.className = "workflow-decision-list";
+    for (const conclusion of decisionConclusions.slice(0, 3)) {
+      const item = document.createElement("div");
+      item.className = "workflow-decision-item";
+      const source = conclusion.sourceSessionName
+        ? `来自 ${conclusion.sourceSessionName}`
+        : "来自辅助会话";
+      item.textContent = `${source}：${conclusion.summary || "暂无摘要"}`;
+      decisionList.appendChild(item);
+    }
+    decisionSection.appendChild(decisionList);
+  }
+  wrap.appendChild(decisionSection);
+
   const conclusionSection = document.createElement("section");
   conclusionSection.className = "workflow-summary-section";
   const conclusionHeading = document.createElement("div");
   conclusionHeading.className = "workflow-summary-heading";
   conclusionHeading.textContent = "主线吸收区";
   conclusionSection.appendChild(conclusionHeading);
-
-  const pendingConclusions = getWorkflowConclusionsByStatus(session, ["pending"]);
-  const decisionConclusions = getWorkflowConclusionsByStatus(session, ["needs_decision"]);
-  const handledConclusions = getWorkflowConclusionsByStatus(session, ["accepted", "ignored"])
-    .sort((left, right) => {
-      const rightStamp = new Date(right?.handledAt || right?.createdAt || 0).getTime();
-      const leftStamp = new Date(left?.handledAt || left?.createdAt || 0).getTime();
-      return rightStamp - leftStamp;
-    })
-    .slice(0, 4);
 
   const renderConclusionGroup = (title, conclusions, { emptyText, handled = false } = {}) => {
     const group = document.createElement("div");
