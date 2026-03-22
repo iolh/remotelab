@@ -397,10 +397,70 @@ function getWorkflowHandoffKind(session) {
   return 'workflow';
 }
 
+function isWorkflowMainlineAppName(appName) {
+  return ['主交付', '功能交付'].includes(normalizeSessionAppName(appName || ''));
+}
+
 function getWorkflowHandoffLabel(kind) {
   if (kind === 'risk_review') return '风险复核回灌';
   if (kind === 'pr_gate') return 'PR 把关回灌';
   return '结果回灌';
+}
+
+function normalizeWorkflowCurrentTask(value) {
+  return normalizeSessionDescription(value || '');
+}
+
+function extractWorkflowCurrentTaskFromName(name) {
+  const normalized = typeof name === 'string' ? name.trim() : '';
+  if (!normalized) return '';
+  const stripped = normalized.replace(/^(?:主交付|功能交付)\s*[·•—\-:：]\s*/u, '').trim();
+  if (!stripped || stripped === normalized) return '';
+  return normalizeWorkflowCurrentTask(stripped);
+}
+
+function extractWorkflowCurrentTaskFromText(text, currentTask = '') {
+  const normalizedCurrentTask = normalizeWorkflowCurrentTask(currentTask);
+  const lines = String(text || '')
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return '';
+
+  const labeledPatterns = [
+    /^(?:目标|任务目标|当前目标|需求|问题|Bug|BUG|Goal|Task)\s*[:：]\s*(.+)$/iu,
+    /^(?:目标是|要做的是)\s*(.+)$/iu,
+  ];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    for (const pattern of labeledPatterns) {
+      const match = line.match(pattern);
+      if (!match) continue;
+      const inlineValue = normalizeWorkflowCurrentTask(match[1] || '');
+      if (inlineValue) return inlineValue;
+      for (let lookahead = index + 1; lookahead < lines.length; lookahead += 1) {
+        const candidate = normalizeWorkflowCurrentTask(lines[lookahead] || '');
+        if (candidate) return candidate;
+      }
+    }
+  }
+
+  const ignoredLinePatterns = [
+    /^(?:这是一个复杂新需求|继续这个任务|执行计划可以|请继续|继续推进实现|现在请你收口成最终交付结果)[。！!.]?$/u,
+    /^(?:风险复核|PR把关)给了下面这些结论/u,
+    /^(?:这是当前改动范围|这是当前 PR 评论|这是 PR 评论|这是关键 diff)/u,
+  ];
+  for (const line of lines) {
+    if (ignoredLinePatterns.some((pattern) => pattern.test(line))) continue;
+    const candidate = normalizeWorkflowCurrentTask(line);
+    if (!candidate || candidate.length < 6) continue;
+    if (normalizedCurrentTask && candidate === normalizedCurrentTask) {
+      return normalizedCurrentTask;
+    }
+    return candidate;
+  }
+
+  return '';
 }
 
 function normalizeWorkflowConclusionStatus(value) {
@@ -2424,11 +2484,18 @@ function buildWorkflowPendingConclusionsPromptBlock(session) {
   ].join('\n');
 }
 
+function buildWorkflowCurrentTaskPromptBlock(session) {
+  const currentTask = normalizeWorkflowCurrentTask(session?.workflowCurrentTask || '');
+  if (!currentTask) return '';
+  return `Current workflow task: ${currentTask}`;
+}
+
 function buildManagerTurnContextText(session, text = '') {
   return [
     MANAGER_TURN_POLICY_BLOCK,
     buildTurnRoutingHint(text),
     buildSessionAgreementsPromptBlock(session?.activeAgreements || []),
+    buildWorkflowCurrentTaskPromptBlock(session),
     buildWorkflowPendingConclusionsPromptBlock(session),
   ].filter(Boolean).join('\n\n');
 }
@@ -3246,6 +3313,10 @@ export async function createSession(folder, tool, name, extra = {}) {
 
     if (requestedGroup) session.group = requestedGroup;
     if (requestedDescription) session.description = requestedDescription;
+    if (isWorkflowMainlineAppName(requestedAppName)) {
+      const derivedWorkflowCurrentTask = extractWorkflowCurrentTaskFromName(initialNaming.name || '');
+      if (derivedWorkflowCurrentTask) session.workflowCurrentTask = derivedWorkflowCurrentTask;
+    }
     if (workflowState) session.workflowState = workflowState;
     if (workflowPriority) session.workflowPriority = workflowPriority;
     if (requestedAppName) session.appName = requestedAppName;
@@ -3651,6 +3722,29 @@ export async function updateSessionWorkflowClassification(id, payload = {}) {
     }
 
     return changed;
+  });
+
+  if (!result.meta) return null;
+  if (result.changed) {
+    broadcastSessionInvalidation(id);
+  }
+  return enrichSessionMeta(result.meta);
+}
+
+async function updateSessionWorkflowCurrentTask(id, workflowCurrentTask) {
+  const nextWorkflowCurrentTask = normalizeWorkflowCurrentTask(workflowCurrentTask || '');
+  const result = await mutateSessionMeta(id, (session) => {
+    const currentWorkflowCurrentTask = normalizeWorkflowCurrentTask(session.workflowCurrentTask || '');
+    if (nextWorkflowCurrentTask) {
+      if (currentWorkflowCurrentTask === nextWorkflowCurrentTask) return false;
+      session.workflowCurrentTask = nextWorkflowCurrentTask;
+    } else if (currentWorkflowCurrentTask) {
+      delete session.workflowCurrentTask;
+    } else {
+      return false;
+    }
+    session.updatedAt = nowIso();
+    return true;
   });
 
   if (!result.meta) return null;
@@ -4076,6 +4170,23 @@ export async function submitHttpMessage(sessionId, text, images, options = {}) {
     }
   }
 
+  const currentWorkflowCurrentTask = normalizeWorkflowCurrentTask(session?.workflowCurrentTask || '');
+  let pendingWorkflowCurrentTask = '';
+  if (!options.internalOperation && options.recordUserMessage !== false && isWorkflowMainlineAppName(session?.appName || session?.templateAppName || '')) {
+    pendingWorkflowCurrentTask = extractWorkflowCurrentTaskFromText(recordedUserText, currentWorkflowCurrentTask);
+    if (!pendingWorkflowCurrentTask && !currentWorkflowCurrentTask) {
+      pendingWorkflowCurrentTask = extractWorkflowCurrentTaskFromName(session?.name || '');
+    }
+    if (pendingWorkflowCurrentTask && pendingWorkflowCurrentTask !== currentWorkflowCurrentTask) {
+      session = {
+        ...session,
+        workflowCurrentTask: pendingWorkflowCurrentTask,
+      };
+    } else {
+      pendingWorkflowCurrentTask = '';
+    }
+  }
+
   const {
     providerResumeId: persistedProviderResumeId,
     claudeSessionId: persistedClaudeSessionId,
@@ -4156,6 +4267,13 @@ export async function submitHttpMessage(sessionId, text, images, options = {}) {
           runId: run.id,
         }));
       }
+    }
+  }
+
+  if (pendingWorkflowCurrentTask) {
+    const updatedWorkflowSession = await updateSessionWorkflowCurrentTask(sessionId, pendingWorkflowCurrentTask);
+    if (updatedWorkflowSession) {
+      session = updatedWorkflowSession;
     }
   }
 

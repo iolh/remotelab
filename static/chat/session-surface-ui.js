@@ -29,9 +29,11 @@ function normalizeWorkflowConclusionStatusLabel(status) {
 function getWorkflowPanelCurrentTask(session) {
   const explicit = typeof session?.workflowCurrentTask === "string" ? session.workflowCurrentTask.trim() : "";
   if (explicit) return explicit;
+  const displayName = getSessionDisplayName(session);
+  if (displayName) return displayName;
   const description = typeof session?.description === "string" ? session.description.trim() : "";
   if (description) return description;
-  return getSessionDisplayName(session);
+  return "";
 }
 
 function getOpenWorkflowConclusions(session) {

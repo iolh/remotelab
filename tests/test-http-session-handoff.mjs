@@ -148,11 +148,17 @@ async function stopServer(server) {
   await waitFor(() => server.child.exitCode !== null, 'server shutdown');
 }
 
-async function createSession(port, { name, group = 'Tests', description = 'Workflow handoff' }) {
+async function createSession(port, {
+  name,
+  appName = '',
+  group = 'Tests',
+  description = 'Workflow handoff',
+}) {
   const res = await request(port, 'POST', '/api/sessions', {
     folder: repoRoot,
     tool: 'fake-codex',
     name,
+    appName,
     group,
     description,
   });
@@ -169,7 +175,7 @@ async function submitMessage(port, sessionId, requestId, text) {
     effort: 'low',
   });
   assert.ok(res.status === 202 || res.status === 200, 'submit message should succeed');
-  return res.json.run.id;
+  return res.json;
 }
 
 async function waitForRunTerminal(port, runId) {
@@ -193,16 +199,23 @@ async function getEvents(port, sessionId) {
   return res.json.events || [];
 }
 
+async function getSession(port, sessionId) {
+  const res = await request(port, 'GET', `/api/sessions/${sessionId}`);
+  assert.equal(res.status, 200, 'session detail should succeed');
+  return res.json.session;
+}
+
 const { home } = setupTempHome();
 const port = randomPort();
 const server = await startServer({ home, port });
 
 try {
-  const mainline = await createSession(port, { name: '主交付 · 搜索页改造' });
-  const review = await createSession(port, { name: '风险复核 · 搜索页改造' });
+  const mainline = await createSession(port, { name: '主交付 · 搜索页改造', appName: '主交付' });
+  const review = await createSession(port, { name: '风险复核 · 搜索页改造', appName: '风险复核' });
+  assert.equal(mainline.workflowCurrentTask, '搜索页改造', 'mainline sessions should derive an initial current task from the session name');
 
-  const runId = await submitMessage(port, review.id, 'req-handoff-source', 'Review this change');
-  await waitForRunTerminal(port, runId);
+  const reviewSubmit = await submitMessage(port, review.id, 'req-handoff-source', 'Review this change');
+  await waitForRunTerminal(port, reviewSubmit.run.id);
 
   const remember = await request(port, 'PATCH', `/api/sessions/${review.id}`, {
     handoffTargetSessionId: mainline.id,
@@ -214,7 +227,7 @@ try {
   assert.equal(handoff.status, 201, 'handoff should append the latest assistant conclusion to the target session');
   assert.equal(handoff.json.session?.id, mainline.id, 'handoff should return the refreshed target session');
   assert.equal(handoff.json.sourceSession?.handoffTargetSessionId, mainline.id, 'handoff response should preserve the remembered target on the source session');
-  assert.equal(handoff.json.handoff?.kind, 'workflow', 'generic sessions should still report a workflow handoff kind');
+  assert.equal(handoff.json.handoff?.kind, 'risk_review', 'risk review sessions should report the risk review handoff kind');
   assert.equal(Array.isArray(handoff.json.session?.workflowPendingConclusions), true, 'handoff should persist a pending workflow conclusion on the target session');
   assert.equal(handoff.json.session?.workflowPendingConclusions?.[0]?.status, 'pending', 'new handoffs should start as pending conclusions');
 
@@ -222,17 +235,20 @@ try {
   const handoffEvent = targetEvents.find((event) => event.type === 'message' && event.messageKind === 'workflow_handoff');
   assert.ok(handoffEvent, 'target session should receive a structured handoff message');
   assert.equal(handoffEvent.handoffSourceSessionId, review.id, 'handoff message should keep the source session id');
-  assert.match(handoffEvent.content || '', /结果回灌/, 'handoff message should label the event for the mainline session');
+  assert.match(handoffEvent.content || '', /风险复核回灌/, 'handoff message should label the event for the mainline session');
   assert.match(handoffEvent.content || '', /finished from fake codex/, 'handoff message should include the latest assistant conclusion');
 
   const conclusionId = handoff.json.session?.workflowPendingConclusions?.[0]?.id;
   assert.ok(conclusionId, 'handoff should return a stable conclusion id');
 
-  const mainlineRunId = await submitMessage(port, mainline.id, 'req-handoff-mainline', 'Continue from the current mainline state');
-  await waitForRunTerminal(port, mainlineRunId);
-  const mainlineManifest = readRunManifest(home, mainlineRunId);
+  const mainlineSubmit = await submitMessage(port, mainline.id, 'req-handoff-mainline', '目标：完成搜索页改造\n成功标准：搜索、筛选和结果列表都正常工作');
+  await waitForRunTerminal(port, mainlineSubmit.run.id);
+  const mainlineManifest = readRunManifest(home, mainlineSubmit.run.id);
+  assert.match(mainlineManifest.prompt || '', /Current workflow task: 完成搜索页改造/, 'mainline prompt should include the explicit current workflow task');
   assert.match(mainlineManifest.prompt || '', /Open workflow conclusions requiring attention:/, 'mainline prompt should include open workflow conclusions');
   assert.match(mainlineManifest.prompt || '', /finished from fake codex/, 'mainline prompt should include the handoff summary');
+  const refreshedMainline = await getSession(port, mainline.id);
+  assert.equal(refreshedMainline.workflowCurrentTask, '完成搜索页改造', 'mainline sessions should persist the latest explicit workflow current task');
 
   const needsDecision = await request(port, 'POST', `/api/sessions/${mainline.id}/conclusions/${conclusionId}`, {
     status: 'needs_decision',
