@@ -130,6 +130,9 @@ function classifyApiRoute(method, pathname) {
         if (parts[3] === 'handoff') return 'POST /api/sessions/:sessionId/handoff';
         if (parts[3] === 'share') return 'POST /api/sessions/:sessionId/share';
       }
+      if (parts.length === 5 && method === 'POST') {
+        if (parts[3] === 'conclusions' && parts[4]) return 'POST /api/sessions/:sessionId/conclusions/:conclusionId';
+      }
     }
   }
 

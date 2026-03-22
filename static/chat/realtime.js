@@ -311,6 +311,23 @@ async function dispatchAction(msg) {
         });
         await refreshCurrentSession();
         return true;
+      case "workflow_conclusion_status": {
+        const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(msg.sessionId || currentSessionId)}/conclusions/${encodeURIComponent(msg.conclusionId || "")}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: msg.status || "" }),
+        });
+        if (data.session) {
+          const session = upsertSession(data.session) || data.session;
+          renderSessionList();
+          if (currentSessionId === session.id) {
+            applyAttachedSessionState(session.id, session);
+          }
+        } else if (currentSessionId === (msg.sessionId || currentSessionId)) {
+          await refreshCurrentSession();
+        }
+        return true;
+      }
       default:
         return false;
     }

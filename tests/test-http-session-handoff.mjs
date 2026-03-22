@@ -181,6 +181,12 @@ async function waitForRunTerminal(port, runId) {
   }, `run ${runId} terminal`);
 }
 
+function readRunManifest(home, runId) {
+  return JSON.parse(
+    readFileSync(join(home, '.config', 'remotelab', 'chat-runs', runId, 'manifest.json'), 'utf8'),
+  );
+}
+
 async function getEvents(port, sessionId) {
   const res = await request(port, 'GET', `/api/sessions/${sessionId}/events`);
   assert.equal(res.status, 200, 'events request should succeed');
@@ -209,6 +215,8 @@ try {
   assert.equal(handoff.json.session?.id, mainline.id, 'handoff should return the refreshed target session');
   assert.equal(handoff.json.sourceSession?.handoffTargetSessionId, mainline.id, 'handoff response should preserve the remembered target on the source session');
   assert.equal(handoff.json.handoff?.kind, 'workflow', 'generic sessions should still report a workflow handoff kind');
+  assert.equal(Array.isArray(handoff.json.session?.workflowPendingConclusions), true, 'handoff should persist a pending workflow conclusion on the target session');
+  assert.equal(handoff.json.session?.workflowPendingConclusions?.[0]?.status, 'pending', 'new handoffs should start as pending conclusions');
 
   const targetEvents = await getEvents(port, mainline.id);
   const handoffEvent = targetEvents.find((event) => event.type === 'message' && event.messageKind === 'workflow_handoff');
@@ -216,6 +224,27 @@ try {
   assert.equal(handoffEvent.handoffSourceSessionId, review.id, 'handoff message should keep the source session id');
   assert.match(handoffEvent.content || '', /结果回灌/, 'handoff message should label the event for the mainline session');
   assert.match(handoffEvent.content || '', /finished from fake codex/, 'handoff message should include the latest assistant conclusion');
+
+  const conclusionId = handoff.json.session?.workflowPendingConclusions?.[0]?.id;
+  assert.ok(conclusionId, 'handoff should return a stable conclusion id');
+
+  const mainlineRunId = await submitMessage(port, mainline.id, 'req-handoff-mainline', 'Continue from the current mainline state');
+  await waitForRunTerminal(port, mainlineRunId);
+  const mainlineManifest = readRunManifest(home, mainlineRunId);
+  assert.match(mainlineManifest.prompt || '', /Open workflow conclusions requiring attention:/, 'mainline prompt should include open workflow conclusions');
+  assert.match(mainlineManifest.prompt || '', /finished from fake codex/, 'mainline prompt should include the handoff summary');
+
+  const needsDecision = await request(port, 'POST', `/api/sessions/${mainline.id}/conclusions/${conclusionId}`, {
+    status: 'needs_decision',
+  });
+  assert.equal(needsDecision.status, 200, 'workflow conclusion status updates should succeed');
+  assert.equal(needsDecision.json.session?.workflowPendingConclusions?.[0]?.status, 'needs_decision', 'conclusion status should update in session detail responses');
+
+  const accepted = await request(port, 'POST', `/api/sessions/${mainline.id}/conclusions/${conclusionId}`, {
+    status: 'accepted',
+  });
+  assert.equal(accepted.status, 200, 'workflow conclusion status should support terminal acceptance');
+  assert.equal(accepted.json.session?.workflowPendingConclusions?.[0]?.status, 'accepted', 'accepted conclusions should stay recorded with their terminal status');
 
   console.log('test-http-session-handoff: ok');
 } finally {

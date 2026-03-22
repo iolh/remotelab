@@ -15,6 +15,9 @@ function clearMessages({ preserveRunningBlockExpanded = false } = {}) {
 function showEmpty() {
   messagesInner.innerHTML = "";
   messagesInner.appendChild(emptyState);
+  if (typeof renderWorkflowSummaryPanel === "function") {
+    renderWorkflowSummaryPanel(null);
+  }
   if (typeof renderQueuedMessagePanel === "function") {
     renderQueuedMessagePanel(null);
   }

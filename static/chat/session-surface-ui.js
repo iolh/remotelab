@@ -4,6 +4,169 @@ function esc(s) {
   return el.innerHTML;
 }
 
+function getWorkflowPanelAppName(session) {
+  const templateAppId = typeof getEffectiveSessionTemplateAppId === "function"
+    ? getEffectiveSessionTemplateAppId(session)
+    : "";
+  const appEntry = templateAppId && typeof getSessionAppCatalogEntry === "function"
+    ? getSessionAppCatalogEntry(templateAppId)
+    : null;
+  const appName = appEntry?.name || session?.templateAppName || session?.appName || "";
+  return typeof appName === "string" ? appName.trim() : "";
+}
+
+function isWorkflowMainlineSession(session) {
+  return ["主交付", "功能交付"].includes(getWorkflowPanelAppName(session));
+}
+
+function normalizeWorkflowConclusionStatusLabel(status) {
+  if (status === "needs_decision") return "待决策";
+  if (status === "accepted") return "已吸收";
+  if (status === "ignored") return "已忽略";
+  return "待处理";
+}
+
+function getWorkflowPanelCurrentTask(session) {
+  const explicit = typeof session?.workflowCurrentTask === "string" ? session.workflowCurrentTask.trim() : "";
+  if (explicit) return explicit;
+  const description = typeof session?.description === "string" ? session.description.trim() : "";
+  if (description) return description;
+  return getSessionDisplayName(session);
+}
+
+function getOpenWorkflowConclusions(session) {
+  const entries = Array.isArray(session?.workflowPendingConclusions) ? session.workflowPendingConclusions : [];
+  return entries.filter((entry) => ["pending", "needs_decision"].includes(String(entry?.status || "").trim()));
+}
+
+async function updateWorkflowConclusionStatus(sessionId, conclusionId, status, button) {
+  if (!sessionId || !conclusionId || !status) return;
+  const buttons = button?.closest?.(".workflow-conclusion-actions")?.querySelectorAll?.("button") || [];
+  for (const entry of buttons) {
+    entry.disabled = true;
+  }
+  try {
+    const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(sessionId)}/conclusions/${encodeURIComponent(conclusionId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    if (data?.session) {
+      const updated = upsertSession(data.session) || data.session;
+      if (updated && currentSessionId === updated.id) {
+        applyAttachedSessionState(updated.id, updated);
+      } else {
+        renderSessionList();
+      }
+    } else if (currentSessionId === sessionId) {
+      await refreshCurrentSession();
+    }
+  } catch (error) {
+    console.warn("[workflow-summary] Failed to update conclusion status:", error.message);
+  }
+}
+
+function renderWorkflowSummaryPanel(session) {
+  if (!workflowSummaryPanel) return;
+  if (!session || !isWorkflowMainlineSession(session)) {
+    workflowSummaryPanel.hidden = true;
+    workflowSummaryPanel.innerHTML = "";
+    return;
+  }
+
+  workflowSummaryPanel.hidden = false;
+  workflowSummaryPanel.innerHTML = "";
+
+  const wrap = document.createElement("div");
+  wrap.className = "workflow-summary-grid";
+
+  const taskSection = document.createElement("section");
+  taskSection.className = "workflow-summary-section";
+  const taskHeading = document.createElement("div");
+  taskHeading.className = "workflow-summary-heading";
+  taskHeading.textContent = "当前任务";
+  const taskBody = document.createElement("div");
+  taskBody.className = "workflow-summary-task";
+  taskBody.textContent = getWorkflowPanelCurrentTask(session) || "暂未设置";
+  taskSection.appendChild(taskHeading);
+  taskSection.appendChild(taskBody);
+  wrap.appendChild(taskSection);
+
+  const conclusionSection = document.createElement("section");
+  conclusionSection.className = "workflow-summary-section";
+  const conclusionHeading = document.createElement("div");
+  conclusionHeading.className = "workflow-summary-heading";
+  conclusionHeading.textContent = "待处理结论";
+  conclusionSection.appendChild(conclusionHeading);
+
+  const openConclusions = getOpenWorkflowConclusions(session);
+  if (openConclusions.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "workflow-summary-empty";
+    empty.textContent = "当前没有待处理的辅助线结论。";
+    conclusionSection.appendChild(empty);
+  } else {
+    const list = document.createElement("div");
+    list.className = "workflow-conclusion-list";
+    for (const conclusion of openConclusions) {
+      const item = document.createElement("div");
+      item.className = "workflow-conclusion-item";
+
+      const meta = document.createElement("div");
+      meta.className = "workflow-conclusion-meta";
+
+      const label = document.createElement("span");
+      label.className = "workflow-conclusion-label";
+      label.textContent = conclusion.label || "结果回灌";
+
+      const status = document.createElement("span");
+      status.className = "workflow-conclusion-status"
+        + (conclusion.status === "needs_decision" ? " needs-decision" : "");
+      status.textContent = normalizeWorkflowConclusionStatusLabel(conclusion.status);
+
+      const source = document.createElement("span");
+      source.className = "workflow-conclusion-source";
+      source.textContent = conclusion.sourceSessionName
+        ? `来自 ${conclusion.sourceSessionName}`
+        : "来自辅助会话";
+
+      meta.appendChild(label);
+      meta.appendChild(status);
+      meta.appendChild(source);
+      item.appendChild(meta);
+
+      const summary = document.createElement("div");
+      summary.className = "workflow-conclusion-summary";
+      summary.textContent = conclusion.summary || "暂无摘要";
+      item.appendChild(summary);
+
+      const actions = document.createElement("div");
+      actions.className = "workflow-conclusion-actions";
+      const options = [
+        { status: "accepted", label: "已吸收" },
+        { status: "needs_decision", label: "待决策" },
+        { status: "ignored", label: "忽略" },
+      ];
+      for (const option of options) {
+        const actionBtn = document.createElement("button");
+        actionBtn.className = "workflow-conclusion-btn";
+        actionBtn.type = "button";
+        actionBtn.textContent = option.label;
+        actionBtn.addEventListener("click", () => {
+          void updateWorkflowConclusionStatus(session.id, conclusion.id, option.status, actionBtn);
+        });
+        actions.appendChild(actionBtn);
+      }
+      item.appendChild(actions);
+      list.appendChild(item);
+    }
+    conclusionSection.appendChild(list);
+  }
+
+  wrap.appendChild(conclusionSection);
+  workflowSummaryPanel.appendChild(wrap);
+}
+
 function getShortFolder(folder) {
   return (folder || "").replace(/^\/Users\/[^/]+/, "~");
 }
@@ -387,4 +550,3 @@ function createActiveSessionItem(session) {
 
   return div;
 }
-

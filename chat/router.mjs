@@ -41,6 +41,7 @@ import {
   submitHttpMessage,
   updateSessionLastReviewedAt,
   updateSessionHandoffTarget,
+  updateWorkflowPendingConclusionStatus,
   updateSessionGrouping,
   updateSessionAgreements,
   updateSessionWorkflowClassification,
@@ -1098,6 +1099,7 @@ function isOwnerOnlyRoute(pathname, method) {
   if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/fork') && method === 'POST') return true;
   if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/delegate') && method === 'POST') return true;
   if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/handoff') && method === 'POST') return true;
+  if (/^\/api\/sessions\/[^/]+\/conclusions\/[^/]+$/.test(pathname) && method === 'POST') return true;
   if (pathname.startsWith('/api/sessions/') && method === 'PATCH') return true;
   if (pathname === '/api/models' && method === 'GET') return true;
   if (pathname === '/api/tools' && (method === 'GET' || method === 'POST')) return true;
@@ -1985,6 +1987,47 @@ export async function handleRequest(req, res) {
         });
       } catch (error) {
         writeJson(res, 400, { error: error.message || 'Failed to hand off session result' });
+      }
+      return;
+    }
+
+    if (parts.length === 5 && parts[0] === 'api' && parts[1] === 'sessions' && sessionId && parts[3] === 'conclusions') {
+      const conclusionId = parts[4];
+      if (!requireSessionAccess(res, authSession, sessionId)) return;
+      const source = await getSessionForClient(sessionId);
+      if (!source) {
+        writeJson(res, 404, { error: 'Session not found' });
+        return;
+      }
+      if (source.visitorId) {
+        writeJson(res, 409, { error: 'Visitor sessions cannot update workflow conclusions' });
+        return;
+      }
+
+      let payload = {};
+      try {
+        const body = await readBody(req, 16384);
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        writeJson(res, 400, { error: 'Invalid request body' });
+        return;
+      }
+
+      const nextStatus = typeof payload?.status === 'string' ? payload.status.trim() : '';
+      if (!['pending', 'needs_decision', 'accepted', 'ignored'].includes(nextStatus)) {
+        writeJson(res, 400, { error: 'status must be pending, needs_decision, accepted, or ignored' });
+        return;
+      }
+
+      try {
+        const session = await updateWorkflowPendingConclusionStatus(sessionId, conclusionId, nextStatus);
+        if (!session) {
+          writeJson(res, 409, { error: 'Unable to update workflow conclusion' });
+          return;
+        }
+        writeJson(res, 200, { session: createClientSessionDetail(session) });
+      } catch (error) {
+        writeJson(res, 400, { error: error.message || 'Failed to update workflow conclusion' });
       }
       return;
     }

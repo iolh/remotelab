@@ -209,6 +209,7 @@ const newSessionBtn = document.getElementById("newSessionBtn");
 const messagesEl = document.getElementById("messages");
 const messagesInner = document.getElementById("messagesInner");
 const emptyState = document.getElementById("emptyState");
+const workflowSummaryPanel = document.getElementById("workflowSummaryPanel");
 const queuedPanel = document.getElementById("queuedPanel");
 const msgInput = document.getElementById("msgInput");
 const sendBtn = document.getElementById("sendBtn");
