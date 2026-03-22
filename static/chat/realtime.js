@@ -453,6 +453,7 @@ function updateStatus(connState, session = getCurrentSession()) {
     }
     syncForkButton();
     syncShareButton();
+    if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
     return;
   }
   const archived = session?.archived === true;
@@ -507,4 +508,5 @@ function updateStatus(connState, session = getCurrentSession()) {
   }
   syncForkButton();
   syncShareButton();
+  if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
 }

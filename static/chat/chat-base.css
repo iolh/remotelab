@@ -129,23 +129,38 @@ body {
   height: calc(48px + var(--safe-top));
   flex-shrink: 0;
 }
-.header h1 { font-size: 15px; font-weight: 600; flex: 1; color: var(--text); }
+.header h1 {
+  font-size: 15px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .header-btn {
   background: none; border: none; color: var(--text-secondary);
   font-size: 16px; cursor: pointer; padding: 6px; border-radius: 6px;
   line-height: 1; display: flex; align-items: center; justify-content: center;
   width: 32px; height: 32px;
+  position: relative;
 }
 .header-btn:hover { background: var(--bg-tertiary); color: var(--text); }
-.header-share-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  height: 32px; padding: 0 12px; border-radius: 999px;
-  border: 1px solid var(--border); background: var(--bg-tertiary);
-  color: var(--text-secondary); font-size: 12px; font-weight: 600;
-  cursor: pointer; flex-shrink: 0;
+.header-btn.is-feedback {
+  color: var(--notice);
 }
-.header-share-btn:hover { background: var(--bg-secondary); color: var(--text); border-color: var(--border-strong); }
-.header-share-btn:disabled { opacity: 0.7; cursor: wait; }
+.header-btn.has-notice::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--notice);
+  box-shadow: 0 0 0 2px var(--bg);
+}
 .header-refresh-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; padding: 0; border-radius: 999px;
@@ -176,6 +191,32 @@ body {
 .status-dot.rename-failed { background: var(--issue); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 #statusText { font-size: 12px; color: var(--text-muted); }
+.header-btn[hidden] {
+  display: none !important;
+}
+
+.header-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.header-btn .rl-icon {
+  width: 16px;
+  height: 16px;
+}
+.chat-chrome-host {
+  position: fixed;
+  top: var(--safe-top);
+  right: 12px;
+  z-index: 12;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+.chat-chrome-host > * {
+  pointer-events: auto;
+}
 .session-list-footer {
   padding: 2px 12px 0;
   font-size: 10px;
@@ -189,6 +230,9 @@ body {
 }
 .session-list-footer.hidden { display: none; }
 
+@media (max-width: 640px) {
+}
+
 /* ---- App container ---- */
 .app-container {
   display: flex;
@@ -197,4 +241,3 @@ body {
   min-width: 0;
   overflow: hidden;
 }
-

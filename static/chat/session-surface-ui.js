@@ -16,7 +16,7 @@ function getWorkflowPanelAppName(session) {
 }
 
 function isWorkflowMainlineSession(session) {
-  return ["主交付", "功能交付"].includes(getWorkflowPanelAppName(session));
+  return ["执行", "主交付", "功能交付"].includes(getWorkflowPanelAppName(session));
 }
 
 function normalizeWorkflowConclusionStatusLabel(status) {
@@ -29,12 +29,12 @@ function normalizeWorkflowConclusionStatusLabel(status) {
 
 function getWorkflowConclusionTypeLabel(conclusion) {
   const type = typeof conclusion?.handoffType === "string" ? conclusion.handoffType.trim() : "";
-  if (type === "verification_result") return "执行验收结果";
-  if (type === "decision_result") return "深度裁决结果";
+  if (type === "verification_result") return "验收结果";
+  if (type === "decision_result") return "再议结论";
   const legacyKind = typeof conclusion?.handoffKind === "string" ? conclusion.handoffKind.trim() : "";
-  if (legacyKind === "risk_review") return "风险复核回灌";
-  if (legacyKind === "pr_gate") return "PR 把关回灌";
-  return "结果回灌";
+  if (legacyKind === "risk_review") return "验收转交";
+  if (legacyKind === "pr_gate") return "再议转交";
+  return "结果转交";
 }
 
 function getWorkflowDecisionConfidenceLabel(confidence) {
@@ -99,17 +99,18 @@ async function updateWorkflowConclusionStatus(sessionId, conclusionId, status, b
   }
 }
 
-function renderWorkflowSummaryPanel(session) {
-  if (!workflowSummaryPanel) return;
-  if (!session || !isWorkflowMainlineSession(session)) {
-    workflowSummaryPanel.hidden = true;
-    workflowSummaryPanel.innerHTML = "";
-    return;
-  }
+function openWorkflowSummaryModal() {
+  if (!workflowSummaryModal || !workflowSummaryModalBody) return;
+  if (!workflowSummaryModalBody.childElementCount) return;
+  workflowSummaryModal.hidden = false;
+}
 
-  workflowSummaryPanel.hidden = false;
-  workflowSummaryPanel.innerHTML = "";
+function closeWorkflowSummaryModal() {
+  if (!workflowSummaryModal) return;
+  workflowSummaryModal.hidden = true;
+}
 
+function buildWorkflowSummaryDetails(session) {
   const wrap = document.createElement("div");
   wrap.className = "workflow-summary-grid";
 
@@ -135,26 +136,21 @@ function renderWorkflowSummaryPanel(session) {
   taskSection.appendChild(taskBody);
   wrap.appendChild(taskSection);
 
-  const decisionSection = document.createElement("section");
-  decisionSection.className = "workflow-summary-section workflow-decision-brief";
-  const decisionHeading = document.createElement("div");
-  decisionHeading.className = "workflow-summary-heading";
-  decisionHeading.textContent = "待我决策";
-  decisionSection.appendChild(decisionHeading);
+  if (decisionConclusions.length > 0) {
+    const decisionSection = document.createElement("section");
+    decisionSection.className = "workflow-summary-section workflow-decision-brief";
+    const decisionHeading = document.createElement("div");
+    decisionHeading.className = "workflow-summary-heading";
+    decisionHeading.textContent = "待我决策";
+    decisionSection.appendChild(decisionHeading);
 
-  const decisionText = document.createElement("div");
-  decisionText.className = "workflow-decision-text";
-  if (decisionConclusions.length === 0) {
-    decisionText.textContent = "当前没有必须由你拍板的辅助线结论。";
-  } else {
+    const decisionText = document.createElement("div");
+    decisionText.className = "workflow-decision-text";
     const pendingHint = pendingConclusions.length > 0
       ? `另外还有 ${pendingConclusions.length} 条待处理结论可稍后再看。`
       : "处理完这些后，主线就能更顺地继续往前推进。";
     decisionText.textContent = `现在有 ${decisionConclusions.length} 条结论在等你拍板。${pendingHint}`;
-  }
-  decisionSection.appendChild(decisionText);
-
-  if (decisionConclusions.length > 0) {
+    decisionSection.appendChild(decisionText);
     const decisionList = document.createElement("div");
     decisionList.className = "workflow-decision-list";
     for (const conclusion of decisionConclusions.slice(0, 3)) {
@@ -168,38 +164,32 @@ function renderWorkflowSummaryPanel(session) {
       decisionList.appendChild(item);
     }
     decisionSection.appendChild(decisionList);
+    wrap.appendChild(decisionSection);
   }
-  wrap.appendChild(decisionSection);
+  const hasConclusionContent = pendingConclusions.length > 0 || decisionConclusions.length > 0 || handledConclusions.length > 0;
+  if (hasConclusionContent) {
+    const conclusionSection = document.createElement("section");
+    conclusionSection.className = "workflow-summary-section";
+    const conclusionHeading = document.createElement("div");
+    conclusionHeading.className = "workflow-summary-heading";
+    conclusionHeading.textContent = "主线吸收区";
+    conclusionSection.appendChild(conclusionHeading);
 
-  const conclusionSection = document.createElement("section");
-  conclusionSection.className = "workflow-summary-section";
-  const conclusionHeading = document.createElement("div");
-  conclusionHeading.className = "workflow-summary-heading";
-  conclusionHeading.textContent = "主线吸收区";
-  conclusionSection.appendChild(conclusionHeading);
+    const renderConclusionGroup = (title, conclusions, { handled = false } = {}) => {
+      if (!conclusions.length) return null;
+      const group = document.createElement("div");
+      group.className = "workflow-summary-subsection";
 
-  const renderConclusionGroup = (title, conclusions, { emptyText, handled = false } = {}) => {
-    const group = document.createElement("div");
-    group.className = "workflow-summary-subsection";
+      const heading = document.createElement("div");
+      heading.className = "workflow-summary-subheading";
+      heading.textContent = title;
+      group.appendChild(heading);
 
-    const heading = document.createElement("div");
-    heading.className = "workflow-summary-subheading";
-    heading.textContent = title;
-    group.appendChild(heading);
-
-    if (!conclusions.length) {
-      const empty = document.createElement("div");
-      empty.className = "workflow-summary-empty";
-      empty.textContent = emptyText;
-      group.appendChild(empty);
-      return group;
-    }
-
-    const list = document.createElement("div");
-    list.className = "workflow-conclusion-list";
-    for (const conclusion of conclusions) {
-      const item = document.createElement("div");
-      item.className = "workflow-conclusion-item";
+      const list = document.createElement("div");
+      list.className = "workflow-conclusion-list";
+      for (const conclusion of conclusions) {
+        const item = document.createElement("div");
+        item.className = "workflow-conclusion-item";
 
       const meta = document.createElement("div");
       meta.className = "workflow-conclusion-meta";
@@ -268,35 +258,66 @@ function renderWorkflowSummaryPanel(session) {
         });
         actions.appendChild(actionBtn);
       }
-      item.appendChild(actions);
-      list.appendChild(item);
-    }
+        item.appendChild(actions);
+        list.appendChild(item);
+      }
 
-    group.appendChild(list);
-    return group;
-  };
+      group.appendChild(list);
+      return group;
+    };
 
-  if (pendingConclusions.length === 0 && decisionConclusions.length === 0 && handledConclusions.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "workflow-summary-empty";
-    empty.textContent = "当前还没有辅助线结论进入主线。";
-    conclusionSection.appendChild(empty);
-  } else {
-    conclusionSection.appendChild(renderConclusionGroup("待处理", pendingConclusions, {
-      emptyText: "当前没有待处理结论。",
-    }));
-    conclusionSection.appendChild(renderConclusionGroup("待决策", decisionConclusions, {
-      emptyText: "当前没有待用户决策的结论。",
-    }));
-    conclusionSection.appendChild(renderConclusionGroup("最近已处理", handledConclusions, {
-      emptyText: "最近还没有已吸收或已忽略的结论。",
+    const pendingGroup = renderConclusionGroup("待处理", pendingConclusions);
+    const decisionGroup = renderConclusionGroup("待决策", decisionConclusions);
+    const handledGroup = renderConclusionGroup("最近已处理", handledConclusions, {
       handled: true,
-    }));
+    });
+    if (pendingGroup) conclusionSection.appendChild(pendingGroup);
+    if (decisionGroup) conclusionSection.appendChild(decisionGroup);
+    if (handledGroup) conclusionSection.appendChild(handledGroup);
+    wrap.appendChild(conclusionSection);
+  }
+  return wrap;
+}
+
+function renderWorkflowSummaryPanel(session) {
+  if (!workflowSummaryBtn) return;
+  if (!session || !isWorkflowMainlineSession(session)) {
+    workflowSummaryPanel.hidden = true;
+    workflowSummaryPanel.innerHTML = "";
+    workflowSummaryBtn.hidden = true;
+    workflowSummaryBtn.classList.remove("has-notice");
+    if (workflowSummaryModalBody) {
+      workflowSummaryModalBody.innerHTML = "";
+    }
+    closeWorkflowSummaryModal();
+    if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
+    return;
   }
 
-  wrap.appendChild(conclusionSection);
-  workflowSummaryPanel.appendChild(wrap);
+  const pendingConclusions = getWorkflowConclusionsByStatus(session, ["pending"]);
+  const decisionConclusions = getWorkflowConclusionsByStatus(session, ["needs_decision"]);
+  workflowSummaryPanel.hidden = true;
+  workflowSummaryPanel.innerHTML = "";
+  workflowSummaryBtn.hidden = false;
+  workflowSummaryBtn.classList.toggle("has-notice", decisionConclusions.length > 0 || pendingConclusions.length > 0);
+  const task = getWorkflowPanelCurrentTask(session) || "当前任务";
+  const detail = decisionConclusions.length > 0
+    ? `，${decisionConclusions.length} 条待决策`
+    : (pendingConclusions.length > 0 ? `，${pendingConclusions.length} 条待处理` : "");
+  workflowSummaryBtn.title = `摘要通知：${task}${detail}`;
+  workflowSummaryBtn.setAttribute("aria-label", `摘要通知：${task}${detail}`);
+  if (workflowSummaryModalBody) {
+    workflowSummaryModalBody.innerHTML = "";
+    workflowSummaryModalBody.appendChild(buildWorkflowSummaryDetails(session));
+  }
+  if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
 }
+
+workflowSummaryBtn?.addEventListener("click", openWorkflowSummaryModal);
+closeWorkflowSummaryModalBtn?.addEventListener("click", closeWorkflowSummaryModal);
+workflowSummaryModal?.addEventListener("click", (event) => {
+  if (event.target === workflowSummaryModal) closeWorkflowSummaryModal();
+});
 
 function getShortFolder(folder) {
   return (folder || "").replace(/^\/Users\/[^/]+/, "~");

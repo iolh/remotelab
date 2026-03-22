@@ -267,7 +267,7 @@
     }
 
     const indicators = getSessionStatusSummary(session, options).indicators;
-    return indicators[0] || createStatus("idle", "idle");
+    return indicators[0] || createStatus("idle", "空闲");
   }
 
   function getSessionStatusSummary(session, { includeToolFallback = false } = {}) {
@@ -313,7 +313,7 @@
     const primary = indicators[0] || (
       session?.tool && includeToolFallback
         ? createStatus("tool", session.tool)
-        : createStatus("idle", "idle")
+        : createStatus("idle", "空闲")
     );
 
     return {

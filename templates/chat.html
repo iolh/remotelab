@@ -16,6 +16,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png?v={{ASSET_VERSION}}">
 <title>{{PAGE_TITLE}}</title>
 <link rel="stylesheet" href="/chat/chat.css?v={{ASSET_VERSION}}">
+<link rel="stylesheet" href="/chat-island/chat-chrome.css?v={{ASSET_VERSION}}">
 </head>
 <body class="{{BODY_CLASS}}">
 <div class="app-shell">
@@ -24,13 +25,15 @@
 <div class="header">
   <button class="header-btn" id="menuBtn" title="会话" aria-label="会话" data-icon="menu">&#9776;</button>
   <h1 id="headerTitle">RemoteLab 对话</h1>
-  <button class="header-share-btn" id="handoffSessionBtn" title="把当前会话的最新结论回灌到主交付" style="display:none">回灌</button>
-  <button class="header-share-btn" id="forkSessionBtn" title="Fork current session into an isolated copy" style="display:none">Fork</button>
-  <button class="header-share-btn" id="shareSnapshotBtn" title="Create a read-only share link" style="display:none">Share</button>
   <button class="header-refresh-btn" id="refreshFrontendBtn" type="button" title="刷新到最新前端" aria-label="刷新到最新前端" data-icon="refresh" hidden></button>
-  <span class="status-dot" id="statusDot"></span>
-  <span id="statusText">未连接</span>
 </div>
+<div class="legacy-header-action-cache" hidden aria-hidden="true">
+  <button class="header-btn" id="workflowSummaryBtn" type="button" title="摘要通知" aria-label="摘要通知" aria-haspopup="dialog" data-icon="bell" hidden></button>
+  <button class="header-btn" id="handoffSessionBtn" type="button" title="转交" aria-label="转交" data-icon="handoff" hidden></button>
+  <button class="header-btn" id="forkSessionBtn" type="button" title="Fork" aria-label="Fork" data-icon="fork" hidden></button>
+  <button class="header-btn" id="shareSnapshotBtn" type="button" title="Share" aria-label="Share" data-icon="share" hidden></button>
+</div>
+<div class="chat-chrome-host" id="chatChromeRoot"></div>
 
 <div class="app-container">
   <!-- Sidebar overlay -->
@@ -94,7 +97,7 @@
 
   <!-- Chat area -->
   <main class="chat-area">
-    <section class="workflow-summary-panel" id="workflowSummaryPanel" hidden></section>
+    <section class="workflow-summary-panel" id="workflowSummaryPanel" hidden aria-hidden="true"></section>
     <div class="messages" id="messages">
       <div class="messages-inner" id="messagesInner">
         <div class="empty-state" id="emptyState">
@@ -140,7 +143,10 @@
         <div class="voice-input-status" id="voiceInputStatus" aria-live="polite"></div>
       </div>
       <div class="input-footer">
-        <a href="https://github.com/Ninglo/remotelab" target="_blank" rel="noreferrer noopener">GitHub 开源 ↗</a>
+        <div class="session-status-inline" id="headerStatus">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">未连接</span>
+        </div>
         <span class="input-footer-tagline">由 AI 驱动构建</span>
       </div>
     </div>
@@ -149,6 +155,16 @@
 </div>
 
 <div class="gesture-pill" id="gesturePill" aria-hidden="true"></div>
+
+<div class="modal-backdrop" id="workflowSummaryModal" hidden>
+  <div class="modal workflow-summary-modal" role="dialog" aria-modal="true" aria-labelledby="workflowSummaryModalTitle">
+    <div class="modal-header">
+      <div class="modal-title" id="workflowSummaryModalTitle">主线摘要</div>
+      <button class="modal-close" id="closeWorkflowSummaryModal" type="button" aria-label="关闭" data-icon="close">&times;</button>
+    </div>
+    <div class="modal-body workflow-summary-modal-body" id="workflowSummaryModalBody"></div>
+  </div>
+</div>
 
 <div class="modal-backdrop" id="codexImportModal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="codexImportModalTitle">
@@ -283,5 +299,6 @@
 <script src="/chat/voice-input.js?v={{ASSET_VERSION}}" nonce="{{NONCE}}"></script>
 <script src="/chat/gestures.js?v={{ASSET_VERSION}}" nonce="{{NONCE}}"></script>
 <script src="/chat/init.js?v={{ASSET_VERSION}}" nonce="{{NONCE}}"></script>
+<script src="/chat-island/chat-chrome.js?v={{ASSET_VERSION}}" nonce="{{NONCE}}"></script>
 </body>
 </html>

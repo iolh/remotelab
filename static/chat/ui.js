@@ -622,11 +622,11 @@ function renderCollapsedBlock(evt) {
 
 function getWorkflowHandoffEventLabel(evt) {
   const handoffType = typeof evt?.handoffType === "string" ? evt.handoffType.trim() : "";
-  if (handoffType === "verification_result") return "执行验收结果";
-  if (handoffType === "decision_result") return "深度裁决结果";
-  if (evt?.handoffKind === "risk_review") return "风险复核回灌";
-  if (evt?.handoffKind === "pr_gate") return "PR 把关回灌";
-  return "结果回灌";
+  if (handoffType === "verification_result") return "验收结果";
+  if (handoffType === "decision_result") return "再议结论";
+  if (evt?.handoffKind === "risk_review") return "验收转交";
+  if (evt?.handoffKind === "pr_gate") return "再议转交";
+  return "结果转交";
 }
 
 function renderThinkingBlockEvent(evt) {

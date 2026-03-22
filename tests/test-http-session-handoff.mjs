@@ -241,7 +241,7 @@ try {
   assert.ok(handoffEvent, 'target session should receive a structured handoff message');
   assert.equal(handoffEvent.handoffSourceSessionId, review.id, 'handoff message should keep the source session id');
   assert.equal(handoffEvent.handoffType, 'verification_result', 'handoff event should include the typed handoff');
-  assert.match(handoffEvent.content || '', /执行验收结果/, 'handoff message should use the typed label for the mainline session');
+  assert.match(handoffEvent.content || '', /(?:验收结果|执行验收结果)/, 'handoff message should use the typed label for the mainline session');
   assert.match(handoffEvent.content || '', /第一轮验证摘要：旧结果。/, 'handoff message should include the handoff summary');
 
   const conclusionId = handoff.json.session?.workflowPendingConclusions?.[0]?.id;
@@ -274,7 +274,7 @@ try {
   const mainlineManifest = readRunManifest(home, mainlineSubmit.run.id);
   assert.match(mainlineManifest.prompt || '', /Current workflow task: 完成搜索页改造/, 'mainline prompt should include the explicit current workflow task');
   assert.match(mainlineManifest.prompt || '', /Open workflow conclusions requiring attention:/, 'mainline prompt should include open workflow conclusions');
-  assert.match(mainlineManifest.prompt || '', /执行验收结果/, 'mainline prompt should include the typed handoff label');
+  assert.match(mainlineManifest.prompt || '', /(?:验收结果|执行验收结果)/, 'mainline prompt should include the typed handoff label');
   assert.match(mainlineManifest.prompt || '', /移动端空态未验证，筛选重置已验证通过。/, 'mainline prompt should include the latest handoff summary');
   assert.doesNotMatch(mainlineManifest.prompt || '', /第一轮验证摘要：旧结果。/, 'mainline prompt should not surface superseded summaries');
   const refreshedMainline = await getSession(port, mainline.id);

@@ -209,6 +209,22 @@ function buildProviderBasePrompt() {
 
 function updateCopyButtonLabel(button, label) {
   if (!button) return;
+  if (button.classList.contains("header-btn")) {
+    const originalTitle = button.dataset.originalTitle || button.getAttribute("title") || "";
+    const originalAriaLabel = button.dataset.originalAriaLabel || button.getAttribute("aria-label") || "";
+    button.dataset.originalTitle = originalTitle;
+    button.dataset.originalAriaLabel = originalAriaLabel;
+    button.setAttribute("title", label);
+    button.setAttribute("aria-label", label);
+    button.classList.add("is-feedback");
+    window.clearTimeout(button._copyResetTimer);
+    button._copyResetTimer = window.setTimeout(() => {
+      button.setAttribute("title", button.dataset.originalTitle || originalTitle);
+      button.setAttribute("aria-label", button.dataset.originalAriaLabel || originalAriaLabel);
+      button.classList.remove("is-feedback");
+    }, 1400);
+    return;
+  }
   const original = button.dataset.originalLabel || button.textContent;
   button.dataset.originalLabel = original;
   button.textContent = label;
@@ -222,9 +238,43 @@ function resetHeaderActionButton(button) {
   if (!button) return;
   button.disabled = false;
   window.clearTimeout(button._copyResetTimer);
+  if (button.classList.contains("header-btn")) {
+    if (button.dataset.originalTitle) {
+      button.setAttribute("title", button.dataset.originalTitle);
+    }
+    if (button.dataset.originalAriaLabel) {
+      button.setAttribute("aria-label", button.dataset.originalAriaLabel);
+    }
+    button.classList.remove("is-feedback");
+    return;
+  }
   if (button.dataset.originalLabel) {
     button.textContent = button.dataset.originalLabel;
   }
+}
+
+function showAppToast(message, tone = "neutral") {
+  if (!message || !window.remotelabToastBridge?.show) return;
+  const mappedType = ["success", "error"].includes(tone) ? tone : "neutral";
+  window.remotelabToastBridge.show(message, mappedType);
+}
+
+function setHeaderActionBusy(button, label) {
+  if (!button) return;
+  button.disabled = true;
+  if (button.classList.contains("header-btn")) {
+    const originalTitle = button.dataset.originalTitle || button.getAttribute("title") || "";
+    const originalAriaLabel = button.dataset.originalAriaLabel || button.getAttribute("aria-label") || "";
+    button.dataset.originalTitle = originalTitle;
+    button.dataset.originalAriaLabel = originalAriaLabel;
+    button.setAttribute("title", label);
+    button.setAttribute("aria-label", label);
+    button.classList.add("is-feedback");
+    return;
+  }
+  const original = button.dataset.originalLabel || button.textContent;
+  button.dataset.originalLabel = original;
+  button.textContent = label;
 }
 
 function getWorkflowSessionAppName(session) {
@@ -239,11 +289,13 @@ function getWorkflowSessionAppName(session) {
 }
 
 function isMainlineWorkflowSession(session) {
-  return ["主交付", "功能交付"].includes(getWorkflowSessionAppName(session));
+  return ["执行", "主交付", "功能交付"].includes(getWorkflowSessionAppName(session));
 }
 
 function isHandoffSourceWorkflowSession(session) {
   return [
+    "验收",
+    "再议",
     "风险复核",
     "PR把关",
     "挑战",
@@ -292,7 +344,7 @@ function formatHandoffCandidate(session) {
 function selectHandoffTargetSession(sourceSession) {
   const candidates = getHandoffCandidates(sourceSession);
   if (candidates.length === 0) {
-    throw new Error("还没有可回灌的主交付会话");
+    throw new Error("还没有可转交的执行会话");
   }
   if (candidates.length === 1) {
     return candidates[0];
@@ -300,7 +352,7 @@ function selectHandoffTargetSession(sourceSession) {
 
   const lines = candidates.slice(0, 12).map((session, index) => `${index + 1}. ${formatHandoffCandidate(session)}`);
   const answer = window.prompt(
-    `选择要回灌到的主交付会话：\n\n${lines.join("\n")}\n\n输入序号`,
+    `选择要转交到的执行会话：\n\n${lines.join("\n")}\n\n输入序号`,
     "1",
   );
   if (answer === null) {
@@ -317,41 +369,59 @@ function syncHandoffButton() {
   if (!handoffSessionBtn) return;
   const session = getCurrentSession();
   const activity = getSessionActivity(session);
+  const hasContent = Number(session?.userMessageCount || 0) > 0;
   const visible = !visitorMode
     && !!currentSessionId
     && !!session
     && !session.archived
+    && hasContent
     && (isHandoffSourceWorkflowSession(session) || !!session?.handoffTargetSessionId);
-  handoffSessionBtn.style.display = visible ? "" : "none";
+  handoffSessionBtn.hidden = !visible;
   if (!visible) {
     resetHeaderActionButton(handoffSessionBtn);
+    if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
     return;
   }
   handoffSessionBtn.disabled = !session || activity.run.state === "running" || activity.compact.state === "pending";
+  if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
 }
 
 function syncShareButton() {
   if (!shareSnapshotBtn) return;
-  const visible = !visitorMode && !!currentSessionId;
-  shareSnapshotBtn.style.display = visible ? "" : "none";
+  const session = getCurrentSession();
+  const hasContent = Number(session?.userMessageCount || 0) > 0;
+  const visible = !visitorMode
+    && !!currentSessionId
+    && !!session
+    && !session.archived
+    && hasContent;
+  shareSnapshotBtn.hidden = !visible;
   if (!visible) {
     resetHeaderActionButton(shareSnapshotBtn);
   }
+  if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
 }
 
 function syncForkButton() {
   if (!forkSessionBtn) return;
-  const visible = !visitorMode && !!currentSessionId;
-  forkSessionBtn.style.display = visible ? "" : "none";
+  const session = getCurrentSession();
+  const hasContent = Number(session?.userMessageCount || 0) > 0;
+  const visible = !visitorMode
+    && !!currentSessionId
+    && !!session
+    && !session.archived
+    && hasContent;
+  forkSessionBtn.hidden = !visible;
   if (!visible) {
     resetHeaderActionButton(forkSessionBtn);
     syncHandoffButton();
+    if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
     return;
   }
-  const session = getCurrentSession();
   const activity = getSessionActivity(session);
   forkSessionBtn.disabled = !session || activity.run.state === "running" || activity.compact.state === "pending";
   syncHandoffButton();
+  if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
 }
 
 function getShareSnapshotTitle(session) {
@@ -396,7 +466,7 @@ async function shareCurrentSessionSnapshot() {
     if (navigator.share) {
       try {
         await navigator.share({ text: shareText });
-        updateCopyButtonLabel(shareSnapshotBtn, "Shared");
+        showAppToast("已分享", "success");
         return;
       } catch (err) {
         if (err?.name === "AbortError") return;
@@ -405,14 +475,14 @@ async function shareCurrentSessionSnapshot() {
 
     try {
       await copyText(shareText);
-      updateCopyButtonLabel(shareSnapshotBtn, "Copied");
+      showAppToast("分享内容已复制", "success");
     } catch {
       window.prompt("Copy share text", shareText);
-      updateCopyButtonLabel(shareSnapshotBtn, "Ready");
+      showAppToast("已准备分享内容");
     }
   } catch (err) {
     console.warn("[share] Failed to create snapshot:", err.message);
-    updateCopyButtonLabel(shareSnapshotBtn, "Failed");
+    showAppToast("分享失败", "error");
   } finally {
     shareSnapshotBtn.disabled = false;
     syncShareButton();
@@ -422,25 +492,22 @@ async function shareCurrentSessionSnapshot() {
 async function forkCurrentSession() {
   if (!currentSessionId || visitorMode || !forkSessionBtn) return;
 
-  const original = forkSessionBtn.dataset.originalLabel || forkSessionBtn.textContent;
-  forkSessionBtn.dataset.originalLabel = original;
-  forkSessionBtn.disabled = true;
-  forkSessionBtn.textContent = "Forking…";
+  setHeaderActionBusy(forkSessionBtn, "Forking…");
 
   try {
     const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(currentSessionId)}/fork`, {
       method: "POST",
     });
     if (data.session) {
+      showAppToast("已 Fork 当前会话", "success");
       upsertSession(data.session);
       renderSessionList();
-      updateCopyButtonLabel(forkSessionBtn, "Forked");
     } else {
-      updateCopyButtonLabel(forkSessionBtn, "Failed");
+      showAppToast("Fork 失败", "error");
     }
   } catch (err) {
     console.warn("[fork] Failed to fork session:", err.message);
-    updateCopyButtonLabel(forkSessionBtn, "Failed");
+    showAppToast("Fork 失败", "error");
   } finally {
     syncForkButton();
   }
@@ -463,10 +530,7 @@ async function handoffCurrentSessionResult() {
     if (!targetSession) return;
   }
 
-  const original = handoffSessionBtn.dataset.originalLabel || handoffSessionBtn.textContent;
-  handoffSessionBtn.dataset.originalLabel = original;
-  handoffSessionBtn.disabled = true;
-  handoffSessionBtn.textContent = "回灌中…";
+  setHeaderActionBusy(handoffSessionBtn, "转交中…");
 
   try {
     const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(currentSessionId)}/handoff`, {
@@ -480,13 +544,13 @@ async function handoffCurrentSessionResult() {
     if (data?.session) {
       upsertSession(data.session);
       renderSessionList();
-      updateCopyButtonLabel(handoffSessionBtn, "已回灌");
+      showAppToast("已转交", "success");
     } else {
-      updateCopyButtonLabel(handoffSessionBtn, "失败");
+      showAppToast("转交失败", "error");
     }
   } catch (error) {
     console.warn("[handoff] Failed to hand off session result:", error.message);
-    updateCopyButtonLabel(handoffSessionBtn, "失败");
+    showAppToast("转交失败", "error");
   } finally {
     syncHandoffButton();
   }
@@ -924,5 +988,10 @@ if (forkSessionBtn) {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && addToolModal && !addToolModal.hidden) {
     closeAddToolModal();
+    return;
+  }
+  if (e.key === "Escape" && workflowSummaryModal && !workflowSummaryModal.hidden) {
+    closeWorkflowSummaryModal();
+    return;
   }
 });

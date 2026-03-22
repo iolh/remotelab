@@ -185,6 +185,7 @@ window.RemoteLabBuild = {
 const menuBtn = document.getElementById("menuBtn");
 const sidebarOverlay = document.getElementById("sidebarOverlay");
 const closeSidebar = document.getElementById("closeSidebar");
+const workflowSummaryBtn = document.getElementById("workflowSummaryBtn");
 const forkSessionBtn = document.getElementById("forkSessionBtn");
 const handoffSessionBtn = document.getElementById("handoffSessionBtn");
 const shareSnapshotBtn = document.getElementById("shareSnapshotBtn");
@@ -210,6 +211,9 @@ const messagesEl = document.getElementById("messages");
 const messagesInner = document.getElementById("messagesInner");
 const emptyState = document.getElementById("emptyState");
 const workflowSummaryPanel = document.getElementById("workflowSummaryPanel");
+const workflowSummaryModal = document.getElementById("workflowSummaryModal");
+const workflowSummaryModalBody = document.getElementById("workflowSummaryModalBody");
+const closeWorkflowSummaryModalBtn = document.getElementById("closeWorkflowSummaryModal");
 const queuedPanel = document.getElementById("queuedPanel");
 const msgInput = document.getElementById("msgInput");
 const sendBtn = document.getElementById("sendBtn");
@@ -270,6 +274,108 @@ const addToolStatus = document.getElementById("addToolStatus");
 const providerPromptCode = document.getElementById("providerPromptCode");
 const saveToolConfigBtn = document.getElementById("saveToolConfigBtn");
 const copyProviderPromptBtn = document.getElementById("copyProviderPromptBtn");
+
+let chromeBridgeListeners = new Set();
+let lastChromeBridgeState = null;
+
+function cloneChromeSummaryConclusion(conclusion) {
+  if (!conclusion || typeof conclusion !== "object") return null;
+  return {
+    id: conclusion.id || "",
+    label: conclusion.label || "",
+    status: conclusion.status || "pending",
+    summary: conclusion.summary || "",
+    sourceSessionName: conclusion.sourceSessionName || "",
+    handledAt: conclusion.handledAt || "",
+    payload: conclusion.payload && typeof conclusion.payload === "object"
+      ? {
+          confidence: conclusion.payload.confidence || "",
+          recommendation: conclusion.payload.recommendation || "",
+        }
+      : null,
+  };
+}
+
+function buildChromeBridgeSummary(session) {
+  if (!session || typeof isWorkflowMainlineSession !== "function" || !isWorkflowMainlineSession(session)) {
+    return null;
+  }
+  const getByStatus = typeof getWorkflowConclusionsByStatus === "function"
+    ? getWorkflowConclusionsByStatus
+    : () => [];
+  const currentTask = typeof getWorkflowPanelCurrentTask === "function"
+    ? getWorkflowPanelCurrentTask(session)
+    : (session?.name || session?.description || "");
+  return {
+    currentTask: currentTask || "",
+    pending: getByStatus(session, ["pending"]).map(cloneChromeSummaryConclusion).filter(Boolean),
+    decisions: getByStatus(session, ["needs_decision"]).map(cloneChromeSummaryConclusion).filter(Boolean),
+    handled: getByStatus(session, ["accepted", "ignored"])
+      .map(cloneChromeSummaryConclusion)
+      .filter(Boolean)
+      .slice(0, 4),
+  };
+}
+
+function buildChromeBridgeState() {
+  const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
+  return {
+    title: headerTitle?.textContent || "",
+    statusLabel: statusText?.textContent || "",
+    currentSessionId: typeof currentSessionId === "string" ? currentSessionId : "",
+    visitorMode: visitorMode === true,
+    summary: buildChromeBridgeSummary(session),
+    actions: {
+      fork: {
+        visible: !!forkSessionBtn && forkSessionBtn.hidden !== true,
+        disabled: !!forkSessionBtn && forkSessionBtn.disabled === true,
+      },
+      share: {
+        visible: !!shareSnapshotBtn && shareSnapshotBtn.hidden !== true,
+        disabled: !!shareSnapshotBtn && shareSnapshotBtn.disabled === true,
+      },
+      handoff: {
+        visible: !!handoffSessionBtn && handoffSessionBtn.hidden !== true,
+        disabled: !!handoffSessionBtn && handoffSessionBtn.disabled === true,
+      },
+    },
+  };
+}
+
+function emitChromeBridgeState() {
+  lastChromeBridgeState = buildChromeBridgeState();
+  window.__REMOTELAB_CHROME_STATE__ = lastChromeBridgeState;
+  for (const listener of chromeBridgeListeners) {
+    try {
+      listener(lastChromeBridgeState);
+    } catch (error) {
+      console.warn("[chrome-bridge] listener failed:", error?.message || error);
+    }
+  }
+  window.dispatchEvent(new CustomEvent("remotelab:chrome-state", { detail: lastChromeBridgeState }));
+}
+
+window.remotelabChromeBridge = {
+  getState() {
+    if (!lastChromeBridgeState) {
+      lastChromeBridgeState = buildChromeBridgeState();
+    }
+    return lastChromeBridgeState;
+  },
+  subscribe(listener) {
+    if (typeof listener !== "function") return () => {};
+    chromeBridgeListeners.add(listener);
+    listener(window.remotelabChromeBridge.getState());
+    return () => {
+      chromeBridgeListeners.delete(listener);
+    };
+  },
+  actions: {
+    fork: () => (typeof forkCurrentSession === "function" ? forkCurrentSession() : Promise.resolve()),
+    share: () => (typeof shareCurrentSessionSnapshot === "function" ? shareCurrentSessionSnapshot() : Promise.resolve()),
+    handoff: () => (typeof handoffCurrentSessionResult === "function" ? handoffCurrentSessionResult() : Promise.resolve()),
+  },
+};
 
 refreshFrontendBtn?.addEventListener("click", () => {
   void reloadForFreshBuild(newerBuildInfo);

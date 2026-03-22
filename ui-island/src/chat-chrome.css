@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+:root {
+  --chrome-button-size: 32px;
+}
+
+#chatChromeRoot {
+  width: auto;
+}
+
+.remotelab-sonner-toast {
+  border-radius: 14px !important;
+  border: 1px solid var(--border) !important;
+  background: color-mix(in srgb, var(--bg) 97%, transparent) !important;
+  color: var(--text) !important;
+  box-shadow: var(--modal-shadow) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.remotelab-sonner-success {
+  border-color: color-mix(in srgb, var(--success) 24%, var(--border)) !important;
+}
+
+.remotelab-sonner-error {
+  border-color: color-mix(in srgb, var(--error) 22%, var(--border)) !important;
+}
+
+.remotelab-sonner-title,
+.remotelab-sonner-description {
+  color: var(--text) !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+}
+
+[data-sonner-toaster] {
+  --width: min(calc(100vw - 32px), 320px);
+  bottom: calc(var(--safe-bottom) + 120px) !important;
+}
+
+.chrome-action-button {
+  width: var(--chrome-button-size);
+  height: var(--chrome-button-size);
+  position: relative;
+}
+
+.chrome-action-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--notice);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.chrome-summary-scroll {
+  max-height: min(70dvh, 520px);
+}

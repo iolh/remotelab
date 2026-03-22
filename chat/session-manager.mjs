@@ -392,10 +392,10 @@ function getWorkflowHandoffKind(session) {
     || session?.appName
     || '',
   );
-  if (['风险复核', '挑战', '后台挑战'].includes(appName)) {
+  if (['验收', '执行验收', '风险复核', '挑战', '后台挑战'].includes(appName)) {
     return 'risk_review';
   }
-  if (['PR把关', '合并', '发布把关'].includes(appName)) {
+  if (['再议', '深度裁决', 'PR把关', '合并', '发布把关'].includes(appName)) {
     return 'pr_gate';
   }
   return 'workflow';
@@ -406,26 +406,26 @@ function getWorkflowHandoffTypeForSession(session) {
 }
 
 function isWorkflowMainlineAppName(appName) {
-  return ['主交付', '功能交付'].includes(normalizeSessionAppName(appName || ''));
+  return ['执行', '主交付', '功能交付'].includes(normalizeSessionAppName(appName || ''));
 }
 
 function isWorkflowVerificationAppName(appName) {
-  return ['执行验收', '风险复核'].includes(normalizeSessionAppName(appName || ''));
+  return ['验收', '执行验收', '风险复核'].includes(normalizeSessionAppName(appName || ''));
 }
 
 function getWorkflowHandoffLabel(kind) {
-  if (kind === 'risk_review') return '风险复核回灌';
-  if (kind === 'pr_gate') return 'PR 把关回灌';
-  return '结果回灌';
+  if (kind === 'risk_review') return '验收转交';
+  if (kind === 'pr_gate') return '再议转交';
+  return '结果转交';
 }
 
 function getWorkflowHandoffTypeIntro(handoffType) {
   const normalized = normalizeWorkflowHandoffType(handoffType);
   if (normalized === 'verification_result') {
-    return '以下是本轮执行验收的最新结果。';
+    return '以下是本轮验收的最新结果。';
   }
   if (normalized === 'decision_result') {
-    return '以下是本轮深度裁决的最新结论。';
+    return '以下是本轮再议的最新结论。';
   }
   return '以下是本会话的最新结论。';
 }
@@ -437,7 +437,7 @@ function normalizeWorkflowCurrentTask(value) {
 function extractWorkflowCurrentTaskFromName(name) {
   const normalized = typeof name === 'string' ? name.trim() : '';
   if (!normalized) return '';
-  const stripped = normalized.replace(/^(?:主交付|功能交付)\s*[·•—\-:：]\s*/u, '').trim();
+  const stripped = normalized.replace(/^(?:执行|主交付|功能交付)\s*[·•—\-:：]\s*/u, '').trim();
   if (!stripped || stripped === normalized) return '';
   return normalizeWorkflowCurrentTask(stripped);
 }
@@ -470,7 +470,7 @@ function extractWorkflowCurrentTaskFromText(text, currentTask = '') {
 
   const ignoredLinePatterns = [
     /^(?:这是一个复杂新需求|继续这个任务|执行计划可以|请继续|继续推进实现|现在请你收口成最终交付结果)[。！!.]?$/u,
-    /^(?:风险复核|PR把关)给了下面这些结论/u,
+    /^(?:验收|再议|风险复核|PR把关)给了下面这些结论/u,
     /^(?:这是当前改动范围|这是当前 PR 评论|这是 PR 评论|这是关键 diff)/u,
   ];
   for (const line of lines) {
@@ -507,9 +507,9 @@ function normalizeWorkflowHandoffType(value, fallbackKind = '') {
 
 function getWorkflowHandoffTypeLabel(handoffType) {
   const normalized = normalizeWorkflowHandoffType(handoffType);
-  if (normalized === 'verification_result') return '执行验收结果';
-  if (normalized === 'decision_result') return '深度裁决结果';
-  return '结果回灌';
+  if (normalized === 'verification_result') return '验收结果';
+  if (normalized === 'decision_result') return '再议结论';
+  return '结果转交';
 }
 
 function normalizeWorkflowConclusionSummary(value) {
@@ -1503,6 +1503,7 @@ async function enrichSessionMeta(meta, _options = {}) {
     lastEventAt: snapshot.lastEventAt,
     messageCount: snapshot.messageCount,
     activeMessageCount: snapshot.activeMessageCount,
+    userMessageCount: snapshot.userMessageCount,
     contextMode: snapshot.contextMode,
     activeFromSeq: snapshot.activeFromSeq,
     compactedThroughSeq: snapshot.compactedThroughSeq,
