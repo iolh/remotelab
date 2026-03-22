@@ -54,8 +54,12 @@ function getSwipeGestureAction(direction) {
   if (direction === "left") {
     return {
       pillSide: "right",
-      label: "新建会话",
-      run: () => Promise.resolve(createNewSessionShortcut()),
+      label: "开始任务",
+      run: () => Promise.resolve(
+        typeof window.openWorkflowTaskIntakeModal === "function"
+          ? window.openWorkflowTaskIntakeModal()
+          : createNewSessionShortcut(),
+      ),
     };
   }
   return null;

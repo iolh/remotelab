@@ -1,11 +1,8 @@
 import { createRoot } from "react-dom/client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
-  BrainCircuit,
-  CheckCircle2,
-  CircleDashed,
-  GitBranch,
+  ChevronDown,
   GitFork,
   Play,
   SendHorizontal,
@@ -14,18 +11,26 @@ import {
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
 import "./chat-chrome.css";
@@ -87,9 +92,8 @@ type WorkflowModeConfig = {
   appRole: "execute" | "deliberate";
 };
 
-type WorkflowOpenDetail = {
-  revealManual?: boolean;
-} | null;
+type WorkflowOpenDetail = null;
+type ResolvedTheme = "light" | "dark";
 
 declare global {
   interface Window {
@@ -103,7 +107,17 @@ declare global {
       };
     };
     remotelabToastBridge?: {
-      show: (message: string, tone?: "success" | "error" | "neutral") => void;
+      show: (
+        message: string,
+        tone?: "success" | "error" | "neutral",
+        options?: {
+          position?: "top-center" | "bottom-center";
+          className?: string;
+        },
+      ) => void;
+    };
+    remotelabCodexImportBridge?: {
+      open: (options?: { required?: boolean }) => Promise<string | null>;
     };
     remotelabWorkflowBridge?: {
       getSeedInput?: () => Partial<WorkflowTaskInput>;
@@ -120,8 +134,11 @@ declare global {
         successToast: string;
       }) => Promise<unknown>;
     };
-    openWorkflowTaskIntakeModal?: (options?: { revealManual?: boolean }) => boolean;
-    openWorkflowTaskIntakeManualMode?: () => boolean;
+    RemoteLabTheme?: {
+      getTheme?: () => string;
+      subscribe?: (listener: (detail: { preference?: string; theme?: string }) => void) => () => void;
+    };
+    openWorkflowTaskIntakeModal?: () => boolean;
   }
 }
 
@@ -313,13 +330,8 @@ function emitWorkflowTaskOpen(detail: WorkflowOpenDetail = null) {
   window.dispatchEvent(new CustomEvent(WORKFLOW_OPEN_EVENT, { detail }));
 }
 
-window.openWorkflowTaskIntakeModal = (options = {}) => {
-  emitWorkflowTaskOpen(options);
-  return true;
-};
-
-window.openWorkflowTaskIntakeManualMode = () => {
-  emitWorkflowTaskOpen({ revealManual: true });
+window.openWorkflowTaskIntakeModal = () => {
+  emitWorkflowTaskOpen(null);
   return true;
 };
 
@@ -336,89 +348,75 @@ function useChromeState() {
   return state;
 }
 
-function SummarySection({
-  title,
-  items,
-}: {
-  title: string;
-  items: Conclusion[];
-}) {
-  if (!items.length) return null;
-  return (
-    <section className="grid gap-2">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.02em] text-[color:var(--text-secondary)]">
-        {title}
-      </div>
-      <div className="grid gap-2">
-        {items.map((item) => (
-          <div
-            key={item.id || `${title}-${item.summary}`}
-            className="grid gap-1 rounded-xl border border-[color:var(--border)] bg-[color:var(--bg)] px-3 py-2"
-          >
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-[color:var(--text-secondary)]">
-              <span className="inline-flex items-center rounded-full bg-[color:var(--bg-secondary)] px-2 py-0.5 font-medium text-[color:var(--text)]">
-                {item.label || "结果"}
-              </span>
-              {item.sourceSessionName ? <span>来自 {item.sourceSessionName}</span> : null}
-              {item.payload?.confidence ? <span>置信度 {item.payload.confidence}</span> : null}
-            </div>
-            <div className="text-[13px] leading-5 text-[color:var(--text)]">
-              {item.summary || "暂无摘要"}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
+const SUMMARY_TOAST_ID = "remotelab-summary-toast";
+
+function getSummaryToastTitle(summary: ChromeState["summary"]) {
+  const decisionCount = summary?.decisions?.length || 0;
+  const pendingCount = summary?.pending?.length || 0;
+  const handledCount = summary?.handled?.length || 0;
+  if (decisionCount > 0) return "有待决策摘要";
+  if (pendingCount > 0) return "有待处理摘要";
+  if (handledCount > 0) return "最近摘要已更新";
+  return "主线摘要";
 }
 
-function SummaryPopover({ summary }: { summary: ChromeState["summary"] }) {
+function getSummaryToastDescription(summary: ChromeState["summary"]) {
   const pending = summary?.pending || [];
   const decisions = summary?.decisions || [];
   const handled = summary?.handled || [];
+  const currentTask = normalizeText(summary?.currentTask);
+  const parts: string[] = [];
+  if (decisions.length > 0) parts.push(`${decisions.length} 条待决策`);
+  if (pending.length > 0) parts.push(`${pending.length} 条待处理`);
+  if (!parts.length && handled.length > 0) parts.push(`最近已处理 ${handled.length} 条`);
+  const lead = normalizeText(decisions[0]?.summary || pending[0]?.summary || handled[0]?.summary);
+  const detail = parts.length && lead
+    ? `${parts.join("，")} · ${lead}`
+    : (parts.join("，") || lead || "暂无新的摘要通知");
+  if (currentTask) return `${currentTask} · ${detail}`;
+  return detail;
+}
+
+function SummaryToastButton({ summary }: { summary: ChromeState["summary"] }) {
+  const pending = summary?.pending || [];
+  const decisions = summary?.decisions || [];
   const hasNotice = decisions.length > 0 || pending.length > 0;
 
+  function handleClick() {
+    toast(getSummaryToastTitle(summary), {
+      id: SUMMARY_TOAST_ID,
+      description: getSummaryToastDescription(summary),
+      position: "top-center",
+      duration: 5200,
+      className: "remotelab-summary-toast",
+      action: {
+        label: "知道了",
+        onClick: () => {
+          toast.dismiss(SUMMARY_TOAST_ID);
+        },
+      },
+    });
+  }
+
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="chrome-action-button text-[color:var(--text-secondary)] hover:text-[color:var(--text)]"
-          title="摘要通知"
-          aria-label="摘要通知"
-        >
-          <Bell className="size-4" strokeWidth={1.8} />
-          {hasNotice ? <span className="chrome-action-dot" /> : null}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="chrome-summary-scroll overflow-auto p-3">
-        <div className="grid gap-4">
-          <section className="grid gap-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.02em] text-[color:var(--text-secondary)]">
-              当前任务
-            </div>
-            <div className="text-[14px] leading-6 text-[color:var(--text)]">
-              {summary?.currentTask || "暂未设置"}
-            </div>
-          </section>
-          {decisions.length > 0 ? (
-            <section className="grid gap-2 rounded-2xl border border-[color:color-mix(in_srgb,var(--notice)_18%,var(--border))] bg-[color:color-mix(in_srgb,var(--notice)_7%,var(--bg))] p-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.02em] text-[color:var(--text-secondary)]">
-                待我决策
-              </div>
-              <div className="text-[13px] leading-5 text-[color:var(--text)]">
-                现在有 {decisions.length} 条结论在等你拍板。
-              </div>
-              <SummarySection title="待决策" items={decisions.slice(0, 3)} />
-            </section>
-          ) : null}
-          <SummarySection title="待处理" items={pending} />
-          <SummarySection title="最近已处理" items={handled} />
-        </div>
-      </PopoverContent>
-    </Popover>
+    <Button
+      variant="ghost"
+      size="icon"
+      className="chrome-action-button text-[color:var(--text-secondary)] hover:text-[color:var(--text)]"
+      title="摘要通知"
+      aria-label="摘要通知"
+      onClick={handleClick}
+    >
+      <Bell className="size-4" strokeWidth={1.8} />
+      {hasNotice ? <span className="chrome-action-dot" /> : null}
+    </Button>
   );
+}
+
+function resolveCurrentTheme(): ResolvedTheme {
+  if (typeof document === "undefined") return "light";
+  const theme = window.RemoteLabTheme?.getTheme?.() || document.documentElement.dataset.theme || "light";
+  return theme === "dark" ? "dark" : "light";
 }
 
 function HeaderActions() {
@@ -469,7 +467,7 @@ function HeaderActions() {
 
   return (
     <div className="flex items-center gap-1">
-      {summary ? <SummaryPopover summary={summary} /> : null}
+      {summary ? <SummaryToastButton summary={summary} /> : null}
       {actionDefs
         .filter((entry) => entry.visible)
         .map((entry) => {
@@ -493,12 +491,115 @@ function HeaderActions() {
   );
 }
 
+function CodexImportDialog() {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const resolverRef = useRef<((value: string | null) => void) | null>(null);
+  const [open, setOpen] = useState(false);
+  const [required, setRequired] = useState(false);
+  const [threadId, setThreadId] = useState("");
+  const [status, setStatus] = useState("");
+
+  function finish(result: string | null) {
+    setOpen(false);
+    const resolver = resolverRef.current;
+    resolverRef.current = null;
+    if (resolver) resolver(result);
+  }
+
+  useEffect(() => {
+    window.remotelabCodexImportBridge = {
+      open(options = {}) {
+        if (resolverRef.current) {
+          resolverRef.current(null);
+          resolverRef.current = null;
+        }
+        const isRequired = options.required === true;
+        setRequired(isRequired);
+        setThreadId("");
+        setStatus("");
+        setOpen(true);
+        return new Promise((resolve) => {
+          resolverRef.current = resolve;
+        });
+      },
+    };
+
+    return () => {
+      if (resolverRef.current) {
+        resolverRef.current(null);
+        resolverRef.current = null;
+      }
+      delete window.remotelabCodexImportBridge;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+  }, [open]);
+
+  function handleConfirm() {
+    const value = normalizeText(threadId);
+    if (required && !value) {
+      setStatus("请输入要导入的 Codex thread id。");
+      inputRef.current?.focus();
+      return;
+    }
+    finish(value);
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) finish(null);
+      }}
+    >
+      <DialogContent className="codex-import-dialog">
+        <DialogHeader className="codex-import-dialog-header">
+          <DialogTitle className="codex-import-dialog-title">{required ? "导入会话" : "连接会话"}</DialogTitle>
+        </DialogHeader>
+        <div className="codex-import-dialog-body">
+          <div className="codex-import-dialog-field">
+            <Label className="codex-import-dialog-label" htmlFor="codex-import-thread-id">Codex thread id</Label>
+            <Input
+              id="codex-import-thread-id"
+              ref={inputRef}
+              value={threadId}
+              onChange={(event) => setThreadId(event.target.value)}
+              placeholder="请输入要连接的 Codex thread id，例如 019d1194-31c3-7271-bda6-6f78311b198d"
+              autoComplete="off"
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                handleConfirm();
+              }}
+            />
+          </div>
+          {status ? <div className="codex-import-dialog-note">{status}</div> : null}
+        </div>
+        <DialogFooter className="codex-import-dialog-footer">
+          <Button variant="outline" onClick={() => finish(null)}>
+            取消
+          </Button>
+          <Button variant="default" className="codex-import-dialog-primary" onClick={handleConfirm}>
+            {required ? "导入会话" : "继续"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ModeFlow({ steps }: { steps: string[] }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       {steps.map((step, index) => (
         <div key={`${step}-${index}`} className="flex items-center gap-2">
-          <Badge variant="outline">{step}</Badge>
+          <span className="workflow-task-flow-step">{step}</span>
           {index < steps.length - 1 ? (
             <span className="text-xs text-[color:var(--text-tertiary)]">→</span>
           ) : null}
@@ -510,23 +611,16 @@ function ModeFlow({ steps }: { steps: string[] }) {
 
 function WorkflowTaskDialog() {
   const [open, setOpen] = useState(false);
-  const [revealManual, setRevealManual] = useState(false);
+  const [showOptionalFields, setShowOptionalFields] = useState(false);
+  const [showRecommendationDetails, setShowRecommendationDetails] = useState(false);
   const [starting, setStarting] = useState(false);
   const [input, setInput] = useState<WorkflowTaskInput>(EMPTY_WORKFLOW_INPUT);
 
   useEffect(() => {
-    function handleOpen(event: Event) {
-      const detail = (event as CustomEvent<WorkflowOpenDetail>).detail || {};
-      const seed = window.remotelabWorkflowBridge?.getSeedInput?.() || {};
-      setInput({
-        goal: normalizeText(seed.goal),
-        project: normalizeText(seed.project),
-        constraints: "",
-        progress: "",
-        concern: "",
-        preference: "",
-      });
-      setRevealManual(detail.revealManual === true);
+    function handleOpen(_event: Event) {
+      setInput(EMPTY_WORKFLOW_INPUT);
+      setShowOptionalFields(false);
+      setShowRecommendationDetails(false);
       setStarting(false);
       setOpen(true);
       void window.remotelabWorkflowBridge?.ensureAppsLoaded?.();
@@ -571,7 +665,8 @@ function WorkflowTaskDialog() {
         successToast: successToastOverride || mode.successToast,
       });
       setOpen(false);
-      setRevealManual(false);
+      setShowOptionalFields(false);
+      setShowRecommendationDetails(false);
       setInput(EMPTY_WORKFLOW_INPUT);
     } catch (error) {
       window.remotelabToastBridge?.show(
@@ -585,152 +680,147 @@ function WorkflowTaskDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="max-w-[min(calc(100vw-20px),720px)] p-0">
-        <DialogHeader>
-          <DialogTitle>开始任务</DialogTitle>
-          <DialogDescription>
-            你只需要告诉我任务目标、项目位置、边界和当前进展；系统会先推荐更合适的工作流，再帮你一键拉起合适的主线。
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid max-h-[min(72dvh,680px)] gap-4 overflow-auto px-5 py-5">
-          <Card>
-            <CardHeader>
-              <CardTitle>任务信息</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              <div className="grid gap-2 md:col-span-2">
-                <Label htmlFor="workflow-task-goal">目标</Label>
-                <Textarea
-                  id="workflow-task-goal"
-                  placeholder="一句话说明这次要做什么"
-                  value={input.goal}
-                  onChange={(event) => updateField("goal", event.target.value)}
-                />
-              </div>
-              <div className="grid gap-2 md:col-span-2">
-                <Label htmlFor="workflow-task-project">项目 / 仓库</Label>
-                <Input
-                  id="workflow-task-project"
-                  placeholder="例如：/path/to/project"
-                  value={input.project}
-                  onChange={(event) => updateField("project", event.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="workflow-task-constraints">边界 / 不能动</Label>
-                <Textarea
-                  id="workflow-task-constraints"
-                  placeholder="例如：不能动接口；这次不重构；今天内能上线"
-                  value={input.constraints}
-                  onChange={(event) => updateField("constraints", event.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="workflow-task-progress">当前进展</Label>
-                <Textarea
-                  id="workflow-task-progress"
-                  placeholder="例如：昨天做到搜索页，今天要接着补空态和错误态"
-                  value={input.progress}
-                  onChange={(event) => updateField("progress", event.target.value)}
-                />
-              </div>
-            </CardContent>
-          </Card>
+        <DialogContent className="workflow-task-dialog">
+          <DialogHeader className="workflow-task-dialog-header">
+            <DialogTitle className="workflow-task-dialog-title">开始任务</DialogTitle>
+          </DialogHeader>
+        <div className="workflow-task-dialog-body">
+          <div className="workflow-task-dialog-layout">
+            <div className="workflow-task-main-column">
+              <Card className="workflow-task-surface">
+                <CardHeader className="workflow-task-card-header">
+                  <CardTitle>任务信息</CardTitle>
+                </CardHeader>
+                <CardContent className="workflow-task-card-content">
+                  <div className="workflow-task-form">
+                    <div className="workflow-task-field">
+                      <Label className="workflow-task-label" htmlFor="workflow-task-goal">目标</Label>
+                      <Textarea
+                        id="workflow-task-goal"
+                        className="workflow-task-textarea-main"
+                        rows={3}
+                        placeholder="例如：修复移动端登录按钮无响应，并补上回归验证"
+                        value={input.goal}
+                        onChange={(event) => updateField("goal", event.target.value)}
+                      />
+                    </div>
+                    <div className="workflow-task-field">
+                      <Label className="workflow-task-label" htmlFor="workflow-task-project">项目</Label>
+                      <Input
+                        id="workflow-task-project"
+                        placeholder="例如：/path/to/remotelab"
+                        value={input.project}
+                        onChange={(event) => updateField("project", event.target.value)}
+                      />
+                    </div>
+                    <div className="workflow-task-field">
+                      <Label className="workflow-task-label" htmlFor="workflow-task-constraints">边界</Label>
+                      <Textarea
+                        id="workflow-task-constraints"
+                        className="workflow-task-textarea-compact"
+                        rows={3}
+                        placeholder="例如：不改接口、不改数据库结构，这次先不做重构"
+                        value={input.constraints}
+                        onChange={(event) => updateField("constraints", event.target.value)}
+                      />
+                    </div>
+                    <div className="workflow-task-field">
+                      <Label className="workflow-task-label" htmlFor="workflow-task-progress">进展</Label>
+                      <Textarea
+                        id="workflow-task-progress"
+                        className="workflow-task-textarea-compact"
+                        rows={3}
+                        placeholder="例如：已经定位到问题，还没开始改；或第一版已经提测"
+                        value={input.progress}
+                        onChange={(event) => updateField("progress", event.target.value)}
+                      />
+                    </div>
+                    <Collapsible open={showOptionalFields} onOpenChange={setShowOptionalFields} className="workflow-task-collapsible">
+                      <CollapsibleTrigger asChild>
+                        <Button type="button" variant="ghost" size="sm" className="workflow-task-collapsible-trigger">
+                          <span>补充信息（选填）</span>
+                          <ChevronDown
+                            className={`workflow-task-collapsible-icon${showOptionalFields ? " is-open" : ""}`}
+                            strokeWidth={1.8}
+                          />
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="workflow-task-collapsible-content">
+                        <div className="workflow-task-field">
+                          <Label className="workflow-task-label" htmlFor="workflow-task-concern">我最担心</Label>
+                          <Textarea
+                            id="workflow-task-concern"
+                            className="workflow-task-textarea-compact"
+                            rows={3}
+                            placeholder="例如：担心影响现有会话流程、移动端布局或已有接口兼容"
+                            value={input.concern}
+                            onChange={(event) => updateField("concern", event.target.value)}
+                          />
+                        </div>
+                        <div className="workflow-task-field">
+                          <Label className="workflow-task-label" htmlFor="workflow-task-preference">我当前倾向</Label>
+                          <Textarea
+                            id="workflow-task-preference"
+                            className="workflow-task-textarea-compact"
+                            rows={3}
+                            placeholder="例如：先做最小改动修复，确认稳定后再考虑扩展"
+                            value={input.preference}
+                            onChange={(event) => updateField("preference", event.target.value)}
+                          />
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>补充判断</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="workflow-task-concern">我最担心</Label>
-                <Textarea
-                  id="workflow-task-concern"
-                  placeholder="例如：担心跨模块回归；评论意见有冲突；移动端交互容易漏"
-                  value={input.concern}
-                  onChange={(event) => updateField("concern", event.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="workflow-task-preference">我当前倾向 / 备选方案</Label>
-                <Textarea
-                  id="workflow-task-preference"
-                  placeholder="例如：更倾向先小修；候选方案有 A / B 两条"
-                  value={input.preference}
-                  onChange={(event) => updateField("preference", event.target.value)}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-[color:color-mix(in_srgb,var(--notice)_18%,var(--border))] bg-[color:color-mix(in_srgb,var(--notice)_6%,var(--bg))]">
-            <CardHeader className="gap-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="grid gap-1">
-                  <CardTitle>推荐工作流</CardTitle>
-                  <CardDescription>{recommendedMode.title}</CardDescription>
-                </div>
-                <Badge variant="secondary">{recommendedMode.label}</Badge>
-              </div>
-              <CardDescription>{recommendedMode.reason}</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4">
-              <ModeFlow steps={recommendedMode.flow} />
-              <ul className="grid gap-2 text-sm leading-6 text-[color:var(--text-secondary)]">
-                {recommendedMode.plan.map((item) => (
-                  <li key={item} className="flex gap-2">
-                    <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-[color:var(--text-tertiary)]" />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-
-          {revealManual ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>手动模式</CardTitle>
-                <CardDescription>如果你想直接选择底层能力，也可以跳过推荐，手动打开对应会话。</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-2 sm:grid-cols-3">
-                <Button
-                  variant="outline"
-                  className="justify-start rounded-2xl px-4 py-5"
-                  disabled={starting}
-                  onClick={() => void handleStart(WORKFLOW_MODES.quick_execute, "execute", "已打开执行")}
-                >
-                  <Play className="size-4" strokeWidth={1.8} />
-                  执行
-                </Button>
-                <Button
-                  variant="outline"
-                  className="justify-start rounded-2xl px-4 py-5"
-                  disabled={starting}
-                  onClick={() => void handleStart(WORKFLOW_MODES.standard_delivery, "verify", "已打开验收")}
-                >
-                  <CheckCircle2 className="size-4" strokeWidth={1.8} />
-                  验收
-                </Button>
-                <Button
-                  variant="outline"
-                  className="justify-start rounded-2xl px-4 py-5"
-                  disabled={starting}
-                  onClick={() => void handleStart(WORKFLOW_MODES.careful_deliberation, "deliberate", "已打开再议")}
-                >
-                  <BrainCircuit className="size-4" strokeWidth={1.8} />
-                  再议
-                </Button>
-              </CardContent>
-            </Card>
-          ) : null}
+            <div className="workflow-task-side-column">
+              <Card className="workflow-task-surface workflow-task-recommendation-surface">
+                <CardHeader className="workflow-task-card-header">
+                  <div className="flex items-start justify-between gap-3">
+                    <CardTitle>推荐工作流</CardTitle>
+                    <Badge className="workflow-task-recommendation-badge" variant="secondary">{recommendedMode.label}</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="workflow-task-card-content">
+                  <p className="workflow-task-recommendation-reason">{recommendedMode.title}</p>
+                  <Collapsible
+                    open={showRecommendationDetails}
+                    onOpenChange={setShowRecommendationDetails}
+                    className="workflow-task-collapsible"
+                  >
+                    <CollapsibleTrigger asChild>
+                      <Button type="button" variant="ghost" size="sm" className="workflow-task-collapsible-trigger">
+                        <span>{showRecommendationDetails ? "收起依据" : "查看依据"}</span>
+                        <ChevronDown
+                          className={`workflow-task-collapsible-icon${showRecommendationDetails ? " is-open" : ""}`}
+                          strokeWidth={1.8}
+                        />
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="workflow-task-collapsible-content">
+                      <div className="workflow-task-recommendation-details">
+                        <ModeFlow steps={recommendedMode.flow} />
+                        <ul className="workflow-task-recommendation-list">
+                          {recommendedMode.plan.map((item) => (
+                            <li key={item} className="flex gap-2">
+                              <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-[color:var(--text-tertiary)]" />
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="workflow-task-dialog-footer">
           <Button variant="outline" onClick={() => setOpen(false)} disabled={starting}>
             取消
-          </Button>
-          <Button variant="secondary" onClick={() => setRevealManual((value) => !value)} disabled={starting}>
-            {revealManual ? "收起手动模式" : "手动模式"}
           </Button>
           <Button
             variant="default"
@@ -747,38 +837,47 @@ function WorkflowTaskDialog() {
 
 function TaskEntryButtons() {
   return (
-    <div className="flex flex-wrap justify-center gap-3">
-      <Button variant="default" className="min-w-[128px] rounded-full" onClick={() => window.openWorkflowTaskIntakeModal?.()}>
+    <div className="workflow-task-entry-buttons">
+      <Button variant="default" className="workflow-task-entry-button workflow-task-entry-button-primary" onClick={() => window.openWorkflowTaskIntakeModal?.()}>
         <Play className="size-4" strokeWidth={1.8} />
         开始任务
-      </Button>
-      <Button variant="outline" className="min-w-[128px] rounded-full" onClick={() => window.openWorkflowTaskIntakeManualMode?.()}>
-        <CircleDashed className="size-4" strokeWidth={1.8} />
-        手动模式
       </Button>
     </div>
   );
 }
 
 function SidebarTaskButton() {
-  return (
-    <Button
-      variant="default"
-      className="w-full rounded-[22px] py-6 text-sm"
-      onClick={() => window.openWorkflowTaskIntakeModal?.()}
-    >
-      <GitBranch className="size-4" strokeWidth={1.8} />
-      开始任务
-    </Button>
-  );
+  return null;
 }
 
 function App() {
+  const [theme, setTheme] = useState<ResolvedTheme>(() => resolveCurrentTheme());
+
+  useEffect(() => {
+    function handleThemeChange(event: Event) {
+      const detail = (event as CustomEvent<{ theme?: string }>).detail;
+      setTheme(detail?.theme === "dark" ? "dark" : resolveCurrentTheme());
+    }
+
+    const unsubscribe = window.RemoteLabTheme?.subscribe?.((detail) => {
+      setTheme(detail?.theme === "dark" ? "dark" : "light");
+    });
+
+    document.addEventListener("remotelab:theme-change", handleThemeChange as EventListener);
+    setTheme(resolveCurrentTheme());
+
+    return () => {
+      unsubscribe?.();
+      document.removeEventListener("remotelab:theme-change", handleThemeChange as EventListener);
+    };
+  }, []);
+
   return (
     <>
       <HeaderActions />
+      <CodexImportDialog />
       <WorkflowTaskDialog />
-      <Toaster />
+      <Toaster theme={theme} />
     </>
   );
 }
@@ -794,16 +893,20 @@ mountRoot("workflowTaskEntryRoot", <TaskEntryButtons />);
 mountRoot("workflowTaskSidebarRoot", <SidebarTaskButton />);
 
 window.remotelabToastBridge = {
-  show(message, tone = "neutral") {
+  show(message, tone = "neutral", options = {}) {
     if (!message) return;
+    const toastOptions = {
+      position: options.position,
+      className: options.className,
+    };
     if (tone === "success") {
-      toast.success(message);
+      toast.success(message, toastOptions);
       return;
     }
     if (tone === "error") {
-      toast.error(message);
+      toast.error(message, toastOptions);
       return;
     }
-    toast(message);
+    toast(message, toastOptions);
   },
 };

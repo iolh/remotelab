@@ -1,8 +1,9 @@
 import { Toaster as SonnerToaster } from "sonner";
 
-export function Toaster() {
+export function Toaster({ theme = "light" }: { theme?: "light" | "dark" | "system" }) {
   return (
     <SonnerToaster
+      theme={theme}
       position="bottom-center"
       closeButton={false}
       richColors={false}

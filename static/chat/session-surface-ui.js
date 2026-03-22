@@ -54,6 +54,32 @@ function getWorkflowPanelCurrentTask(session) {
   return "";
 }
 
+function getActiveWorkflowSuggestion(session) {
+  const suggestion = session?.workflowSuggestion && typeof session.workflowSuggestion === "object"
+    ? session.workflowSuggestion
+    : null;
+  if (!suggestion) return null;
+  const type = typeof suggestion.type === "string" ? suggestion.type.trim() : "";
+  const status = typeof suggestion.status === "string" ? suggestion.status.trim() : "";
+  if (!type || status !== "pending") return null;
+  return suggestion;
+}
+
+function getWorkflowSuggestionTitle(suggestion) {
+  if (suggestion?.type === "suggest_verification") return "建议开启验收";
+  return "建议下一步";
+}
+
+function getWorkflowSuggestionBody(session, suggestion) {
+  if (suggestion?.type === "suggest_verification") {
+    const task = getWorkflowPanelCurrentTask(session);
+    return task
+      ? `“${task}”这轮实现已经完成，建议现在开启独立验收，单独核对测试、交互和边界。`
+      : "这轮实现已经完成，建议现在开启独立验收，单独核对测试、交互和边界。";
+  }
+  return "系统建议你进入下一步工作流。";
+}
+
 function getOpenWorkflowConclusions(session) {
   const entries = Array.isArray(session?.workflowPendingConclusions) ? session.workflowPendingConclusions : [];
   return entries.filter((entry) => ["pending", "needs_decision"].includes(String(entry?.status || "").trim()));
@@ -97,6 +123,88 @@ async function updateWorkflowConclusionStatus(sessionId, conclusionId, status, b
   } catch (error) {
     console.warn("[workflow-summary] Failed to update conclusion status:", error.message);
   }
+}
+
+async function handleWorkflowSuggestionAction(session, action, button) {
+  if (!session?.id || !action) return;
+  const actions = button?.closest?.(".workflow-suggestion-actions")?.querySelectorAll?.("button") || [];
+  for (const entry of actions) {
+    entry.disabled = true;
+  }
+  try {
+    const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(session.id)}/workflow-suggestion/${encodeURIComponent(action)}`, {
+      method: "POST",
+    });
+    if (action === "accept" && data?.session) {
+      if (data?.sourceSession) {
+        upsertSession(data.sourceSession);
+      }
+      const created = upsertSession(data.session) || data.session;
+      if (typeof showAppToast === "function") {
+        showAppToast("已开启验收", "success");
+      }
+      attachSession(created.id, created);
+      return;
+    }
+    if (action === "dismiss" && data?.session) {
+      const updated = upsertSession(data.session) || data.session;
+      if (updated && currentSessionId === updated.id) {
+        applyAttachedSessionState(updated.id, updated);
+      } else {
+        renderSessionList();
+      }
+      if (typeof showAppToast === "function") {
+        showAppToast("已跳过本轮建议", "neutral");
+      }
+    }
+  } catch (error) {
+    if (typeof showAppToast === "function") {
+      showAppToast(action === "accept" ? "开启验收失败" : "跳过建议失败", "error");
+    }
+    console.warn("[workflow-suggestion] Failed to process action:", error.message);
+    for (const entry of actions) {
+      entry.disabled = false;
+    }
+  }
+}
+
+function buildWorkflowSuggestionCard(session, suggestion) {
+  const card = document.createElement("section");
+  card.className = "workflow-summary-section workflow-suggestion-card";
+
+  const heading = document.createElement("div");
+  heading.className = "workflow-summary-heading";
+  heading.textContent = getWorkflowSuggestionTitle(suggestion);
+  card.appendChild(heading);
+
+  const body = document.createElement("div");
+  body.className = "workflow-suggestion-text";
+  body.textContent = getWorkflowSuggestionBody(session, suggestion);
+  card.appendChild(body);
+
+  const actions = document.createElement("div");
+  actions.className = "workflow-suggestion-actions";
+
+  const acceptBtn = document.createElement("button");
+  acceptBtn.type = "button";
+  acceptBtn.className = "workflow-conclusion-btn primary";
+  acceptBtn.textContent = "开启验收";
+  acceptBtn.addEventListener("click", () => {
+    void handleWorkflowSuggestionAction(session, "accept", acceptBtn);
+  });
+  actions.appendChild(acceptBtn);
+
+  const dismissBtn = document.createElement("button");
+  dismissBtn.type = "button";
+  dismissBtn.className = "workflow-conclusion-btn";
+  dismissBtn.textContent = "暂时跳过";
+  dismissBtn.addEventListener("click", () => {
+    void handleWorkflowSuggestionAction(session, "dismiss", dismissBtn);
+  });
+  actions.appendChild(dismissBtn);
+
+  card.appendChild(actions);
+  return card;
 }
 
 function openWorkflowSummaryModal() {
@@ -296,8 +404,14 @@ function renderWorkflowSummaryPanel(session) {
 
   const pendingConclusions = getWorkflowConclusionsByStatus(session, ["pending"]);
   const decisionConclusions = getWorkflowConclusionsByStatus(session, ["needs_decision"]);
-  workflowSummaryPanel.hidden = true;
+  const suggestion = getActiveWorkflowSuggestion(session);
   workflowSummaryPanel.innerHTML = "";
+  if (suggestion) {
+    workflowSummaryPanel.hidden = false;
+    workflowSummaryPanel.appendChild(buildWorkflowSuggestionCard(session, suggestion));
+  } else {
+    workflowSummaryPanel.hidden = true;
+  }
   workflowSummaryBtn.hidden = false;
   workflowSummaryBtn.classList.toggle("has-notice", decisionConclusions.length > 0 || pendingConclusions.length > 0);
   const task = getWorkflowPanelCurrentTask(session) || "当前任务";

@@ -5,8 +5,9 @@ function getOrderedSettingsApps() {
   return apps.sort((a, b) => {
     const rank = (app) => {
       if (app?.id === BASIC_CHAT_TEMPLATE_APP_ID) return 0;
-      if (app?.id === CREATE_APP_TEMPLATE_APP_ID) return 1;
-      return 2;
+      if (app?.id === IMPORT_SESSION_TEMPLATE_APP_ID) return 1;
+      if (app?.id === CREATE_APP_TEMPLATE_APP_ID) return 2;
+      return 3;
     };
     return rank(a) - rank(b) || String(a?.name || "").localeCompare(String(b?.name || ""), undefined, { sensitivity: "base" });
   });
@@ -21,6 +22,9 @@ function buildAppShareUrl(app) {
 function summarizeAppDescription(app) {
   if (app?.id === BASIC_CHAT_TEMPLATE_APP_ID) {
     return "默认的日常对话应用，适合普通 RemoteLab 会话。";
+  }
+  if (app?.id === IMPORT_SESSION_TEMPLATE_APP_ID) {
+    return "显式导入已有 Codex 会话，会先要求你填写 thread id。";
   }
   const welcome = typeof app?.welcomeMessage === "string" ? app.welcomeMessage.trim() : "";
   if (welcome) {
@@ -77,6 +81,99 @@ function setUserFormStatus(message) {
 function setAppFormStatus(message) {
   if (!appFormStatus) return;
   appFormStatus.textContent = message || "";
+}
+
+function normalizeThemePreference(value) {
+  return value === "light" || value === "dark" || value === "system"
+    ? value
+    : "system";
+}
+
+function getThemeController() {
+  return window.RemoteLabTheme && typeof window.RemoteLabTheme === "object"
+    ? window.RemoteLabTheme
+    : null;
+}
+
+function fallbackApplyThemePreference(preference) {
+  const normalized = normalizeThemePreference(preference);
+  const theme = normalized === "system"
+    ? (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light")
+    : normalized;
+  try {
+    if (normalized === "system") {
+      window.localStorage.removeItem("remotelab.theme");
+    } else {
+      window.localStorage.setItem("remotelab.theme", normalized);
+    }
+  } catch {}
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.themePreference = normalized;
+  document.documentElement.style.colorScheme = theme;
+  if (document.body) {
+    document.body.dataset.theme = theme;
+    document.body.dataset.themePreference = normalized;
+    document.body.style.colorScheme = theme;
+  }
+  document
+    .querySelector('meta[name="theme-color"][data-remotelab-theme-color]')
+    ?.setAttribute("content", theme === "dark" ? "#1e1e1e" : "#ffffff");
+  document.dispatchEvent(
+    new CustomEvent("remotelab:theme-change", {
+      detail: { preference: normalized, theme },
+    }),
+  );
+  return { preference: normalized, theme };
+}
+
+function describeThemeStatus(preference, theme) {
+  if (preference === "light") {
+    return "当前固定为浅色主题，会立即作用于整个界面。";
+  }
+  if (preference === "dark") {
+    return "当前固定为深色主题，会立即作用于整个界面。";
+  }
+  return `当前跟随系统，正在使用${theme === "dark" ? "深色" : "浅色"}主题；如果系统按时间自动切换，RemoteLab 会一起切换。`;
+}
+
+function syncThemeSettingsControls(detail = null) {
+  if (!themeSettingsSelect) return;
+  const controller = getThemeController();
+  const preference = normalizeThemePreference(
+    detail?.preference
+      || controller?.getPreference?.()
+      || document.documentElement.dataset.themePreference
+      || "system",
+  );
+  const theme = (
+    detail?.theme
+      || controller?.getTheme?.()
+      || document.documentElement.dataset.theme
+      || (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light")
+  ) === "dark" ? "dark" : "light";
+  themeSettingsSelect.value = preference;
+  if (themeSettingsStatus) {
+    themeSettingsStatus.textContent = describeThemeStatus(preference, theme);
+  }
+}
+
+function initThemeSettingsControls() {
+  if (!themeSettingsSelect) return;
+  themeSettingsSelect.addEventListener("change", () => {
+    const preference = normalizeThemePreference(themeSettingsSelect.value || "system");
+    const controller = getThemeController();
+    const detail = controller?.setThemePreference
+      ? controller.setThemePreference(preference)
+      : fallbackApplyThemePreference(preference);
+    syncThemeSettingsControls(detail);
+  });
+  getThemeController()?.subscribe?.((detail) => {
+    syncThemeSettingsControls(detail);
+  });
+  document.addEventListener("remotelab:theme-change", (event) => {
+    syncThemeSettingsControls(event.detail);
+  });
+  syncThemeSettingsControls();
 }
 
 function getAdminSessionPrincipal() {
@@ -151,6 +248,7 @@ function getAppRecordById(appId) {
 }
 
 let pendingCodexImportResolver = null;
+let codexImportModalRequired = false;
 
 function setCodexImportModalStatus(message) {
   if (!codexImportStatus) return;
@@ -161,17 +259,28 @@ function finalizeCodexImportModal(result) {
   if (codexImportModal) {
     codexImportModal.hidden = true;
   }
-  setCodexImportModalStatus("留空会创建新的 Codex 会话。");
+  codexImportModalRequired = false;
+  setCodexImportModalStatus("");
   const resolver = pendingCodexImportResolver;
   pendingCodexImportResolver = null;
   if (resolver) resolver(result);
 }
 
-function openCodexImportModal() {
+function openCodexImportModal({ required = false } = {}) {
+  if (window.remotelabCodexImportBridge?.open) {
+    return window.remotelabCodexImportBridge.open({ required });
+  }
   if (!codexImportModal || !codexImportThreadInput) {
-    const raw = window.prompt("可选：输入已有 Codex thread id 以导入并续接历史；留空则创建全新会话。", "");
+    const raw = window.prompt(
+      required
+        ? "输入 Codex thread id。"
+        : "可选填入 Codex thread id。",
+      "",
+    );
     if (raw === null) return Promise.resolve(null);
-    return Promise.resolve(raw.trim());
+    const trimmed = raw.trim();
+    if (required && !trimmed) return Promise.resolve(null);
+    return Promise.resolve(trimmed);
   }
 
   if (pendingCodexImportResolver) {
@@ -179,8 +288,13 @@ function openCodexImportModal() {
     pendingCodexImportResolver = null;
   }
 
+  codexImportModalRequired = required === true;
   codexImportThreadInput.value = "";
-  setCodexImportModalStatus("留空会创建新的 Codex 会话。");
+  setCodexImportModalStatus(
+    codexImportModalRequired
+      ? "请输入 Codex thread id。"
+      : "",
+  );
   codexImportModal.hidden = false;
   window.setTimeout(() => {
     codexImportThreadInput.focus();
@@ -192,9 +306,9 @@ function openCodexImportModal() {
   });
 }
 
-async function requestOptionalCodexThreadId(toolId) {
+async function requestOptionalCodexThreadId(toolId, { required = false } = {}) {
   if (toolId !== "codex") return "";
-  return openCodexImportModal();
+  return openCodexImportModal({ required });
 }
 
 async function createSessionForApp(app, { closeSidebar = true, principal = getAdminSessionPrincipal() } = {}) {
@@ -205,17 +319,20 @@ async function createSessionForApp(app, { closeSidebar = true, principal = getAd
     || selectedTool
     || toolsList[0]?.id;
   if (!tool) return false;
-  const codexThreadId = await requestOptionalCodexThreadId(tool);
-  if (codexThreadId === null) return false;
   const model = typeof app?.model === "string" ? app.model.trim() : "";
   const effort = typeof app?.effort === "string" ? app.effort.trim() : "";
   const thinking = app?.thinking === true;
   if (typeof switchTab === "function") {
     switchTab("sessions");
   }
+  let codexThreadId = "";
+  if (app.id === IMPORT_SESSION_TEMPLATE_APP_ID) {
+    codexThreadId = await requestOptionalCodexThreadId("codex", { required: true });
+    if (!codexThreadId) return false;
+  }
   const result = await dispatchAction({
     action: "create",
-    folder: "~",
+    folder: app.id === IMPORT_SESSION_TEMPLATE_APP_ID ? "" : "~",
     tool,
     codexThreadId,
     model,
@@ -342,7 +459,7 @@ function renderUserAppOptions() {
 
   newUserAppsPicker.appendChild(grid);
   syncNewUserDefaultAppOptions(activeIds);
-  setUserFormStatus("管理员仍保留默认视图，新用户会自动获得一个起始会话。");
+  setUserFormStatus("新用户会自动生成起始会话。");
 }
 
 function focusNewUserComposer() {
@@ -618,18 +735,18 @@ function renderSettingsAppsPanel() {
       const welcomeInput = document.createElement("textarea");
       welcomeInput.className = "settings-inline-textarea";
       welcomeInput.value = typeof app.welcomeMessage === "string" ? app.welcomeMessage : "";
-      welcomeInput.placeholder = "可选的首条助手消息";
+      welcomeInput.placeholder = "首条助手消息（选填）";
       editor.appendChild(welcomeInput);
 
       const systemPromptInput = document.createElement("textarea");
       systemPromptInput.className = "settings-inline-textarea";
       systemPromptInput.value = typeof app.systemPrompt === "string" ? app.systemPrompt : "";
-      systemPromptInput.placeholder = "可选的系统提示词";
+      systemPromptInput.placeholder = "系统提示词（选填）";
       editor.appendChild(systemPromptInput);
 
       const inlineStatus = document.createElement("div");
       inlineStatus.className = "settings-app-empty inline-status";
-      inlineStatus.textContent = "可以在这里编辑自定义应用。";
+      inlineStatus.textContent = "可编辑应用配置。";
       editor.appendChild(inlineStatus);
       card.appendChild(editor);
 
@@ -720,7 +837,7 @@ function renderSettingsUsersPanel() {
   settingsUsersList.innerHTML = "";
   const users = Array.isArray(availableUsers) ? availableUsers : [];
   if (users.length === 0) {
-    settingsUsersList.innerHTML = '<div class="settings-app-empty">还没有额外用户，管理员仍保留默认视图。</div>';
+    settingsUsersList.innerHTML = '<div class="settings-app-empty">还没有额外用户。</div>';
     return;
   }
 
@@ -932,7 +1049,13 @@ cancelCodexImportBtn?.addEventListener("click", () => {
 });
 
 confirmCodexImportBtn?.addEventListener("click", () => {
-  finalizeCodexImportModal((codexImportThreadInput?.value || "").trim());
+  const threadId = (codexImportThreadInput?.value || "").trim();
+  if (codexImportModalRequired && !threadId) {
+    setCodexImportModalStatus("请输入要导入的 Codex thread id。");
+    codexImportThreadInput?.focus();
+    return;
+  }
+  finalizeCodexImportModal(threadId);
 });
 
 codexImportModal?.addEventListener("click", (event) => {
@@ -944,7 +1067,13 @@ codexImportModal?.addEventListener("click", (event) => {
 codexImportThreadInput?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   event.preventDefault();
-  finalizeCodexImportModal((codexImportThreadInput.value || "").trim());
+  const threadId = (codexImportThreadInput.value || "").trim();
+  if (codexImportModalRequired && !threadId) {
+    setCodexImportModalStatus("请输入要导入的 Codex thread id。");
+    codexImportThreadInput.focus();
+    return;
+  }
+  finalizeCodexImportModal(threadId);
 });
 
 document.addEventListener("keydown", (event) => {
@@ -952,3 +1081,5 @@ document.addEventListener("keydown", (event) => {
     finalizeCodexImportModal(null);
   }
 });
+
+initThemeSettingsControls();

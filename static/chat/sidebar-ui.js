@@ -26,7 +26,7 @@ function createNewAppShortcut({ closeSidebar = true } = {}) {
   return focusNewAppComposer({ closeSidebar });
 }
 
-menuBtn.addEventListener("click", openSidebar);
+menuBtn.addEventListener("click", openSessionsSidebar);
 closeSidebar.addEventListener("click", closeSidebarFn);
 sidebarOverlay.addEventListener("click", (e) => {
   if (e.target === sidebarOverlay && !isDesktop) closeSidebarFn();
@@ -38,10 +38,6 @@ newAppBtn.addEventListener("click", () => {
 });
 
 newSessionBtn?.addEventListener("click", () => {
-  if (typeof window.openWorkflowTaskIntakeModal === "function") {
-    window.openWorkflowTaskIntakeModal();
-    return;
-  }
   void createNewSessionShortcut();
 });
 

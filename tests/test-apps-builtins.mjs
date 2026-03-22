@@ -18,6 +18,7 @@ const {
   CREATE_APP_APP_ID,
   DEFAULT_APP_ID,
   EMAIL_APP_ID,
+  IMPORT_SESSION_APP_ID,
   createApp,
   deleteApp,
   getApp,
@@ -31,16 +32,18 @@ try {
   const initial = await listApps();
   assert.deepEqual(
     initial.map((app) => app.id),
-    ['chat', 'email', 'app_basic_chat', 'app_create_app'],
+    ['chat', 'email', 'app_basic_chat', 'app_import_session', 'app_create_app'],
     'built-in apps should include connector scopes plus shipped starter apps',
   );
   assert.equal(DEFAULT_APP_ID, 'chat');
   assert.equal(EMAIL_APP_ID, 'email');
   assert.equal(BASIC_CHAT_APP_ID, 'app_basic_chat');
+  assert.equal(IMPORT_SESSION_APP_ID, 'app_import_session');
   assert.equal(CREATE_APP_APP_ID, 'app_create_app');
   assert.equal(isBuiltinAppId('Chat'), true);
   assert.equal(isBuiltinAppId('Email'), true);
   assert.equal(isBuiltinAppId('app_basic_chat'), true);
+  assert.equal(isBuiltinAppId('app_import_session'), true);
   assert.equal(isBuiltinAppId('app_create_app'), true);
   assert.equal(isBuiltinAppId('app_video_cut'), false);
   assert.equal(isBuiltinAppId('github'), false);
@@ -83,6 +86,16 @@ try {
   assert.match(createAppStarter?.welcomeMessage || '', /SOP|工作流|RemoteLab App/i);
   assert.match(createAppStarter?.welcomeMessage || '', /SOP|工作流/i);
   assert.match(createAppStarter?.welcomeMessage || '', /分享给别人的链接|分享方式|share/i);
+
+  const importSessionApp = await getApp(IMPORT_SESSION_APP_ID);
+  assert.equal(importSessionApp?.id, IMPORT_SESSION_APP_ID);
+  assert.equal(importSessionApp?.builtin, true);
+  assert.equal(importSessionApp?.templateSelectable, true);
+  assert.equal(importSessionApp?.tool, 'codex');
+  assert.equal(importSessionApp?.shareEnabled, false);
+  assert.equal(importSessionApp?.shareToken, undefined);
+  assert.match(importSessionApp?.systemPrompt || '', /import an existing Codex thread|导入已有的 Codex thread/i);
+  assert.match(importSessionApp?.welcomeMessage || '', /thread id|导入已有的 Codex 会话/i);
 
   assert.equal(await getApp('feishu'), null);
   assert.equal(await getApp('app_video_cut'), null, 'Video Cut should no longer ship as a built-in app');

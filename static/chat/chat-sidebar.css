@@ -426,6 +426,10 @@
   display: grid;
   gap: 8px;
 }
+.settings-theme-select {
+  margin-top: 14px;
+  max-width: 220px;
+}
 .settings-inline-primary {
   justify-self: start;
 }

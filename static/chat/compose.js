@@ -153,15 +153,26 @@ function getComposerDraftText(sessionId = currentSessionId) {
   return readStoredDraft(sessionId);
 }
 
-function sendMessage(existingRequestId) {
+async function sendMessage(existingRequestId) {
   if (typeof shareSnapshotMode !== "undefined" && shareSnapshotMode) return;
   const text = msgInput.value.trim();
   const currentSession = getCurrentSession();
   if (hasPendingComposerSend()) return;
-  if ((!text && pendingImages.length === 0) || !currentSessionId || currentSession?.archived) return;
+  if ((!text && pendingImages.length === 0) || currentSession?.archived) return;
+
+  if (!currentSessionId && !visitorMode) {
+    const created = typeof createNewSessionShortcut === "function"
+      ? await createNewSessionShortcut({ closeSidebar: true })
+      : false;
+    if (!created || !currentSessionId) {
+      window.remotelabToastBridge?.show("创建会话失败，请稍后再试", "error");
+      return;
+    }
+  }
 
   const requestId = existingRequestId || createRequestId();
   const sessionId = currentSessionId;
+  if (!sessionId) return;
   const queuedImages = pendingImages.slice();
 
   pendingComposerSend = {
@@ -213,11 +224,13 @@ dropToolsBtn.addEventListener("click", () => {
   dispatchAction({ action: "drop_tools" });
 });
 
-sendBtn.addEventListener("click", sendMessage);
+sendBtn.addEventListener("click", () => {
+  void sendMessage();
+});
 msgInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
-    sendMessage();
+    void sendMessage();
   }
 });
 

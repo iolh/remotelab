@@ -349,29 +349,33 @@
   position: fixed; inset: 0; z-index: 220;
   background: var(--modal-backdrop);
   display: flex; align-items: center; justify-content: center;
-  padding: 18px;
+  padding: 24px;
 }
 .modal {
-  width: min(720px, 100%);
-  max-height: min(88dvh, 820px);
+  display: flex;
+  flex-direction: column;
+  width: min(840px, 100%);
+  max-height: min(90dvh, 920px);
   overflow: auto;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: 30px;
   box-shadow: var(--modal-shadow);
 }
 .modal-header,
 .modal-footer {
   display: flex; align-items: center; gap: 12px;
-  padding: 18px 22px;
+  flex-wrap: wrap;
 }
-.modal-header { border-bottom: 1px solid var(--border); }
+.modal-header {
+  padding: 36px 40px 0;
+}
 .modal-footer {
   justify-content: flex-end;
-  border-top: 1px solid var(--border);
+  padding: 24px 40px 36px;
 }
 .modal-title {
-  font-size: 17px; font-weight: 600; color: var(--text); flex: 1;
+  font-size: 18px; font-weight: 600; line-height: 1.3; color: var(--text); flex: 1;
 }
 .modal-close,
 .modal-btn {
@@ -384,12 +388,16 @@
   cursor: pointer;
 }
 .modal-close {
-  width: 34px; height: 34px;
+  width: 40px; height: 40px;
   display: flex; align-items: center; justify-content: center;
   font-size: 18px;
-  border-radius: 10px;
 }
-.modal-btn { padding: 9px 16px; border-radius: 10px; }
+.modal-btn {
+  min-height: 52px;
+  padding: 0 22px;
+  border-radius: 16px;
+  font-size: 15px;
+}
 .modal-btn:hover,
 .modal-close:hover {
   border-color: var(--border-strong);
@@ -407,36 +415,38 @@
   color: var(--bg);
 }
 .modal-body {
-  padding: 20px 22px;
+  padding: 24px 40px 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 24px;
 }
 .modal-lead {
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 1.7;
   color: var(--text-secondary);
 }
 .provider-helper-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 18px;
 }
 .provider-helper-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 .provider-helper-field label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text);
 }
 .provider-helper-field input {
   width: 100%;
-  padding: 9px 10px;
+  min-height: 52px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 18px;
   font: inherit;
   color: var(--text);
   background: var(--bg);
@@ -444,15 +454,16 @@
 .provider-helper-field select,
 .provider-helper-field textarea {
   width: 100%;
-  padding: 9px 10px;
+  min-height: 52px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 18px;
   font: inherit;
   color: var(--text);
   background: var(--bg);
 }
 .provider-helper-field textarea {
-  min-height: 94px;
+  min-height: 132px;
   resize: vertical;
 }
 .provider-helper-field input:focus,
@@ -463,31 +474,32 @@
 }
 .provider-helper-card {
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
-  background: var(--bg-secondary);
+  border-radius: 28px;
+  padding: 28px;
+  background: color-mix(in srgb, var(--bg-secondary) 72%, var(--bg));
 }
 .provider-helper-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 .provider-helper-card-title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text);
 }
 .provider-helper-card p,
 .provider-helper-card ul {
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.7;
   color: var(--text-secondary);
 }
 .provider-helper-card ul {
-  padding-left: 18px;
-  margin-top: 8px;
+  padding-left: 20px;
+  margin-top: 10px;
 }
 .provider-helper-card code.inline-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -498,9 +510,9 @@
   padding: 1px 5px;
 }
 .provider-helper-code {
-  margin-top: 10px;
-  padding: 12px;
-  border-radius: 10px;
+  margin-top: 12px;
+  padding: 16px 18px;
+  border-radius: 20px;
   background: var(--bg);
   border: 1px solid var(--border);
   overflow: auto;
@@ -515,12 +527,14 @@
   color: var(--text);
 }
 .provider-helper-note {
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.65;
   color: var(--text-muted);
 }
 .provider-helper-status {
-  min-height: 18px;
-  font-size: 12px;
+  min-height: 20px;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--text-muted);
 }
 

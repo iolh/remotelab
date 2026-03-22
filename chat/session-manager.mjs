@@ -94,6 +94,7 @@ import {
   createApp,
   getApp,
   getBuiltinApp,
+  listApps,
   normalizeAppId,
   resolveEffectiveAppId,
 } from './apps.mjs';
@@ -628,6 +629,53 @@ function normalizeWorkflowPendingConclusions(conclusions = []) {
     .map((item) => normalizeWorkflowPendingConclusion(item))
     .filter((item) => item.summary)
     .slice(-20);
+}
+
+function normalizeWorkflowSuggestionType(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (normalized === 'suggest_verification') return normalized;
+  return '';
+}
+
+function normalizeWorkflowSuggestionStatus(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (normalized === 'pending') return normalized;
+  return '';
+}
+
+function normalizeWorkflowSuggestion(suggestion = {}) {
+  if (!suggestion || typeof suggestion !== 'object' || Array.isArray(suggestion)) return null;
+  const type = normalizeWorkflowSuggestionType(suggestion.type || '');
+  if (!type) return null;
+  const status = normalizeWorkflowSuggestionStatus(suggestion.status || '');
+  if (!status) return null;
+  const runId = typeof suggestion.runId === 'string' ? suggestion.runId.trim() : '';
+  const createdAt = typeof suggestion.createdAt === 'string' && suggestion.createdAt.trim()
+    ? suggestion.createdAt.trim()
+    : nowIso();
+  return {
+    type,
+    status,
+    ...(runId ? { runId } : {}),
+    createdAt,
+  };
+}
+
+function getActiveWorkflowSuggestion(session) {
+  const normalized = normalizeWorkflowSuggestion(session?.workflowSuggestion || null);
+  if (!normalized || normalized.status !== 'pending') return null;
+  return normalized;
+}
+
+function hasOpenWorkflowConclusionOfType(session, handoffType) {
+  const normalizedType = normalizeWorkflowHandoffType(handoffType || '');
+  if (!normalizedType) return false;
+  const conclusions = normalizeWorkflowPendingConclusions(session?.workflowPendingConclusions || []);
+  return conclusions.some((entry) => {
+    const status = normalizeWorkflowConclusionStatus(entry?.status || '');
+    const type = normalizeWorkflowHandoffType(entry?.handoffType || '', entry?.handoffKind || '');
+    return ['pending', 'needs_decision'].includes(status) && type === normalizedType;
+  });
 }
 
 function isWorkflowAuxiliaryMessage(event) {
@@ -3129,6 +3177,7 @@ async function finalizeDetachedRun(sessionId, run, manifest, normalizedEvents = 
   queueSessionCompletionTargets(latestSession, finalizedRun, manifest);
   if (!manifest?.internalOperation) {
     scheduleSessionWorkflowStateSuggestion(latestSession, finalizedRun);
+    await maybeEmitWorkflowSuggestion(sessionId, latestSession, finalizedRun);
   }
 
   const needsRename = isSessionAutoRenamePending(latestSession);
@@ -3923,6 +3972,238 @@ async function updateSessionWorkflowCurrentTask(id, workflowCurrentTask) {
     broadcastSessionInvalidation(id);
   }
   return enrichSessionMeta(result.meta);
+}
+
+async function updateSessionWorkflowSuggestion(id, suggestion) {
+  const nextSuggestion = normalizeWorkflowSuggestion(suggestion || null);
+  const result = await mutateSessionMeta(id, (session) => {
+    const currentSuggestion = normalizeWorkflowSuggestion(session.workflowSuggestion || null);
+    if (!nextSuggestion) {
+      if (!currentSuggestion) return false;
+      delete session.workflowSuggestion;
+      session.updatedAt = nowIso();
+      return true;
+    }
+    if (JSON.stringify(currentSuggestion || null) === JSON.stringify(nextSuggestion)) {
+      return false;
+    }
+    session.workflowSuggestion = nextSuggestion;
+    session.updatedAt = nowIso();
+    return true;
+  });
+
+  if (!result.meta) return null;
+  if (result.changed) {
+    broadcastSessionInvalidation(id);
+  }
+  return enrichSessionMeta(result.meta);
+}
+
+function buildWorkflowVerificationSessionName(session) {
+  const currentTask = normalizeWorkflowCurrentTask(
+    session?.workflowCurrentTask
+    || extractWorkflowCurrentTaskFromName(session?.name || '')
+    || session?.description
+    || '',
+  );
+  if (currentTask) {
+    return `验收 · ${currentTask}`;
+  }
+  const displayName = normalizeSessionAppName(session?.name || '');
+  return `验收 · ${displayName || '当前任务'}`;
+}
+
+async function findWorkflowAppByNames(names = []) {
+  const normalizedNames = new Set(
+    (Array.isArray(names) ? names : [])
+      .map((name) => normalizeSessionAppName(name || ''))
+      .filter(Boolean),
+  );
+  if (normalizedNames.size === 0) return null;
+  const apps = await listApps();
+  return apps.find((app) => normalizedNames.has(normalizeSessionAppName(app?.name || ''))) || null;
+}
+
+function collectWorkflowRunTouchedFiles(events = [], runId = '') {
+  const files = [];
+  const seen = new Set();
+  for (const event of events || []) {
+    if (!event || event.type !== 'file_change') continue;
+    if (runId && event.runId !== runId) continue;
+    const filePath = typeof event.filePath === 'string' ? event.filePath.trim() : '';
+    if (!filePath || seen.has(filePath)) continue;
+    seen.add(filePath);
+    files.push(filePath);
+    if (files.length >= 10) break;
+  }
+  return files;
+}
+
+async function buildWorkflowVerificationTemplateContext(sourceSession, runId = '') {
+  const history = await loadHistory(sourceSession.id, { includeBodies: true });
+  const latestAssistant = runId
+    ? await findLatestAssistantMessageForRun(sourceSession.id, runId)
+    : findLatestAssistantConclusion(history);
+  const latestSummary = normalizeWorkflowConclusionSummary(latestAssistant?.content || '');
+  const touchedFiles = collectWorkflowRunTouchedFiles(history, runId);
+  const currentTask = normalizeWorkflowCurrentTask(
+    sourceSession?.workflowCurrentTask
+    || extractWorkflowCurrentTaskFromName(sourceSession?.name || '')
+    || sourceSession?.description
+    || '',
+  );
+  const sections = [
+    '你正在对以下主线结果做独立验收。',
+    currentTask ? `当前任务：${currentTask}` : '',
+    latestSummary ? `最近一轮改动摘要：\n${clipCompactionSection(latestSummary, 1600)}` : '',
+    touchedFiles.length > 0
+      ? `本轮涉及文件：\n${touchedFiles.map((filePath) => `- ${filePath}`).join('\n')}`
+      : '',
+    '请围绕这轮改动进行独立验收，重点关注：测试、页面行为、交互、空态/错误态、边界条件与回归风险。',
+    '如果某项没有真实验证证据，请明确标记为“未验证”。',
+  ].filter(Boolean);
+  if (sections.length <= 2 && !latestSummary && touchedFiles.length === 0) {
+    return '';
+  }
+  return sections.join('\n\n');
+}
+
+async function resolveWorkflowVerificationSessionDefaults(sourceSession, run = null) {
+  const app = await findWorkflowAppByNames(['验收', '执行验收', '风险复核']);
+  const currentTask = normalizeWorkflowCurrentTask(
+    sourceSession?.workflowCurrentTask
+    || extractWorkflowCurrentTaskFromName(sourceSession?.name || '')
+    || sourceSession?.description
+    || '',
+  );
+  const effectiveTool = typeof run?.tool === 'string' && run.tool.trim()
+    ? run.tool.trim()
+    : (typeof sourceSession?.tool === 'string' ? sourceSession.tool.trim() : (app?.tool || 'codex'));
+  const effectiveModel = typeof run?.model === 'string' && run.model.trim()
+    ? run.model.trim()
+    : (typeof sourceSession?.model === 'string' ? sourceSession.model.trim() : (typeof app?.model === 'string' ? app.model.trim() : ''));
+
+  return {
+    name: buildWorkflowVerificationSessionName(sourceSession),
+    appId: app?.id || '',
+    appName: normalizeSessionAppName(app?.name || '验收'),
+    systemPrompt: typeof app?.systemPrompt === 'string' ? app.systemPrompt : '',
+    tool: effectiveTool,
+    model: effectiveModel,
+    effort: 'high',
+    thinking: app?.thinking === true || sourceSession?.thinking === true,
+    group: normalizeSessionGroup(sourceSession?.group || ''),
+    description: currentTask,
+    sourceId: normalizeAppId(sourceSession?.sourceId || ''),
+    sourceName: normalizeSessionSourceName(sourceSession?.sourceName || ''),
+    userId: typeof sourceSession?.userId === 'string' ? sourceSession.userId.trim() : '',
+    userName: normalizeSessionUserName(sourceSession?.userName || ''),
+    rootSessionId: sourceSession?.rootSessionId || sourceSession?.id || '',
+  };
+}
+
+async function maybeEmitWorkflowSuggestion(sessionId, session, run) {
+  if (!session?.id || !run?.id) return null;
+  if (session.archived || isInternalSession(session)) return null;
+  if (!isWorkflowMainlineAppName(session?.appName || session?.templateAppName || '')) return null;
+  if (run.state !== 'completed') return null;
+  if (hasOpenWorkflowConclusionOfType(session, 'verification_result')) {
+    return updateSessionWorkflowSuggestion(sessionId, null);
+  }
+
+  const currentSuggestion = getActiveWorkflowSuggestion(session);
+  if (currentSuggestion?.type === 'suggest_verification' && currentSuggestion.runId === run.id) {
+    return session;
+  }
+
+  return updateSessionWorkflowSuggestion(sessionId, {
+    type: 'suggest_verification',
+    status: 'pending',
+    runId: run.id,
+    createdAt: nowIso(),
+  });
+}
+
+export async function dismissWorkflowSuggestion(sessionId) {
+  const session = await getSession(sessionId);
+  if (!session) return null;
+  if (!getActiveWorkflowSuggestion(session)) {
+    throw new Error('No active workflow suggestion');
+  }
+  return updateSessionWorkflowSuggestion(sessionId, null);
+}
+
+export async function acceptWorkflowSuggestion(sessionId) {
+  const sourceSession = await getSession(sessionId);
+  if (!sourceSession) return null;
+  if (sourceSession.visitorId) return null;
+
+  const suggestion = getActiveWorkflowSuggestion(sourceSession);
+  if (!suggestion) {
+    throw new Error('No active workflow suggestion');
+  }
+  if (suggestion.type !== 'suggest_verification') {
+    throw new Error('Unsupported workflow suggestion');
+  }
+
+  const run = suggestion.runId ? await getRun(suggestion.runId) : null;
+  const verificationDefaults = await resolveWorkflowVerificationSessionDefaults(sourceSession, run);
+  const createdSession = await createSession(
+    sourceSession.folder,
+    verificationDefaults.tool,
+    verificationDefaults.name,
+    {
+      appId: verificationDefaults.appId,
+      appName: verificationDefaults.appName,
+      systemPrompt: verificationDefaults.systemPrompt,
+      model: verificationDefaults.model,
+      effort: verificationDefaults.effort,
+      thinking: verificationDefaults.thinking,
+      group: verificationDefaults.group,
+      description: verificationDefaults.description,
+      sourceId: verificationDefaults.sourceId,
+      sourceName: verificationDefaults.sourceName,
+      userId: verificationDefaults.userId,
+      userName: verificationDefaults.userName,
+      rootSessionId: verificationDefaults.rootSessionId,
+    },
+  );
+  if (!createdSession) {
+    throw new Error('Unable to create verification session');
+  }
+
+  const verificationSession = await updateSessionHandoffTarget(createdSession.id, sourceSession.id)
+    || await getSession(createdSession.id)
+    || createdSession;
+
+  try {
+    const templateContext = await buildWorkflowVerificationTemplateContext(sourceSession, suggestion.runId || '');
+    if (templateContext) {
+      await appendEvent(verificationSession.id, {
+        type: 'template_context',
+        templateName: '自动验收上下文',
+        content: templateContext,
+        sourceSessionId: sourceSession.id,
+        sourceSessionName: sourceSession.name || '',
+        sourceSessionUpdatedAt: sourceSession.updatedAt || sourceSession.created || nowIso(),
+        updatedAt: nowIso(),
+        timestamp: Date.now(),
+      });
+      await clearForkContext(verificationSession.id);
+    }
+  } catch (error) {
+    console.warn(`[workflow-suggestion] Failed to attach verification context for ${verificationSession.id?.slice(0, 8)}: ${error.message}`);
+  }
+
+  const refreshedSource = await updateSessionWorkflowSuggestion(sourceSession.id, null)
+    || await getSession(sourceSession.id)
+    || sourceSession;
+
+  return {
+    session: await getSession(verificationSession.id) || verificationSession,
+    sourceSession: refreshedSource,
+    suggestion,
+  };
 }
 
 async function updateSessionTool(id, tool) {

@@ -85,10 +85,15 @@ body.share-snapshot-mode .input-row textarea:disabled {
 
 @media (max-width: 640px) {
   .provider-helper-grid { grid-template-columns: 1fr; }
-  .modal { width: 100%; max-height: calc(100dvh - 24px); }
-  .modal-body { padding: 14px; }
-  .modal-header,
-  .modal-footer { padding: 12px 14px; }
+  .modal-backdrop { padding: 12px; }
+  .modal { width: 100%; max-height: calc(100dvh - 24px); border-radius: 26px; }
+  .modal-body { padding: 18px 20px 0; gap: 18px; }
+  .modal-header { padding: 24px 20px 0; }
+  .modal-footer { padding: 18px 20px 20px; }
+  .modal-btn,
+  .modal-footer .modal-btn { width: 100%; }
+  .provider-helper-card { padding: 20px; border-radius: 22px; }
+  .provider-helper-field textarea { min-height: 112px; }
 }
 
 @media (min-width: 768px) {

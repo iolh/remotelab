@@ -471,6 +471,8 @@ function updateStatus(connState, session = getCurrentSession()) {
   const activity = getSessionActivity(session);
   const runIsActive = activity.run.state === "running";
   const inputBusy = isSessionBusy(session);
+  const hasSession = !!currentSessionId;
+  const canBootstrapSessionFromComposer = !hasSession && !visitorMode && !archived;
   sessionStatus = runIsActive ? "running" : "idle";
   const showArchivedOnly = archived && visualStatus.key === "idle";
   if (showArchivedOnly) {
@@ -485,24 +487,25 @@ function updateStatus(connState, session = getCurrentSession()) {
       : visualStatus.label;
   } else {
     statusDot.className = "status-dot";
-    statusText.textContent = currentSessionId ? "空闲" : "已连接";
+    statusText.textContent = "空闲";
   }
-  const hasSession = !!currentSessionId;
-  msgInput.disabled = !hasSession || archived;
+  msgInput.disabled = !(hasSession || canBootstrapSessionFromComposer) || archived;
   msgInput.placeholder = archived
     ? "会话已归档，恢复后继续"
+    : canBootstrapSessionFromComposer
+      ? "输入消息，系统会先创建会话…"
     : inputBusy
       ? "后续消息排队中…"
       : "输入消息…";
   sendBtn.style.display = "";
-  sendBtn.disabled = !hasSession || archived;
+  sendBtn.disabled = !(hasSession || canBootstrapSessionFromComposer) || archived;
   sendBtn.title = inputBusy ? "后续消息排队" : "发送";
   cancelBtn.style.display = runIsActive && hasSession ? "flex" : "none";
-  imgBtn.disabled = !hasSession || archived;
+  imgBtn.disabled = !(hasSession || canBootstrapSessionFromComposer) || archived;
   inlineToolSelect.disabled = visitorMode || archived;
-  inlineModelSelect.disabled = !hasSession || archived;
-  thinkingToggle.disabled = !hasSession || archived;
-  effortSelect.disabled = !hasSession || archived;
+  inlineModelSelect.disabled = visitorMode || archived;
+  thinkingToggle.disabled = visitorMode || archived;
+  effortSelect.disabled = visitorMode || archived;
   if (typeof syncSessionTemplateControls === "function") {
     syncSessionTemplateControls();
   }

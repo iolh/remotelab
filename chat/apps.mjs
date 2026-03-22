@@ -38,6 +38,7 @@ const LEGACY_VIDEO_CUT_APP = Object.freeze({
 export const DEFAULT_APP_ID = 'chat';
 export const EMAIL_APP_ID = 'email';
 export const BASIC_CHAT_APP_ID = 'app_basic_chat';
+export const IMPORT_SESSION_APP_ID = 'app_import_session';
 export const CREATE_APP_APP_ID = 'app_create_app';
 export const DEFAULT_APP_TOOL = 'codex';
 export const BUILTIN_APPS = Object.freeze([
@@ -65,6 +66,28 @@ export const BUILTIN_APPS = Object.freeze([
     tool: DEFAULT_APP_TOOL,
     systemPrompt: '',
     welcomeMessage: '',
+    createdAt: BUILTIN_CREATED_AT,
+  }),
+  Object.freeze({
+    id: IMPORT_SESSION_APP_ID,
+    name: 'Import Session',
+    builtin: true,
+    templateSelectable: true,
+    shareEnabled: false,
+    tool: 'codex',
+    systemPrompt: [
+      'You are the Import Session starter app inside RemoteLab.',
+      'This built-in app exists specifically to import an existing Codex thread into a new RemoteLab session.',
+      'When used correctly, the product should ask for a Codex thread id first and then import the transcript into a fresh RemoteLab session.',
+      'Do not treat this as a normal greenfield chat starter.',
+      'If the user does not have a valid Codex thread id, tell them to use a normal execution app instead of faking an import.',
+      'Always answer in the user\'s language.',
+    ].join(' '),
+    welcomeMessage: [
+      '这个入口专门用来导入已有的 Codex 会话。',
+      '开始时会要求你填写一个已有的 Codex thread id，然后把那段历史导入成新的 RemoteLab 会话。',
+      '如果你只是想新开一条普通会话，请改用其他应用。',
+    ].join('\n\n'),
     createdAt: BUILTIN_CREATED_AT,
   }),
   Object.freeze({

@@ -314,8 +314,9 @@ function getSessionSourceCategory(session) {
 function sortTemplateAppCatalogEntries(a, b) {
   const rank = (app) => {
     if (app?.id === BASIC_CHAT_APP_ID) return 0;
-    if (app?.id === "app_create_app") return 1;
-    return 2;
+    if (app?.id === IMPORT_SESSION_TEMPLATE_APP_ID) return 1;
+    if (app?.id === "app_create_app") return 2;
+    return 3;
   };
   return rank(a) - rank(b) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 }

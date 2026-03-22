@@ -17,10 +17,12 @@ import { saveUiRuntimeSelection } from '../lib/runtime-selection.mjs';
 import { getAvailableToolsAsync, saveSimpleToolAsync } from '../lib/tools.mjs';
 import {
   applyAppTemplateToSession,
+  acceptWorkflowSuggestion,
   cancelActiveRun,
   compactSession,
   createSession,
   delegateSession,
+  dismissWorkflowSuggestion,
   dropToolUse,
   forkSession,
   getHistory,
@@ -2003,6 +2005,48 @@ export async function handleRequest(req, res) {
       return;
     }
 
+    if (parts.length === 5 && parts[0] === 'api' && parts[1] === 'sessions' && sessionId && parts[3] === 'workflow-suggestion') {
+      const suggestionAction = parts[4];
+      if (!requireSessionAccess(res, authSession, sessionId)) return;
+      const source = await getSessionForClient(sessionId);
+      if (!source) {
+        writeJson(res, 404, { error: 'Session not found' });
+        return;
+      }
+      if (source.visitorId) {
+        writeJson(res, 409, { error: 'Visitor sessions cannot process workflow suggestions' });
+        return;
+      }
+
+      try {
+        if (suggestionAction === 'accept') {
+          const outcome = await acceptWorkflowSuggestion(sessionId);
+          if (!outcome?.session) {
+            writeJson(res, 409, { error: 'Unable to accept workflow suggestion' });
+            return;
+          }
+          writeJson(res, 201, {
+            session: createClientSessionDetail(outcome.session),
+            sourceSession: createClientSessionDetail(outcome.sourceSession || source),
+          });
+          return;
+        }
+
+        if (suggestionAction === 'dismiss') {
+          const session = await dismissWorkflowSuggestion(sessionId);
+          if (!session) {
+            writeJson(res, 409, { error: 'Unable to dismiss workflow suggestion' });
+            return;
+          }
+          writeJson(res, 200, { session: createClientSessionDetail(session) });
+          return;
+        }
+      } catch (error) {
+        writeJson(res, 400, { error: error.message || 'Failed to process workflow suggestion' });
+        return;
+      }
+    }
+
     if (parts.length === 5 && parts[0] === 'api' && parts[1] === 'sessions' && sessionId && parts[3] === 'conclusions') {
       const conclusionId = parts[4];
       if (!requireSessionAccess(res, authSession, sessionId)) return;
@@ -2101,15 +2145,18 @@ export async function handleRequest(req, res) {
         completionTargets,
         externalTriggerId,
       } = JSON.parse(body);
-      if (!folder || !tool) {
+      const wantsCodexImport = tool === 'codex' && typeof codexThreadId === 'string' && codexThreadId.trim();
+      if (!tool || (!folder && !wantsCodexImport)) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'folder and tool are required' }));
+        res.end(JSON.stringify({ error: wantsCodexImport ? 'tool is required' : 'folder and tool are required' }));
         return;
       }
-      const resolvedFolder = folder.startsWith('~')
-        ? join(homedir(), folder.slice(1))
-        : resolve(folder);
-      if (!await isDirectoryPath(resolvedFolder)) {
+      const resolvedFolder = !folder
+        ? ''
+        : folder.startsWith('~')
+          ? join(homedir(), folder.slice(1))
+          : resolve(folder);
+      if (resolvedFolder && !await isDirectoryPath(resolvedFolder)) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Folder does not exist' }));
         return;
@@ -2170,7 +2217,7 @@ export async function handleRequest(req, res) {
       } else if (resolvedApp?.thinking === true) {
         createOptions.thinking = true;
       }
-      if (tool === 'codex' && typeof codexThreadId === 'string' && codexThreadId.trim()) {
+      if (wantsCodexImport) {
         const importedSession = await importCodexThreadSession({
           threadId: codexThreadId.trim(),
           folder: resolvedFolder,

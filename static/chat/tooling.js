@@ -253,10 +253,10 @@ function resetHeaderActionButton(button) {
   }
 }
 
-function showAppToast(message, tone = "neutral") {
+function showAppToast(message, tone = "neutral", options = undefined) {
   if (!message || !window.remotelabToastBridge?.show) return;
   const mappedType = ["success", "error"].includes(tone) ? tone : "neutral";
-  window.remotelabToastBridge.show(message, mappedType);
+  window.remotelabToastBridge.show(message, mappedType, options);
 }
 
 function setHeaderActionBusy(button, label) {
@@ -466,7 +466,10 @@ async function shareCurrentSessionSnapshot() {
     if (navigator.share) {
       try {
         await navigator.share({ text: shareText });
-        showAppToast("已分享", "success");
+        showAppToast("已分享", "success", {
+          position: "top-center",
+          className: "remotelab-top-notice-toast",
+        });
         return;
       } catch (err) {
         if (err?.name === "AbortError") return;
@@ -475,14 +478,23 @@ async function shareCurrentSessionSnapshot() {
 
     try {
       await copyText(shareText);
-      showAppToast("分享内容已复制", "success");
+      showAppToast("分享内容已复制", "success", {
+        position: "top-center",
+        className: "remotelab-top-notice-toast",
+      });
     } catch {
       window.prompt("Copy share text", shareText);
-      showAppToast("已准备分享内容");
+      showAppToast("已准备分享内容", "neutral", {
+        position: "top-center",
+        className: "remotelab-top-notice-toast",
+      });
     }
   } catch (err) {
     console.warn("[share] Failed to create snapshot:", err.message);
-    showAppToast("分享失败", "error");
+    showAppToast("分享失败", "error", {
+      position: "top-center",
+      className: "remotelab-top-notice-toast",
+    });
   } finally {
     shareSnapshotBtn.disabled = false;
     syncShareButton();
@@ -499,15 +511,24 @@ async function forkCurrentSession() {
       method: "POST",
     });
     if (data.session) {
-      showAppToast("已 Fork 当前会话", "success");
+      showAppToast("已 Fork 当前会话", "success", {
+        position: "top-center",
+        className: "remotelab-top-notice-toast",
+      });
       upsertSession(data.session);
       renderSessionList();
     } else {
-      showAppToast("Fork 失败", "error");
+      showAppToast("Fork 失败", "error", {
+        position: "top-center",
+        className: "remotelab-top-notice-toast",
+      });
     }
   } catch (err) {
     console.warn("[fork] Failed to fork session:", err.message);
-    showAppToast("Fork 失败", "error");
+    showAppToast("Fork 失败", "error", {
+      position: "top-center",
+      className: "remotelab-top-notice-toast",
+    });
   } finally {
     syncForkButton();
   }

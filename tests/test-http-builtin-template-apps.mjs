@@ -72,8 +72,11 @@ function setupTempHome() {
   const home = mkdtempSync(join(tmpdir(), 'remotelab-http-builtin-template-apps-'));
   const configDir = join(home, '.config', 'remotelab');
   const localBin = join(home, '.local', 'bin');
+  const importedThreadId = '019d1194-31c3-7271-bda6-6f78311b198d';
+  const workspace = join(home, 'workspace');
   mkdirSync(configDir, { recursive: true });
   mkdirSync(localBin, { recursive: true });
+  mkdirSync(workspace, { recursive: true });
 
   writeFileSync(
     join(configDir, 'auth.json'),
@@ -117,7 +120,40 @@ setTimeout(() => {
     'utf8',
   );
   chmodSync(join(localBin, 'fake-codex'), 0o755);
-  return { home };
+
+  const codexSessionsDir = join(home, '.codex', 'sessions', '2026', '03', '22');
+  mkdirSync(codexSessionsDir, { recursive: true });
+  writeFileSync(join(codexSessionsDir, `rollout-2026-03-22T02-06-57-${importedThreadId}.jsonl`), [
+    JSON.stringify({
+      timestamp: '2026-03-21T18:07:13.026Z',
+      type: 'session_meta',
+      payload: {
+        id: importedThreadId,
+        timestamp: '2026-03-21T18:06:57.988Z',
+        cwd: workspace,
+      },
+    }),
+    JSON.stringify({
+      timestamp: '2026-03-21T18:07:14.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: '继续这个 RemoteLab 任务' }],
+      },
+    }),
+    JSON.stringify({
+      timestamp: '2026-03-21T18:07:20.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: '我先检查仓库和当前状态。' }],
+      },
+    }),
+  ].join('\n'));
+
+  return { home, importedThreadId, workspace };
 }
 
 async function startServer({ home, port }) {
@@ -154,7 +190,7 @@ async function stopServer(child) {
 }
 
 try {
-  const { home } = setupTempHome();
+  const { home, importedThreadId, workspace } = setupTempHome();
   const port = randomPort();
   const server = await startServer({ home, port });
   try {
@@ -227,6 +263,25 @@ try {
     const createAppStarter = (appsResponse.json?.apps || []).find((app) => app.id === 'app_create_app');
     assert.equal(createAppStarter?.shareEnabled, false, 'Create App should stay internal-only');
     assert.equal(typeof createAppStarter?.shareToken, 'undefined', 'Create App should not expose a public share token');
+    const importSessionStarter = (appsResponse.json?.apps || []).find((app) => app.id === 'app_import_session');
+    assert.equal(importSessionStarter?.shareEnabled, false, 'Import Session should stay internal-only');
+    assert.equal(importSessionStarter?.tool, 'codex', 'Import Session should pin the Codex tool');
+    assert.equal(typeof importSessionStarter?.shareToken, 'undefined', 'Import Session should not expose a public share token');
+
+    const importSessionCreate = await request(port, 'POST', '/api/sessions', {
+      tool: 'codex',
+      appId: 'app_import_session',
+      codexThreadId: importedThreadId,
+      sourceId: 'chat',
+      sourceName: 'Chat',
+    }, {
+      Cookie: ownerCookie,
+    });
+    assert.equal(importSessionCreate.status, 201, 'owner should be able to import an existing Codex thread through the built-in import app');
+    assert.equal(importSessionCreate.json?.session?.tool, 'codex');
+    assert.equal(importSessionCreate.json?.session?.importedCodexThreadId, importedThreadId);
+    assert.equal(importSessionCreate.json?.session?.folder, workspace);
+
     const videoCutApp = (appsResponse.json?.apps || []).find((app) => app.id === videoCutAppId);
     assert.equal(videoCutApp?.shareToken, videoCutShareToken, 'custom Video Cut app should expose a share token');
 

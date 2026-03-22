@@ -335,6 +335,41 @@ try {
     'verification sessions should pass explicit read-only developer instructions to Codex',
   );
 
+  const phase2Mainline = await createSession(port, { name: '执行 · 自动验收测试', appName: '执行' });
+  const phase2Submit = await submitMessage(port, phase2Mainline.id, 'req-phase2-mainline', '目标：完成自动验收测试\n成功标准：首轮实现完成后给出下一步建议');
+  const phase2Run = await waitForRunTerminal(port, phase2Submit.run.id);
+  assert.equal(phase2Run.state, 'completed', 'phase 2 mainline run should complete');
+
+  const phase2MainlineDetail = await getSession(port, phase2Mainline.id);
+  assert.equal(phase2MainlineDetail.workflowSuggestion?.type, 'suggest_verification', 'completed execution runs should emit verification suggestions');
+  assert.equal(phase2MainlineDetail.workflowSuggestion?.status, 'pending', 'workflow suggestions should remain pending until handled');
+  assert.equal(phase2MainlineDetail.workflowSuggestion?.runId, phase2Run.id, 'workflow suggestions should keep the triggering run id');
+
+  const acceptSuggestion = await request(port, 'POST', `/api/sessions/${phase2Mainline.id}/workflow-suggestion/accept`);
+  assert.equal(acceptSuggestion.status, 201, 'accepting a workflow suggestion should create a verification session');
+  assert.equal(acceptSuggestion.json.sourceSession?.workflowSuggestion || null, null, 'accepting should clear the source suggestion');
+  assert.equal(acceptSuggestion.json.session?.appName, '验收', 'accepted suggestions should create validation sessions');
+  assert.equal(acceptSuggestion.json.session?.handoffTargetSessionId, phase2Mainline.id, 'accepted suggestions should wire the new session back to the mainline');
+  assert.equal(acceptSuggestion.json.session?.tool, 'fake-codex', 'verification suggestions should inherit the source tool');
+  assert.equal(acceptSuggestion.json.session?.effort, 'high', 'verification suggestions should raise the effort for validation');
+
+  const acceptedVerificationSubmit = await submitMessage(port, acceptSuggestion.json.session.id, 'req-phase2-verification', '请根据已有上下文开始验收');
+  await waitForRunTerminal(port, acceptedVerificationSubmit.run.id);
+  const acceptedVerificationManifest = readRunManifest(home, acceptedVerificationSubmit.run.id);
+  assert.match(acceptedVerificationManifest.prompt || '', /自动验收测试/, 'accepted suggestions should seed verification context from the mainline task');
+  assert.equal(acceptedVerificationManifest.options?.executionMode, 'verification_read_only', 'auto-created verification sessions should preserve the read-only verification runtime');
+  assert.equal(acceptedVerificationManifest.options?.sandboxMode, 'read-only', 'auto-created verification sessions should keep the read-only sandbox');
+  assert.equal(acceptedVerificationManifest.options?.approvalPolicy, 'never', 'auto-created verification sessions should disable approvals');
+
+  const dismissMainline = await createSession(port, { name: '执行 · 跳过验收测试', appName: '执行' });
+  const dismissSubmit = await submitMessage(port, dismissMainline.id, 'req-phase2-dismiss', '目标：验证跳过建议的路径');
+  await waitForRunTerminal(port, dismissSubmit.run.id);
+  const dismissBefore = await getSession(port, dismissMainline.id);
+  assert.equal(dismissBefore.workflowSuggestion?.type, 'suggest_verification', 'dismiss flow should start with a pending verification suggestion');
+  const dismissSuggestion = await request(port, 'POST', `/api/sessions/${dismissMainline.id}/workflow-suggestion/dismiss`);
+  assert.equal(dismissSuggestion.status, 200, 'dismissing a workflow suggestion should succeed');
+  assert.equal(dismissSuggestion.json.session?.workflowSuggestion || null, null, 'dismiss should remove the suggestion from the session');
+
   console.log('test-http-session-handoff: ok');
 } finally {
   await stopServer(server);

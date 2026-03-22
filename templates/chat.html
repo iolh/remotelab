@@ -6,10 +6,127 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#1e1e1e" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" data-remotelab-theme-color>
 <meta name="remotelab-build" content="{{BUILD_TITLE}}">
 {{PAGE_HEAD_TAGS}}
+<script nonce="{{NONCE}}">
+(() => {
+  const STORAGE_KEY = "remotelab.theme";
+  const root = document.documentElement;
+  const darkQuery = typeof window.matchMedia === "function"
+    ? window.matchMedia("(prefers-color-scheme: dark)")
+    : null;
+  const listeners = new Set();
+
+  function normalizeThemePreference(value) {
+    return value === "light" || value === "dark" || value === "system"
+      ? value
+      : "system";
+  }
+
+  function readThemePreference() {
+    try {
+      return normalizeThemePreference(window.localStorage.getItem(STORAGE_KEY));
+    } catch {
+      return "system";
+    }
+  }
+
+  function resolveTheme(preference = readThemePreference()) {
+    const normalized = normalizeThemePreference(preference);
+    if (normalized === "light" || normalized === "dark") {
+      return normalized;
+    }
+    return darkQuery?.matches ? "dark" : "light";
+  }
+
+  function updateThemeColor(theme) {
+    const meta = document.querySelector('meta[name="theme-color"][data-remotelab-theme-color]');
+    if (meta) {
+      meta.setAttribute("content", theme === "dark" ? "#1e1e1e" : "#ffffff");
+    }
+  }
+
+  function syncThemeTargets(theme, preference) {
+    root.dataset.theme = theme;
+    root.dataset.themePreference = preference;
+    root.style.colorScheme = theme;
+    if (document.body) {
+      document.body.dataset.theme = theme;
+      document.body.dataset.themePreference = preference;
+      document.body.style.colorScheme = theme;
+    }
+  }
+
+  function notifyThemeChange(preference, theme) {
+    const detail = { preference, theme };
+    for (const listener of listeners) {
+      try {
+        listener(detail);
+      } catch {}
+    }
+    document.dispatchEvent(new CustomEvent("remotelab:theme-change", { detail }));
+  }
+
+  function applyThemePreference(preference = readThemePreference()) {
+    const normalized = normalizeThemePreference(preference);
+    const theme = resolveTheme(normalized);
+    syncThemeTargets(theme, normalized);
+    updateThemeColor(theme);
+    notifyThemeChange(normalized, theme);
+    return { preference: normalized, theme };
+  }
+
+  function setThemePreference(preference) {
+    const normalized = normalizeThemePreference(preference);
+    try {
+      if (normalized === "system") {
+        window.localStorage.removeItem(STORAGE_KEY);
+      } else {
+        window.localStorage.setItem(STORAGE_KEY, normalized);
+      }
+    } catch {}
+    return applyThemePreference(normalized);
+  }
+
+  window.RemoteLabTheme = {
+    getPreference: readThemePreference,
+    getTheme: () => resolveTheme(readThemePreference()),
+    applyThemePreference,
+    setThemePreference,
+    subscribe(listener) {
+      if (typeof listener !== "function") {
+        return () => {};
+      }
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+
+  applyThemePreference();
+  document.addEventListener("DOMContentLoaded", () => {
+    applyThemePreference(readThemePreference());
+  });
+  function handleSystemThemeChange() {
+    if (readThemePreference() === "system") {
+      applyThemePreference("system");
+    }
+  }
+
+  if (typeof darkQuery?.addEventListener === "function") {
+    darkQuery.addEventListener("change", handleSystemThemeChange);
+  } else if (typeof darkQuery?.addListener === "function") {
+    darkQuery.addListener(handleSystemThemeChange);
+  }
+
+  window.addEventListener("storage", (event) => {
+    if (event.key !== STORAGE_KEY) return;
+    applyThemePreference(readThemePreference());
+  });
+})();
+</script>
 <link rel="manifest" href="/manifest.json?v={{ASSET_VERSION}}">
 <link rel="icon" href="/favicon.ico?v={{ASSET_VERSION}}" sizes="any">
 <link rel="icon" href="/icon.svg?v={{ASSET_VERSION}}" type="image/svg+xml">
@@ -24,7 +141,7 @@
 <!-- Header -->
 <div class="header">
   <button class="header-btn" id="menuBtn" title="会话" aria-label="会话" data-icon="menu">&#9776;</button>
-  <h1 id="headerTitle">RemoteLab 对话</h1>
+  <h1 id="headerTitle">RemoteLab</h1>
   <div class="chat-chrome-host" id="chatChromeRoot"></div>
   <button class="header-refresh-btn" id="refreshFrontendBtn" type="button" title="刷新到最新前端" aria-label="刷新到最新前端" data-icon="refresh" hidden></button>
 </div>
@@ -56,16 +173,26 @@
       <div class="board-panel" id="boardPanel"></div>
       <div class="settings-panel" id="settingsPanel">
         <div class="settings-section">
+          <div class="settings-section-title">主题</div>
+          <div class="settings-section-note">浅色 / 深色会立即生效；跟随系统会继续跟着系统深浅模式。</div>
+          <select class="settings-inline-select settings-theme-select" id="themeSettingsSelect" aria-label="主题">
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+            <option value="system">跟随系统</option>
+          </select>
+          <div class="settings-app-empty inline-status" id="themeSettingsStatus">当前跟随系统；如果系统按时间自动切换，RemoteLab 会一起切换。</div>
+        </div>
+        <div class="settings-section">
           <div class="settings-section-title">用户</div>
-          <div class="settings-section-note">创建额外身份，选择他们可用的应用，并在没有会话时自动生成首个会话。</div>
+          <div class="settings-section-note">创建身份并分配应用。</div>
           <div class="settings-inline-form" id="newUserForm">
-            <input class="settings-inline-input" id="newUserNameInput" type="text" placeholder="用户名，例如：视频剪辑师">
+            <input class="settings-inline-input" id="newUserNameInput" type="text" placeholder="用户名">
             <div class="settings-app-picker" id="newUserAppsPicker"></div>
             <div class="settings-inline-row">
               <select class="settings-inline-select" id="newUserDefaultAppSelect" aria-label="选择用户默认应用"></select>
               <button class="settings-app-btn settings-inline-primary" id="createUserBtn" type="button">创建用户</button>
             </div>
-            <div class="settings-app-empty inline-status" id="userFormStatus">管理员仍保留默认视图，新用户会自动获得一个起始会话。</div>
+            <div class="settings-app-empty inline-status" id="userFormStatus">新用户会自动生成起始会话。</div>
           </div>
           <div class="settings-apps-list" id="settingsUsersList">
             <div class="settings-app-empty">正在加载用户…</div>
@@ -73,14 +200,14 @@
         </div>
         <div class="settings-section">
           <div class="settings-section-title">应用</div>
-          <div class="settings-section-note">定义可复用的应用层。聊天保持轻量，其他应用可以附带首条助手消息和系统提示词。</div>
+          <div class="settings-section-note">配置可复用应用。</div>
           <div class="settings-inline-form" id="newAppForm">
-            <input class="settings-inline-input" id="newAppNameInput" type="text" placeholder="应用名称，例如：视频剪辑">
+            <input class="settings-inline-input" id="newAppNameInput" type="text" placeholder="应用名称">
             <select class="settings-inline-select" id="newAppToolSelect" aria-label="为应用选择工具"></select>
-            <textarea class="settings-inline-textarea" id="newAppWelcomeInput" placeholder="可选：新会话开始时显示的首条助手消息"></textarea>
-            <textarea class="settings-inline-textarea" id="newAppSystemPromptInput" placeholder="可选：该应用的系统提示词"></textarea>
+            <textarea class="settings-inline-textarea" id="newAppWelcomeInput" placeholder="首条助手消息（选填）"></textarea>
+            <textarea class="settings-inline-textarea" id="newAppSystemPromptInput" placeholder="系统提示词（选填）"></textarea>
             <button class="settings-app-btn settings-inline-primary" id="createAppConfigBtn" type="button">创建应用</button>
-            <div class="settings-app-empty inline-status" id="appFormStatus">在这里创建可复用应用，然后通过侧边栏筛选器在该应用下启动会话。</div>
+            <div class="settings-app-empty inline-status" id="appFormStatus">创建后可直接用于新会话。</div>
           </div>
           <div class="settings-apps-list" id="settingsAppsList">
             <div class="settings-app-empty">正在加载应用…</div>
@@ -90,6 +217,7 @@
       </div>
       <div class="session-list-footer" id="sessionListFooter" title="构建版本 {{BUILD_TITLE}}">版本 {{BUILD_LABEL}}</div>
       <button class="new-session-btn secondary" id="newAppBtn">+ 新建应用</button>
+      <button class="new-session-btn" id="newSessionBtn">+ 新建会话</button>
       <div class="workflow-task-sidebar-root" id="workflowTaskSidebarRoot"></div>
     </aside>
   </div>
@@ -100,8 +228,8 @@
     <div class="messages" id="messages">
       <div class="messages-inner" id="messagesInner">
         <div class="empty-state" id="emptyState">
-          <h2>RemoteLab 对话</h2>
-          <p>先开始一个任务，系统会根据你的目标推荐更合适的工作流；如果你愿意，也可以切到手动模式直接打开单个会话。</p>
+          <h2>RemoteLab</h2>
+          <p>如果你想按任务方式启动，系统会先根据目标推荐更合适的工作流；也可以直接从侧边栏创建会话开始对话。</p>
           <div class="workflow-task-entry-root" id="workflowTaskEntryRoot"></div>
         </div>
       </div>
@@ -166,30 +294,6 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="codexImportModal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="codexImportModalTitle">
-    <div class="modal-header">
-      <div class="modal-title" id="codexImportModalTitle">连接已有 Codex 会话</div>
-      <button class="modal-close" id="closeCodexImportModal" type="button" aria-label="关闭" data-icon="close">&times;</button>
-    </div>
-    <div class="modal-body">
-      <p class="modal-lead">
-        可选：填入已有的 Codex `thread id`，RemoteLab 会导入已有用户/助手消息，并把后续对话续接到这个线程。
-        留空则按原样创建一个全新的 Codex 会话。
-      </p>
-      <div class="provider-helper-field">
-        <label for="codexImportThreadInput">Codex thread id</label>
-        <input id="codexImportThreadInput" type="text" placeholder="例如：019d1194-31c3-7271-bda6-6f78311b198d" autocomplete="off">
-      </div>
-      <div class="provider-helper-note" id="codexImportStatus">留空会创建新的 Codex 会话。</div>
-    </div>
-    <div class="modal-footer">
-      <button class="modal-btn" id="cancelCodexImportBtn" type="button">取消</button>
-      <button class="modal-btn primary" id="confirmCodexImportBtn" type="button">继续</button>
-    </div>
-  </div>
-</div>
-
 <div class="modal-backdrop" id="addToolModal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="addToolModalTitle">
     <div class="modal-header">
@@ -197,20 +301,11 @@
       <button class="modal-close" id="closeAddToolModal" type="button" aria-label="关闭" data-icon="close">&times;</button>
     </div>
     <div class="modal-body">
-      <p class="modal-lead">
-        RemoteLab 不只支持内置智能体。对于简单工具，你可以直接在这里保存一份轻量配置，选择器会立即刷新。
-        如果你需要自定义解析逻辑或特殊运行时行为，请使用下方的高级方式。
-      </p>
-
-        <div class="provider-helper-card">
+      <div class="provider-helper-card">
         <div class="provider-helper-card-header">
-          <div class="provider-helper-card-title">快速添加</div>
+          <div class="provider-helper-card-title">基础配置</div>
           <button class="modal-btn primary" id="saveToolConfigBtn" type="button">保存并刷新</button>
         </div>
-        <p>
-          适用于包装器或简单的命令式智能体：它们使用现有运行时族，并接受该运行时族的核心 prompt、model、thinking 参数。
-          保存后我们会自动刷新选择器，无需重启服务。
-        </p>
         <div class="provider-helper-grid">
           <div class="provider-helper-field">
             <label for="addToolNameInput">名称</label>
@@ -221,7 +316,7 @@
             <input id="addToolCommandInput" type="text" value="my-agent" autocomplete="off">
           </div>
           <div class="provider-helper-field">
-            <label for="addToolRuntimeFamilySelect">运行时族</label>
+            <label for="addToolRuntimeFamilySelect">运行时</label>
             <select id="addToolRuntimeFamilySelect">
               <option value="claude-stream-json">Claude 风格流式 JSON</option>
               <option value="codex-json">Codex JSON</option>
@@ -231,11 +326,11 @@
         </div>
         <div class="provider-helper-field">
           <label for="addToolModelsInput">模型</label>
-          <textarea id="addToolModelsInput" placeholder="每行一个模型。可写成 `model-id | 显示名称`，也可只写 `model-id`。&#10;示例：&#10;gpt-5-codex | GPT-5 Codex&#10;gpt-5-mini"></textarea>
+          <textarea id="addToolModelsInput" placeholder="每行一个模型&#10;model-id | 显示名"></textarea>
         </div>
         <div class="provider-helper-grid">
           <div class="provider-helper-field">
-            <label for="addToolReasoningKindSelect">思考模式</label>
+            <label for="addToolReasoningKindSelect">思考</label>
             <select id="addToolReasoningKindSelect">
               <option value="toggle">开关</option>
               <option value="enum">分级</option>
@@ -243,30 +338,22 @@
             </select>
           </div>
           <div class="provider-helper-field">
-            <label for="addToolReasoningLevelsInput">思考级别</label>
+            <label for="addToolReasoningLevelsInput">级别</label>
             <input id="addToolReasoningLevelsInput" type="text" value="low, medium, high, xhigh" autocomplete="off">
           </div>
           <div class="provider-helper-field">
-            <label>内部标识</label>
-            <div class="provider-helper-note">会根据命令自动生成。简单模式下不需要单独填写 ID。</div>
+            <label>内部标识（自动生成）</label>
           </div>
         </div>
-        <div class="provider-helper-note">如果该工具没有模型侧思考控制，请选择 `none`。Claude 家族通常使用 `toggle`，Codex 家族通常使用 `levels`。如果命令行参数与这里的默认约定不同，请改用下方的高级方式。</div>
+        <div class="provider-helper-note">没有思考控制就选 `none`。</div>
         <div class="provider-helper-status" id="addToolStatus"></div>
       </div>
 
       <div class="provider-helper-card">
         <div class="provider-helper-card-header">
-          <div class="provider-helper-card-title">高级 Provider 配置</div>
-          <button class="modal-btn primary" id="copyProviderPromptBtn" type="button">复制基础提示词</button>
+          <div class="provider-helper-card-title">高级配置</div>
+          <button class="modal-btn primary" id="copyProviderPromptBtn" type="button">复制提示词</button>
         </div>
-        <p>
-          如果你需要更复杂的模型列表、思考控制或自定义运行时行为，请在 RemoteLab 仓库里新开一个会话，并粘贴这段提示词。
-        </p>
-        <ul>
-          <li>它会先判断：简单配置是否已经足够，还是确实需要完整的 provider 代码。</li>
-          <li>它会把智能体引导到 provider 架构说明，并尽量把改动控制在最小范围内。</li>
-        </ul>
         <div class="provider-helper-code"><code id="providerPromptCode"></code></div>
       </div>
     </div>

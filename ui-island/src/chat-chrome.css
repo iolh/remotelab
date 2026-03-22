@@ -2,6 +2,7 @@
 
 :root {
   --chrome-button-size: 32px;
+  --settings-textarea-height: 84px;
 }
 
 #chatChromeRoot,
@@ -13,6 +14,309 @@
 #workflowTaskEntryRoot,
 #workflowTaskSidebarRoot {
   display: block;
+}
+
+.workflow-task-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: min(90dvh, 860px);
+  width: min(calc(100vw - 48px), 860px);
+  max-width: min(calc(100vw - 48px), 860px);
+  border-radius: 24px;
+}
+
+.workflow-task-dialog-body {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 24px 0;
+  scroll-padding-bottom: 20px;
+}
+
+.workflow-task-dialog-layout {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.workflow-task-main-column,
+.workflow-task-side-column {
+  min-width: 0;
+  position: static;
+}
+
+.workflow-task-dialog-header {
+  gap: 6px;
+  border-bottom: none;
+  padding: 24px 24px 0;
+}
+
+.workflow-task-dialog-title,
+.codex-import-dialog-title {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.workflow-task-dialog-footer {
+  gap: 8px;
+  border-top: none;
+  padding: 18px 24px 24px;
+  background: transparent;
+}
+
+.workflow-task-dialog-footer > button {
+  min-width: 112px;
+  min-height: 38px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.workflow-task-form {
+  display: grid;
+  gap: 14px;
+}
+
+.workflow-task-field {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-task-surface {
+  border-radius: 14px;
+}
+
+.workflow-task-card-header {
+  gap: 6px;
+  padding: 18px 18px 0;
+}
+
+.workflow-task-card-content {
+  display: grid;
+  gap: 14px;
+  padding: 14px 18px 18px;
+}
+
+.workflow-task-card-header h3,
+.workflow-task-card-content h3 {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.workflow-task-label {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.workflow-task-recommendation-surface {
+  background: color-mix(in srgb, var(--notice) 4%, var(--bg));
+  border-color: color-mix(in srgb, var(--notice) 14%, var(--border));
+}
+
+.workflow-task-recommendation-reason {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.workflow-task-recommendation-details {
+  display: grid;
+  gap: 10px;
+}
+
+.workflow-task-recommendation-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.workflow-task-flow-step {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.workflow-task-recommendation-badge {
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.workflow-task-collapsible {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-task-collapsible-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-secondary);
+  padding: 0;
+  min-height: 28px;
+  height: auto;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.workflow-task-collapsible-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  transition: transform 0.16s ease;
+}
+
+.workflow-task-collapsible-icon.is-open {
+  transform: rotate(180deg);
+}
+
+.workflow-task-collapsible-content {
+  display: grid;
+  gap: 12px;
+}
+
+.workflow-task-field input,
+.workflow-task-field textarea {
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.workflow-task-field input {
+  min-height: 38px;
+}
+
+.workflow-task-field textarea {
+  height: var(--settings-textarea-height);
+  min-height: var(--settings-textarea-height);
+  padding-top: 10px;
+  padding-bottom: 10px;
+  resize: none;
+  overflow-y: auto;
+}
+
+.workflow-task-entry-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.workflow-task-entry-button {
+  min-width: 144px;
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 0 18px;
+  font-size: 14px;
+}
+
+.workflow-task-entry-button-primary {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.codex-import-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(calc(100vw - 48px), 440px);
+  max-width: min(calc(100vw - 48px), 440px);
+  border-radius: 22px;
+}
+
+.codex-import-dialog-header {
+  gap: 6px;
+  border-bottom: none;
+  padding: 24px 24px 0;
+}
+
+.codex-import-dialog-body {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 12px;
+  min-height: 0;
+  padding: 16px 24px 0;
+}
+
+.codex-import-dialog-field {
+  display: grid;
+  gap: 8px;
+}
+
+.codex-import-dialog-label {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.codex-import-dialog-field input {
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.codex-import-dialog-field textarea {
+  height: var(--settings-textarea-height);
+  min-height: var(--settings-textarea-height);
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: none;
+  overflow-y: auto;
+}
+
+.codex-import-dialog-note {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--error, var(--text-secondary)) 18%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--error, var(--bg-secondary)) 6%, var(--bg));
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--error, var(--text-secondary));
+}
+
+.codex-import-dialog-footer {
+  gap: 8px;
+  border-top: none;
+  padding: 16px 24px 24px;
+}
+
+.codex-import-dialog-footer > button {
+  min-width: 108px;
+  min-height: 38px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.codex-import-dialog-primary {
+  min-width: 96px;
+}
+
+.workflow-task-sidebar-shell {
+  display: none;
+}
+
+.workflow-task-sidebar-button {
+  width: 100%;
+  min-height: 42px;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .remotelab-sonner-toast {
@@ -45,6 +349,62 @@
   bottom: calc(var(--safe-bottom) + 120px) !important;
 }
 
+[data-sonner-toaster][data-x-position="center"][data-y-position="top"] {
+  --width: min(calc(100vw - 32px), 560px);
+  top: calc(env(safe-area-inset-top, 0px) + 20px) !important;
+  pointer-events: none !important;
+}
+
+.remotelab-summary-toast {
+  border-radius: 20px !important;
+  padding: 18px 20px !important;
+  gap: 14px !important;
+  pointer-events: auto !important;
+}
+
+.remotelab-top-notice-toast {
+  border-radius: 20px !important;
+  padding: 16px 18px !important;
+  gap: 10px !important;
+  pointer-events: none !important;
+}
+
+.remotelab-summary-toast [data-content] {
+  gap: 6px !important;
+}
+
+.remotelab-top-notice-toast [data-title] {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+}
+
+.remotelab-summary-toast [data-title] {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+}
+
+.remotelab-summary-toast [data-description] {
+  color: var(--text-secondary) !important;
+  font-size: 14px !important;
+  line-height: 1.6 !important;
+}
+
+.remotelab-summary-toast [data-button] {
+  min-height: 40px !important;
+  padding: 0 16px !important;
+  border-radius: 12px !important;
+  background: var(--text) !important;
+  color: var(--bg) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+}
+
+.remotelab-summary-toast [data-button]:hover {
+  opacity: 0.92;
+}
+
 .chrome-action-button {
   width: var(--chrome-button-size);
   height: var(--chrome-button-size);
@@ -64,4 +424,128 @@
 
 .chrome-summary-scroll {
   max-height: min(70dvh, 520px);
+}
+
+.workflow-task-textarea-main {
+  height: var(--settings-textarea-height);
+  min-height: var(--settings-textarea-height);
+}
+
+.workflow-task-textarea-compact {
+  height: var(--settings-textarea-height);
+  min-height: var(--settings-textarea-height);
+}
+
+@media (min-width: 960px) {
+  .workflow-task-dialog-layout {
+    grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+    align-items: start;
+  }
+}
+
+@media (max-height: 900px) {
+  .workflow-task-dialog {
+    max-height: min(92dvh, 820px);
+  }
+
+  .workflow-task-dialog-body {
+    padding-bottom: 0;
+    scroll-padding-bottom: 20px;
+  }
+
+}
+
+@media (max-width: 640px) {
+  .workflow-task-dialog {
+    width: calc(100vw - 20px);
+    max-width: none;
+    border-radius: 18px;
+  }
+
+  .workflow-task-dialog-body {
+    padding: 14px 16px 0;
+    gap: 0;
+    max-height: min(72dvh, 680px);
+    scroll-padding-bottom: 12px;
+  }
+
+  .workflow-task-dialog-layout {
+    gap: 14px;
+  }
+
+  .workflow-task-dialog-header {
+    gap: 6px;
+    padding: 18px 16px 0;
+  }
+
+  .workflow-task-dialog-footer {
+    gap: 8px;
+    padding: 14px 16px 16px;
+  }
+
+  .workflow-task-dialog-footer > button {
+    width: 100%;
+  }
+
+  .workflow-task-card-header {
+    gap: 6px;
+    padding: 14px 14px 0;
+  }
+
+  .workflow-task-card-content {
+    gap: 12px;
+    padding: 12px 14px 14px;
+  }
+
+  .workflow-task-label {
+    font-size: 12px;
+  }
+
+  .workflow-task-recommendation-reason,
+  .workflow-task-recommendation-list {
+    font-size: 12px;
+  }
+
+  .codex-import-dialog-header {
+    gap: 6px;
+    padding: 18px 16px 0;
+  }
+
+  .codex-import-dialog-body {
+    gap: 12px;
+    padding: 14px 16px 0;
+  }
+
+  .codex-import-dialog-footer {
+    gap: 8px;
+    padding: 14px 16px 16px;
+  }
+
+  .codex-import-dialog {
+    width: calc(100vw - 20px);
+    max-width: none;
+    border-radius: 18px;
+  }
+
+  .codex-import-dialog-footer > button {
+    width: 100%;
+  }
+
+  .codex-import-dialog-footer > button {
+    min-height: 38px;
+  }
+
+  .codex-import-dialog-primary {
+    flex: 1 1 auto;
+  }
+
+  .workflow-task-entry-buttons {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .workflow-task-entry-button {
+    width: min(100%, 280px);
+    justify-content: center;
+  }
 }
