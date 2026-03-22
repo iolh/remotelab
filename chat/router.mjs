@@ -1960,6 +1960,15 @@ export async function handleRequest(req, res) {
       const requestedTargetSessionId = typeof payload?.targetSessionId === 'string'
         ? payload.targetSessionId.trim()
         : '';
+      const requestedHandoffType = typeof payload?.handoffType === 'string'
+        ? payload.handoffType.trim()
+        : '';
+      const requestedSummary = typeof payload?.summary === 'string'
+        ? payload.summary.trim()
+        : '';
+      const requestedPayload = payload?.payload && typeof payload.payload === 'object' && !Array.isArray(payload.payload)
+        ? payload.payload
+        : undefined;
       if (requestedTargetSessionId) {
         if (requestedTargetSessionId === sessionId) {
           writeJson(res, 400, { error: 'targetSessionId must be different from the source session' });
@@ -1975,6 +1984,9 @@ export async function handleRequest(req, res) {
         }
         const outcome = await handoffSessionResult(sessionId, {
           targetSessionId: requestedTargetSessionId,
+          handoffType: requestedHandoffType,
+          summary: requestedSummary,
+          payload: requestedPayload,
         });
         if (!outcome?.targetSession) {
           writeJson(res, 409, { error: 'Unable to hand off session result' });

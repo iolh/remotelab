@@ -189,11 +189,7 @@ function renderMessageInto(container, evt, { finalizeActiveThinkingBlock = false
       const sourceName = typeof evt.handoffSourceSessionName === "string" && evt.handoffSourceSessionName.trim()
         ? evt.handoffSourceSessionName.trim()
         : "辅助会话";
-      const label = evt.handoffKind === "risk_review"
-        ? "风险复核回灌"
-        : evt.handoffKind === "pr_gate"
-          ? "PR 把关回灌"
-          : "结果回灌";
+      const label = getWorkflowHandoffEventLabel(evt);
       meta.textContent = `${label} · 来自 ${sourceName}`;
       div.appendChild(meta);
     }
@@ -622,6 +618,15 @@ function renderCollapsedBlock(evt) {
     ...(evt && typeof evt === "object" ? evt : {}),
     state: typeof evt?.state === "string" ? evt.state : "completed",
   });
+}
+
+function getWorkflowHandoffEventLabel(evt) {
+  const handoffType = typeof evt?.handoffType === "string" ? evt.handoffType.trim() : "";
+  if (handoffType === "verification_result") return "执行验收结果";
+  if (handoffType === "decision_result") return "深度裁决结果";
+  if (evt?.handoffKind === "risk_review") return "风险复核回灌";
+  if (evt?.handoffKind === "pr_gate") return "PR 把关回灌";
+  return "结果回灌";
 }
 
 function renderThinkingBlockEvent(evt) {

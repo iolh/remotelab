@@ -397,6 +397,10 @@ function getWorkflowHandoffKind(session) {
   return 'workflow';
 }
 
+function getWorkflowHandoffTypeForSession(session) {
+  return normalizeWorkflowHandoffType('', getWorkflowHandoffKind(session));
+}
+
 function isWorkflowMainlineAppName(appName) {
   return ['主交付', '功能交付'].includes(normalizeSessionAppName(appName || ''));
 }
@@ -405,6 +409,17 @@ function getWorkflowHandoffLabel(kind) {
   if (kind === 'risk_review') return '风险复核回灌';
   if (kind === 'pr_gate') return 'PR 把关回灌';
   return '结果回灌';
+}
+
+function getWorkflowHandoffTypeIntro(handoffType) {
+  const normalized = normalizeWorkflowHandoffType(handoffType);
+  if (normalized === 'verification_result') {
+    return '以下是本轮执行验收的最新结果。';
+  }
+  if (normalized === 'decision_result') {
+    return '以下是本轮深度裁决的最新结论。';
+  }
+  return '以下是本会话的最新结论。';
 }
 
 function normalizeWorkflowCurrentTask(value) {
@@ -465,16 +480,87 @@ function extractWorkflowCurrentTaskFromText(text, currentTask = '') {
 
 function normalizeWorkflowConclusionStatus(value) {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (['pending', 'needs_decision', 'accepted', 'ignored'].includes(normalized)) {
+  if (['pending', 'needs_decision', 'accepted', 'ignored', 'superseded'].includes(normalized)) {
     return normalized;
   }
   return 'pending';
+}
+
+function normalizeWorkflowHandoffType(value, fallbackKind = '') {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['verification_result', 'decision_result', 'workflow_result'].includes(normalized)) {
+    return normalized;
+  }
+  const legacyKind = typeof fallbackKind === 'string' ? fallbackKind.trim().toLowerCase() : '';
+  if (legacyKind === 'risk_review') return 'verification_result';
+  if (legacyKind === 'pr_gate') return 'decision_result';
+  return 'workflow_result';
+}
+
+function getWorkflowHandoffTypeLabel(handoffType) {
+  const normalized = normalizeWorkflowHandoffType(handoffType);
+  if (normalized === 'verification_result') return '执行验收结果';
+  if (normalized === 'decision_result') return '深度裁决结果';
+  return '结果回灌';
 }
 
 function normalizeWorkflowConclusionSummary(value) {
   if (typeof value !== 'string') return '';
   const compact = value.replace(/\s+/g, ' ').trim();
   return clipCompactionSection(compact, 280);
+}
+
+function normalizeWorkflowConclusionList(values = [], maxItems = 12) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => normalizeWorkflowConclusionSummary(value))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function normalizeWorkflowDecisionConfidence(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['high', 'medium', 'low'].includes(normalized)) return normalized;
+  return '';
+}
+
+function normalizeWorkflowVerificationRecommendation(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['ok', 'needs_fix', 'needs_more_validation'].includes(normalized)) return normalized;
+  return '';
+}
+
+function normalizeWorkflowConclusionPayload(payload = {}, handoffType = 'workflow_result') {
+  const normalizedType = normalizeWorkflowHandoffType(handoffType);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return {};
+  }
+
+  if (normalizedType === 'verification_result') {
+    const recommendation = normalizeWorkflowVerificationRecommendation(payload.recommendation);
+    return {
+      validated: normalizeWorkflowConclusionList(payload.validated),
+      unverified: normalizeWorkflowConclusionList(payload.unverified),
+      findings: normalizeWorkflowConclusionList(payload.findings),
+      evidence: normalizeWorkflowConclusionList(payload.evidence),
+      ...(recommendation ? { recommendation } : {}),
+    };
+  }
+
+  if (normalizedType === 'decision_result') {
+    const confidence = normalizeWorkflowDecisionConfidence(payload.confidence);
+    return {
+      ...(normalizeWorkflowConclusionSummary(payload.recommendation || '')
+        ? { recommendation: normalizeWorkflowConclusionSummary(payload.recommendation || '') }
+        : {}),
+      rejectedOptions: normalizeWorkflowConclusionList(payload.rejectedOptions),
+      tradeoffs: normalizeWorkflowConclusionList(payload.tradeoffs),
+      decisionNeeded: normalizeWorkflowConclusionList(payload.decisionNeeded),
+      ...(confidence ? { confidence } : {}),
+    };
+  }
+
+  return {};
 }
 
 function normalizeWorkflowPendingConclusion(conclusion = {}) {
@@ -490,27 +576,41 @@ function normalizeWorkflowPendingConclusion(conclusion = {}) {
   const handoffKind = typeof conclusion?.handoffKind === 'string' && conclusion.handoffKind.trim()
     ? conclusion.handoffKind.trim()
     : 'workflow';
+  const handoffType = normalizeWorkflowHandoffType(conclusion?.handoffType || '', handoffKind);
   const label = typeof conclusion?.label === 'string' && conclusion.label.trim()
     ? conclusion.label.trim()
-    : getWorkflowHandoffLabel(handoffKind);
+    : getWorkflowHandoffTypeLabel(handoffType);
   const summary = normalizeWorkflowConclusionSummary(conclusion?.summary || '');
   const status = normalizeWorkflowConclusionStatus(conclusion?.status || '');
+  const round = Number.isInteger(conclusion?.round) && conclusion.round > 0
+    ? conclusion.round
+    : 1;
+  const supersedesHandoffId = typeof conclusion?.supersedesHandoffId === 'string' && conclusion.supersedesHandoffId.trim()
+    ? conclusion.supersedesHandoffId.trim()
+    : '';
   const createdAt = typeof conclusion?.createdAt === 'string' && conclusion.createdAt.trim()
     ? conclusion.createdAt.trim()
     : nowIso();
   const handledAt = typeof conclusion?.handledAt === 'string' && conclusion.handledAt.trim()
     ? conclusion.handledAt.trim()
     : '';
+  const eventSeq = Number.isInteger(conclusion?.eventSeq) ? conclusion.eventSeq : undefined;
+  const payload = normalizeWorkflowConclusionPayload(conclusion?.payload || {}, handoffType);
   return {
     id,
     sourceSessionId,
     sourceSessionName,
     handoffKind,
+    handoffType,
     label,
     summary,
     status,
+    round,
     createdAt,
+    ...(supersedesHandoffId ? { supersedesHandoffId } : {}),
     ...(handledAt ? { handledAt } : {}),
+    ...(eventSeq !== undefined ? { eventSeq } : {}),
+    ...(Object.keys(payload).length > 0 ? { payload } : {}),
   };
 }
 
@@ -525,7 +625,7 @@ function normalizeWorkflowPendingConclusions(conclusions = []) {
 function isWorkflowAuxiliaryMessage(event) {
   return event?.type === 'message'
     && event?.role === 'assistant'
-    && ['session_delegate_notice', 'workflow_handoff_notice'].includes(event?.messageKind || '');
+    && ['session_delegate_notice', 'workflow_handoff_notice', 'workflow_handoff'].includes(event?.messageKind || '');
 }
 
 function findLatestAssistantConclusion(history = []) {
@@ -540,21 +640,17 @@ function findLatestAssistantConclusion(history = []) {
   return null;
 }
 
-function buildWorkflowHandoffMessage({ source, handoffKind, conclusion }) {
+function buildWorkflowHandoffMessage({ source, handoffKind, handoffType, conclusion }) {
   const sourceName = typeof source?.name === 'string' && source.name.trim()
     ? source.name.trim()
     : '辅助会话';
   const sourceLink = `[${sourceName}](${buildSessionNavigationHref(source?.id || '')})`;
-  const intro = handoffKind === 'risk_review'
-    ? '以下是本轮风险复核的最新结论。'
-    : handoffKind === 'pr_gate'
-      ? '以下是本轮 PR 把关的最新结论。'
-      : '以下是本会话的最新结论。';
+  const resolvedType = normalizeWorkflowHandoffType(handoffType || '', handoffKind || '');
   return [
-    `### ${getWorkflowHandoffLabel(handoffKind)}`,
+    `### ${getWorkflowHandoffTypeLabel(resolvedType)}`,
     `- 来源会话：${sourceLink}`,
     '',
-    intro,
+    getWorkflowHandoffTypeIntro(resolvedType),
     '',
     conclusion,
   ].filter(Boolean).join('\n');
@@ -2290,6 +2386,7 @@ function prepareConversationOnlyContinuationBody(events) {
   const segments = (events || [])
     .map((evt) => {
       if (!evt || !evt.type) return '';
+      if (evt.type === 'message' && isWorkflowAuxiliaryMessage(evt)) return '';
       if (evt.type === 'message') return formatCompactionMessage(evt);
       if (evt.type === 'template_context') return formatCompactionTemplateContext(evt);
       if (evt.type === 'status') return formatCompactionStatus(evt);
@@ -2468,14 +2565,20 @@ async function findLatestAssistantMessageForRun(sessionId, runId) {
 const MANAGER_TURN_POLICY_BLOCK = `Manager note: ${MANAGER_TURN_POLICY_REMINDER}`;
 
 function buildWorkflowPendingConclusionsPromptBlock(session) {
+  if (!isWorkflowMainlineAppName(session?.templateAppName || session?.appName || '')) {
+    return '';
+  }
   const entries = normalizeWorkflowPendingConclusions(session?.workflowPendingConclusions || [])
     .filter((entry) => ['pending', 'needs_decision'].includes(normalizeWorkflowConclusionStatus(entry.status)));
-  if (entries.length === 0) return '';
+  if (entries.length === 0) return 'No open workflow handoffs.';
   const lines = entries.map((entry, index) => {
-    const label = entry.label || getWorkflowHandoffLabel(entry.handoffKind || 'workflow');
+    const label = entry.label || getWorkflowHandoffTypeLabel(entry.handoffType || entry.handoffKind || 'workflow');
     const source = entry.sourceSessionName ? `来源：${entry.sourceSessionName}` : '来源：辅助会话';
     const status = normalizeWorkflowConclusionStatus(entry.status) === 'needs_decision' ? '状态：待用户决策' : '状态：待处理';
-    return `${index + 1}. ${label}\n   - ${source}\n   - ${status}\n   - 摘要：${entry.summary}`;
+    const confidence = entry.handoffType === 'decision_result' && entry?.payload?.confidence
+      ? `\n   - 置信度：${entry.payload.confidence}`
+      : '';
+    return `${index + 1}. ${label}\n   - ${source}\n   - ${status}${confidence}\n   - 摘要：${entry.summary}`;
   });
   return [
     'Open workflow conclusions requiring attention:',
@@ -3622,18 +3725,46 @@ export async function updateSessionHandoffTarget(id, handoffTargetSessionId) {
 }
 
 async function appendWorkflowPendingConclusion(id, conclusion) {
-  const nextConclusion = normalizeWorkflowPendingConclusion(conclusion);
+  const baseConclusion = normalizeWorkflowPendingConclusion(conclusion);
   const result = await mutateSessionMeta(id, (session) => {
+    const stamp = nowIso();
     const current = normalizeWorkflowPendingConclusions(session.workflowPendingConclusions || []);
-    const filtered = current.filter((item) => {
-      const sameSource = item.sourceSessionId && item.sourceSessionId === nextConclusion.sourceSessionId;
-      const sameKind = item.handoffKind === nextConclusion.handoffKind;
-      const unresolved = ['pending', 'needs_decision'].includes(normalizeWorkflowConclusionStatus(item.status));
-      return !(sameSource && sameKind && unresolved);
+    const sameSourceTypeEntries = current.filter((item) => {
+      const sameSource = item.sourceSessionId && item.sourceSessionId === baseConclusion.sourceSessionId;
+      const sameType = normalizeWorkflowHandoffType(item.handoffType || '', item.handoffKind || '') === baseConclusion.handoffType;
+      return sameSource && sameType;
     });
-    filtered.push(nextConclusion);
-    session.workflowPendingConclusions = filtered.slice(-20);
-    session.updatedAt = nowIso();
+
+    let supersedesHandoffId = '';
+    const updated = current.map((item) => {
+      const sameSource = item.sourceSessionId && item.sourceSessionId === baseConclusion.sourceSessionId;
+      const sameType = normalizeWorkflowHandoffType(item.handoffType || '', item.handoffKind || '') === baseConclusion.handoffType;
+      const unresolved = ['pending', 'needs_decision'].includes(normalizeWorkflowConclusionStatus(item.status));
+      if (!(sameSource && sameType && unresolved)) {
+        return item;
+      }
+      supersedesHandoffId = item.id;
+      return {
+        ...item,
+        status: 'superseded',
+        handledAt: stamp,
+      };
+    });
+
+    const nextRound = sameSourceTypeEntries.reduce((maxRound, item) => {
+      const currentRound = Number.isInteger(item?.round) && item.round > 0 ? item.round : 1;
+      return Math.max(maxRound, currentRound);
+    }, 0) + 1;
+
+    const nextConclusion = {
+      ...baseConclusion,
+      round: nextRound,
+      createdAt: stamp,
+      ...(supersedesHandoffId ? { supersedesHandoffId } : {}),
+    };
+    updated.push(nextConclusion);
+    session.workflowPendingConclusions = updated.slice(-20);
+    session.updatedAt = stamp;
     return true;
   });
 
@@ -3665,7 +3796,7 @@ export async function updateWorkflowPendingConclusionStatus(id, conclusionId, st
     const updated = {
       ...existing,
       status: nextStatus,
-      ...(nextStatus === 'accepted' || nextStatus === 'ignored' ? { handledAt: nowIso() } : {}),
+      ...(['accepted', 'ignored', 'superseded'].includes(nextStatus) ? { handledAt: nowIso() } : {}),
     };
     if (nextStatus === 'pending' || nextStatus === 'needs_decision') {
       delete updated.handledAt;
@@ -4486,22 +4617,28 @@ export async function handoffSessionResult(sessionId, payload = {}) {
 
   const history = await loadHistory(source.id);
   const latestConclusion = findLatestAssistantConclusion(history);
-  const conclusionText = typeof latestConclusion?.content === 'string'
+  const latestConclusionText = typeof latestConclusion?.content === 'string'
     ? latestConclusion.content.trim()
     : '';
+  const requestedSummary = normalizeWorkflowConclusionSummary(payload?.summary || '');
+  const conclusionText = requestedSummary || latestConclusionText;
   if (!conclusionText) {
     throw new Error('No assistant conclusion available to hand off yet');
   }
 
   const handoffKind = getWorkflowHandoffKind(source);
+  const handoffType = normalizeWorkflowHandoffType(payload?.handoffType || '', handoffKind);
+  const handoffPayload = normalizeWorkflowConclusionPayload(payload?.payload || {}, handoffType);
   const content = buildWorkflowHandoffMessage({
     source,
     handoffKind,
+    handoffType,
     conclusion: conclusionText,
   });
   const handoffEvent = await appendEvent(target.id, messageEvent('assistant', content, undefined, {
     messageKind: 'workflow_handoff',
     handoffKind,
+    handoffType,
     handoffSourceSessionId: source.id,
     handoffSourceSessionName: typeof source?.name === 'string' ? source.name.trim() : '',
     handoffTargetSessionId: target.id,
@@ -4510,11 +4647,13 @@ export async function handoffSessionResult(sessionId, payload = {}) {
     sourceSessionId: source.id,
     sourceSessionName: typeof source?.name === 'string' ? source.name.trim() : '',
     handoffKind,
-    label: getWorkflowHandoffLabel(handoffKind),
+    handoffType,
+    label: getWorkflowHandoffTypeLabel(handoffType),
     summary: conclusionText,
     status: 'pending',
     createdAt: nowIso(),
     eventSeq: Number.isInteger(handoffEvent?.seq) ? handoffEvent.seq : undefined,
+    ...(Object.keys(handoffPayload).length > 0 ? { payload: handoffPayload } : {}),
   }) || await getSession(target.id) || target;
   broadcastSessionInvalidation(target.id);
 
@@ -4523,8 +4662,10 @@ export async function handoffSessionResult(sessionId, payload = {}) {
     targetSession: updatedTarget,
     handoff: {
       kind: handoffKind,
-      label: getWorkflowHandoffLabel(handoffKind),
+      type: handoffType,
+      label: getWorkflowHandoffTypeLabel(handoffType),
       summary: clipCompactionSection(conclusionText, 280),
+      ...(Object.keys(handoffPayload).length > 0 ? { payload: handoffPayload } : {}),
     },
   };
 }

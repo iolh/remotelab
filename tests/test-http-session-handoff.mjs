@@ -223,44 +223,104 @@ try {
   assert.equal(remember.status, 200, 'session patch should persist the default handoff target');
   assert.equal(remember.json.session?.handoffTargetSessionId, mainline.id, 'stored handoff target should round-trip through the client shape');
 
-  const handoff = await request(port, 'POST', `/api/sessions/${review.id}/handoff`);
+  const handoff = await request(port, 'POST', `/api/sessions/${review.id}/handoff`, {
+    summary: '第一轮验证摘要：旧结果。',
+  });
   assert.equal(handoff.status, 201, 'handoff should append the latest assistant conclusion to the target session');
   assert.equal(handoff.json.session?.id, mainline.id, 'handoff should return the refreshed target session');
   assert.equal(handoff.json.sourceSession?.handoffTargetSessionId, mainline.id, 'handoff response should preserve the remembered target on the source session');
   assert.equal(handoff.json.handoff?.kind, 'risk_review', 'risk review sessions should report the risk review handoff kind');
+  assert.equal(handoff.json.handoff?.type, 'verification_result', 'risk review sessions should map to verification results');
   assert.equal(Array.isArray(handoff.json.session?.workflowPendingConclusions), true, 'handoff should persist a pending workflow conclusion on the target session');
   assert.equal(handoff.json.session?.workflowPendingConclusions?.[0]?.status, 'pending', 'new handoffs should start as pending conclusions');
+  assert.equal(handoff.json.session?.workflowPendingConclusions?.[0]?.handoffType, 'verification_result', 'pending conclusions should persist the typed handoff');
+  assert.equal(handoff.json.session?.workflowPendingConclusions?.[0]?.round, 1, 'first handoff should start from round one');
 
   const targetEvents = await getEvents(port, mainline.id);
   const handoffEvent = targetEvents.find((event) => event.type === 'message' && event.messageKind === 'workflow_handoff');
   assert.ok(handoffEvent, 'target session should receive a structured handoff message');
   assert.equal(handoffEvent.handoffSourceSessionId, review.id, 'handoff message should keep the source session id');
-  assert.match(handoffEvent.content || '', /风险复核回灌/, 'handoff message should label the event for the mainline session');
-  assert.match(handoffEvent.content || '', /finished from fake codex/, 'handoff message should include the latest assistant conclusion');
+  assert.equal(handoffEvent.handoffType, 'verification_result', 'handoff event should include the typed handoff');
+  assert.match(handoffEvent.content || '', /执行验收结果/, 'handoff message should use the typed label for the mainline session');
+  assert.match(handoffEvent.content || '', /第一轮验证摘要：旧结果。/, 'handoff message should include the handoff summary');
 
   const conclusionId = handoff.json.session?.workflowPendingConclusions?.[0]?.id;
   assert.ok(conclusionId, 'handoff should return a stable conclusion id');
+
+  const secondHandoff = await request(port, 'POST', `/api/sessions/${review.id}/handoff`, {
+    summary: '移动端空态未验证，筛选重置已验证通过。',
+    payload: {
+      validated: ['筛选条件切换'],
+      unverified: ['移动端空态'],
+      findings: ['URL 参数残留'],
+      evidence: ['npm test 通过'],
+      recommendation: 'needs_more_validation',
+    },
+  });
+  assert.equal(secondHandoff.status, 201, 'typed handoff payloads should also be accepted');
+  const allConclusions = secondHandoff.json.session?.workflowPendingConclusions || [];
+  assert.equal(allConclusions.length, 2, 'second handoff should supersede instead of deleting prior conclusions');
+  const superseded = allConclusions.find((entry) => entry.id === conclusionId);
+  const latest = allConclusions.find((entry) => entry.id !== conclusionId);
+  assert.equal(superseded?.status, 'superseded', 'older unresolved handoffs should be marked as superseded');
+  assert.equal(latest?.status, 'pending', 'latest handoff should remain pending');
+  assert.equal(latest?.round, 2, 'second handoff should increment the round');
+  assert.equal(latest?.supersedesHandoffId, conclusionId, 'latest handoff should reference the superseded handoff');
+  assert.deepEqual(latest?.payload?.validated, ['筛选条件切换'], 'typed handoffs should persist validated evidence');
+  assert.equal(latest?.payload?.recommendation, 'needs_more_validation', 'typed handoffs should persist structured recommendations');
 
   const mainlineSubmit = await submitMessage(port, mainline.id, 'req-handoff-mainline', '目标：完成搜索页改造\n成功标准：搜索、筛选和结果列表都正常工作');
   await waitForRunTerminal(port, mainlineSubmit.run.id);
   const mainlineManifest = readRunManifest(home, mainlineSubmit.run.id);
   assert.match(mainlineManifest.prompt || '', /Current workflow task: 完成搜索页改造/, 'mainline prompt should include the explicit current workflow task');
   assert.match(mainlineManifest.prompt || '', /Open workflow conclusions requiring attention:/, 'mainline prompt should include open workflow conclusions');
-  assert.match(mainlineManifest.prompt || '', /finished from fake codex/, 'mainline prompt should include the handoff summary');
+  assert.match(mainlineManifest.prompt || '', /执行验收结果/, 'mainline prompt should include the typed handoff label');
+  assert.match(mainlineManifest.prompt || '', /移动端空态未验证，筛选重置已验证通过。/, 'mainline prompt should include the latest handoff summary');
+  assert.doesNotMatch(mainlineManifest.prompt || '', /第一轮验证摘要：旧结果。/, 'mainline prompt should not surface superseded summaries');
   const refreshedMainline = await getSession(port, mainline.id);
   assert.equal(refreshedMainline.workflowCurrentTask, '完成搜索页改造', 'mainline sessions should persist the latest explicit workflow current task');
 
-  const needsDecision = await request(port, 'POST', `/api/sessions/${mainline.id}/conclusions/${conclusionId}`, {
+  const latestConclusionId = latest?.id;
+  assert.ok(latestConclusionId, 'latest typed handoff should expose a stable id');
+
+  const needsDecision = await request(port, 'POST', `/api/sessions/${mainline.id}/conclusions/${latestConclusionId}`, {
     status: 'needs_decision',
   });
   assert.equal(needsDecision.status, 200, 'workflow conclusion status updates should succeed');
-  assert.equal(needsDecision.json.session?.workflowPendingConclusions?.[0]?.status, 'needs_decision', 'conclusion status should update in session detail responses');
+  const decisionEntry = (needsDecision.json.session?.workflowPendingConclusions || []).find((entry) => entry.id === latestConclusionId);
+  assert.equal(decisionEntry?.status, 'needs_decision', 'conclusion status should update in session detail responses');
 
-  const accepted = await request(port, 'POST', `/api/sessions/${mainline.id}/conclusions/${conclusionId}`, {
+  const accepted = await request(port, 'POST', `/api/sessions/${mainline.id}/conclusions/${latestConclusionId}`, {
     status: 'accepted',
   });
   assert.equal(accepted.status, 200, 'workflow conclusion status should support terminal acceptance');
-  assert.equal(accepted.json.session?.workflowPendingConclusions?.[0]?.status, 'accepted', 'accepted conclusions should stay recorded with their terminal status');
+  const acceptedEntry = (accepted.json.session?.workflowPendingConclusions || []).find((entry) => entry.id === latestConclusionId);
+  assert.equal(acceptedEntry?.status, 'accepted', 'accepted conclusions should stay recorded with their terminal status');
+
+  const afterAcceptanceSubmit = await submitMessage(port, mainline.id, 'req-handoff-mainline-after-accept', '继续推进搜索页改造');
+  await waitForRunTerminal(port, afterAcceptanceSubmit.run.id);
+  const afterAcceptanceManifest = readRunManifest(home, afterAcceptanceSubmit.run.id);
+  assert.match(afterAcceptanceManifest.prompt || '', /No open workflow handoffs\./, 'mainline prompt should explicitly declare the empty handoff state');
+
+  const decision = await createSession(port, { name: 'PR把关 · 搜索页改造', appName: 'PR把关' });
+  const decisionSubmit = await submitMessage(port, decision.id, 'req-handoff-decision-source', 'Decide between plan A and B');
+  await waitForRunTerminal(port, decisionSubmit.run.id);
+  const decisionHandoff = await request(port, 'POST', `/api/sessions/${decision.id}/handoff`, {
+    targetSessionId: mainline.id,
+    summary: '推荐方案 B，但需要确认是否接受额外 1 天工期。',
+    payload: {
+      recommendation: '方案 B',
+      rejectedOptions: ['方案 A'],
+      tradeoffs: ['改动更小'],
+      decisionNeeded: ['是否接受额外 1 天工期'],
+      confidence: 'high',
+    },
+  });
+  assert.equal(decisionHandoff.status, 201, 'decision handoffs should also be accepted');
+  assert.equal(decisionHandoff.json.handoff?.type, 'decision_result', 'PR gate sessions should map to decision results');
+  const decisionEntryStored = (decisionHandoff.json.session?.workflowPendingConclusions || []).find((entry) => entry.sourceSessionId === decision.id);
+  assert.equal(decisionEntryStored?.handoffType, 'decision_result', 'decision handoffs should persist the typed decision result');
+  assert.equal(decisionEntryStored?.payload?.confidence, 'high', 'decision handoffs should persist confidence');
 
   console.log('test-http-session-handoff: ok');
 } finally {

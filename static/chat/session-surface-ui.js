@@ -23,7 +23,25 @@ function normalizeWorkflowConclusionStatusLabel(status) {
   if (status === "needs_decision") return "待决策";
   if (status === "accepted") return "已吸收";
   if (status === "ignored") return "已忽略";
+  if (status === "superseded") return "已覆盖";
   return "待处理";
+}
+
+function getWorkflowConclusionTypeLabel(conclusion) {
+  const type = typeof conclusion?.handoffType === "string" ? conclusion.handoffType.trim() : "";
+  if (type === "verification_result") return "执行验收结果";
+  if (type === "decision_result") return "深度裁决结果";
+  const legacyKind = typeof conclusion?.handoffKind === "string" ? conclusion.handoffKind.trim() : "";
+  if (legacyKind === "risk_review") return "风险复核回灌";
+  if (legacyKind === "pr_gate") return "PR 把关回灌";
+  return "结果回灌";
+}
+
+function getWorkflowDecisionConfidenceLabel(confidence) {
+  if (confidence === "high") return "高";
+  if (confidence === "medium") return "中";
+  if (confidence === "low") return "低";
+  return "";
 }
 
 function getWorkflowPanelCurrentTask(session) {
@@ -145,7 +163,8 @@ function renderWorkflowSummaryPanel(session) {
       const source = conclusion.sourceSessionName
         ? `来自 ${conclusion.sourceSessionName}`
         : "来自辅助会话";
-      item.textContent = `${source}：${conclusion.summary || "暂无摘要"}`;
+      const confidence = getWorkflowDecisionConfidenceLabel(conclusion?.payload?.confidence || "");
+      item.textContent = `${source}${confidence ? `（置信度：${confidence}）` : ""}：${conclusion.summary || "暂无摘要"}`;
       decisionList.appendChild(item);
     }
     decisionSection.appendChild(decisionList);
@@ -187,7 +206,7 @@ function renderWorkflowSummaryPanel(session) {
 
       const label = document.createElement("span");
       label.className = "workflow-conclusion-label";
-      label.textContent = conclusion.label || "结果回灌";
+      label.textContent = conclusion.label || getWorkflowConclusionTypeLabel(conclusion);
 
       const normalizedStatus = String(conclusion.status || "").trim();
       const status = document.createElement("span");
@@ -203,6 +222,14 @@ function renderWorkflowSummaryPanel(session) {
       meta.appendChild(label);
       meta.appendChild(status);
       meta.appendChild(source);
+
+      const confidence = getWorkflowDecisionConfidenceLabel(conclusion?.payload?.confidence || "");
+      if (confidence) {
+        const confidenceNode = document.createElement("span");
+        confidenceNode.className = "workflow-conclusion-confidence";
+        confidenceNode.textContent = `置信度 ${confidence}`;
+        meta.appendChild(confidenceNode);
+      }
 
       const handledAt = handled ? formatWorkflowConclusionHandledAt(conclusion.handledAt || "") : "";
       if (handledAt) {

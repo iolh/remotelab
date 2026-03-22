@@ -79,7 +79,14 @@ function formatImages(images) {
   return `[Attached files: ${refs.join(', ')}]`;
 }
 
+function isAuxiliaryWorkflowMessage(evt) {
+  return evt?.type === 'message'
+    && evt?.role === 'assistant'
+    && ['session_delegate_notice', 'workflow_handoff_notice', 'workflow_handoff'].includes(normalizeText(evt?.messageKind));
+}
+
 function formatMessage(evt) {
+  if (isAuxiliaryWorkflowMessage(evt)) return '';
   const label = evt.role === 'user' ? 'User' : 'Assistant';
   const parts = [];
   const imageLine = formatImages(evt.images);
