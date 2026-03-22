@@ -377,6 +377,149 @@ window.remotelabChromeBridge = {
   },
 };
 
+const WORKFLOW_APP_ALIASES = {
+  execute: ["执行", "主交付", "功能交付"],
+  verify: ["验收", "执行验收", "风险复核"],
+  deliberate: ["再议", "深度裁决", "PR把关", "合并", "发布把关", "推敲"],
+};
+
+function normalizeWorkflowTaskText(value) {
+  if (typeof value !== "string") return "";
+  const normalized = value.trim();
+  return normalized || "";
+}
+
+function buildWorkflowTaskSessionName(appName, input) {
+  const goal = normalizeWorkflowTaskText(input?.goal);
+  if (!goal) return "";
+  const compact = goal.replace(/\s+/gu, " ");
+  const clipped = compact.length > 26 ? `${compact.slice(0, 26).trim()}…` : compact;
+  return `${appName} · ${clipped}`;
+}
+
+function findWorkflowTaskAppByNames(names = []) {
+  const candidates = Array.isArray(availableApps) ? availableApps : [];
+  const normalizedNames = names
+    .map((name) => normalizeWorkflowTaskText(name))
+    .filter(Boolean);
+  for (const name of normalizedNames) {
+    const found = candidates.find((app) => normalizeWorkflowTaskText(app?.name) === name);
+    if (found) return found;
+  }
+  return null;
+}
+
+function getWorkflowTaskSeedInput() {
+  const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
+  const seed = {
+    goal: "",
+    project: "",
+  };
+  if (!session) return seed;
+  const folder = normalizeWorkflowTaskText(session.folder || "");
+  if (folder && folder !== "~") {
+    seed.project = folder;
+  }
+  if (typeof getSessionDisplayName === "function") {
+    const displayName = normalizeWorkflowTaskText(getSessionDisplayName(session));
+    if (displayName && !/^chat$/iu.test(displayName)) {
+      seed.goal = displayName;
+    }
+  }
+  return seed;
+}
+
+async function ensureWorkflowTaskAppsLoaded() {
+  if (Array.isArray(availableApps) && availableApps.length > 0) return availableApps;
+  if (typeof fetchAppsList === "function") {
+    await fetchAppsList();
+  }
+  return availableApps;
+}
+
+async function createWorkflowTaskSession({ appNames = [], input = {}, kickoffMessage = "", successToast = "" }) {
+  let app = findWorkflowTaskAppByNames(appNames);
+  if (!app) {
+    await ensureWorkflowTaskAppsLoaded();
+    app = findWorkflowTaskAppByNames(appNames);
+  }
+  if (!app?.id) {
+    throw new Error("当前还没有配置对应的工作流入口");
+  }
+  const principal = typeof resolveSelectedSessionPrincipal === "function"
+    ? resolveSelectedSessionPrincipal()
+    : (typeof getAdminSessionPrincipal === "function" ? getAdminSessionPrincipal() : { kind: "admin" });
+  const folder = normalizeWorkflowTaskText(input.project) || "~";
+  const payload = {
+    folder,
+    tool: normalizeWorkflowTaskText(app.tool) || preferredTool || selectedTool || toolsList?.[0]?.id || "",
+    model: normalizeWorkflowTaskText(app.model),
+    effort: normalizeWorkflowTaskText(app.effort),
+    thinking: app.thinking === true,
+    name: buildWorkflowTaskSessionName(app.name || "任务", input),
+    description: normalizeWorkflowTaskText(input.goal),
+    appId: app.id,
+    appName: app.name || "",
+    sourceId: DEFAULT_APP_ID,
+    sourceName: DEFAULT_APP_NAME,
+    ...(typeof buildSessionPrincipalPayload === "function" ? buildSessionPrincipalPayload(principal) : {}),
+  };
+  const created = await fetchJsonOrRedirect("/api/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const session = upsertSession(created.session) || created.session;
+  renderSessionList();
+  attachSession(session.id, session);
+
+  if (kickoffMessage) {
+    const messageResponse = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(session.id)}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId: createRequestId(),
+        text: kickoffMessage,
+      }),
+    });
+    const updatedSession = upsertSession(messageResponse.session) || messageResponse.session || session;
+    renderSessionList();
+    attachSession(updatedSession.id, updatedSession);
+  }
+
+  if (!isDesktop && typeof closeSidebarFn === "function") {
+    closeSidebarFn();
+  }
+  if (successToast && typeof showAppToast === "function") {
+    showAppToast(successToast, "success");
+  }
+  return session;
+}
+
+window.remotelabWorkflowBridge = {
+  getSeedInput() {
+    return getWorkflowTaskSeedInput();
+  },
+  ensureAppsLoaded() {
+    return ensureWorkflowTaskAppsLoaded();
+  },
+  getAppAliases() {
+    return {
+      execute: [...WORKFLOW_APP_ALIASES.execute],
+      verify: [...WORKFLOW_APP_ALIASES.verify],
+      deliberate: [...WORKFLOW_APP_ALIASES.deliberate],
+    };
+  },
+  async startTask(options = {}) {
+    return createWorkflowTaskSession({
+      appNames: Array.isArray(options.appNames) ? options.appNames : [],
+      input: options.input && typeof options.input === "object" ? options.input : {},
+      kickoffMessage: normalizeWorkflowTaskText(options.kickoffMessage),
+      successToast: normalizeWorkflowTaskText(options.successToast),
+    });
+  },
+};
+
 refreshFrontendBtn?.addEventListener("click", () => {
   void reloadForFreshBuild(newerBuildInfo);
 });

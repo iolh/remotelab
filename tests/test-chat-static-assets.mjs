@@ -197,6 +197,8 @@ async function main() {
     assert.match(page.text, /<script src="\/chat\/sidebar-ui\.js(?:\?v=[^"]*)?"/);
     assert.match(page.text, /<script src="\/chat\/compose\.js(?:\?v=[^"]*)?"/);
     assert.match(page.text, /<script src="\/chat\/voice-input\.js(?:\?v=[^"]*)?"/);
+    assert.match(page.text, /<script src="\/chat-island\/chat-chrome\.js(?:\?v=[^"]*)?"/);
+    assert.match(page.text, /<link rel="stylesheet" href="\/chat-island\/chat-chrome\.css(?:\?v=[^"]*)?"/);
 
     const visitorPage = await request(port, 'GET', '/?visitor=1', null, { Cookie: visitorCookie });
     assert.equal(visitorPage.status, 200, 'chat page should also render for visitor session');
@@ -225,6 +227,10 @@ async function main() {
     assert.match(page.text, /id="voiceSettingsMount"/);
     assert.match(page.text, /id="voiceInputBtn"/);
     assert.match(page.text, /id="voiceFileInput"/);
+    assert.match(page.text, /id="workflowTaskEntryRoot"/);
+    assert.match(page.text, /id="workflowTaskSidebarRoot"/);
+    assert.match(page.text, /id="chatChromeRoot"/);
+    assert.doesNotMatch(page.text, /id="workflowTaskModal"/);
     assert.match(page.text, /id="voiceInputBtn"[\s\S]*id="sendBtn"/, 'voice button should render immediately before send');
     assert.match(page.text, /id="voiceInputStatus"/);
     assert.match(page.text, /id="tabSettings"/);
@@ -384,6 +390,12 @@ async function main() {
 
     const sessionHttpAsset = await request(port, 'GET', '/chat/session-http.js');
     assert.equal(sessionHttpAsset.status, 200, 'session http asset should load');
+    const chatIslandAsset = await request(port, 'GET', '/chat-island/chat-chrome.js');
+    assert.equal(chatIslandAsset.status, 200, 'chat chrome island asset should load');
+    assert.match(chatIslandAsset.text, /remotelab:workflow-intake-open/);
+    const chatIslandStylesheet = await request(port, 'GET', '/chat-island/chat-chrome.css');
+    assert.equal(chatIslandStylesheet.status, 200, 'chat chrome island stylesheet should load');
+    assert.match(chatIslandStylesheet.text, /workflowTaskEntryRoot/);
     const bootstrapCatalogAsset = await request(port, 'GET', '/chat/bootstrap-session-catalog.js');
     assert.equal(bootstrapCatalogAsset.status, 200, 'bootstrap session catalog asset should load');
     assert.match(bootstrapCatalogAsset.text, /function getEffectiveSessionAppId\(/);

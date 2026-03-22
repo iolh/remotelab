@@ -37,7 +37,11 @@ newAppBtn.addEventListener("click", () => {
   createNewAppShortcut();
 });
 
-newSessionBtn.addEventListener("click", () => {
+newSessionBtn?.addEventListener("click", () => {
+  if (typeof window.openWorkflowTaskIntakeModal === "function") {
+    window.openWorkflowTaskIntakeModal();
+    return;
+  }
   void createNewSessionShortcut();
 });
 

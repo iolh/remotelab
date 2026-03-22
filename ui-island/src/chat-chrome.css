@@ -4,8 +4,15 @@
   --chrome-button-size: 32px;
 }
 
-#chatChromeRoot {
+#chatChromeRoot,
+#workflowTaskEntryRoot,
+#workflowTaskSidebarRoot {
   width: auto;
+}
+
+#workflowTaskEntryRoot,
+#workflowTaskSidebarRoot {
+  display: block;
 }
 
 .remotelab-sonner-toast {

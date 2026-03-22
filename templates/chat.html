@@ -25,6 +25,7 @@
 <div class="header">
   <button class="header-btn" id="menuBtn" title="会话" aria-label="会话" data-icon="menu">&#9776;</button>
   <h1 id="headerTitle">RemoteLab 对话</h1>
+  <div class="chat-chrome-host" id="chatChromeRoot"></div>
   <button class="header-refresh-btn" id="refreshFrontendBtn" type="button" title="刷新到最新前端" aria-label="刷新到最新前端" data-icon="refresh" hidden></button>
 </div>
 <div class="legacy-header-action-cache" hidden aria-hidden="true">
@@ -33,8 +34,6 @@
   <button class="header-btn" id="forkSessionBtn" type="button" title="Fork" aria-label="Fork" data-icon="fork" hidden></button>
   <button class="header-btn" id="shareSnapshotBtn" type="button" title="Share" aria-label="Share" data-icon="share" hidden></button>
 </div>
-<div class="chat-chrome-host" id="chatChromeRoot"></div>
-
 <div class="app-container">
   <!-- Sidebar overlay -->
   <div class="sidebar-overlay" id="sidebarOverlay">
@@ -91,7 +90,7 @@
       </div>
       <div class="session-list-footer" id="sessionListFooter" title="构建版本 {{BUILD_TITLE}}">版本 {{BUILD_LABEL}}</div>
       <button class="new-session-btn secondary" id="newAppBtn">+ 新建应用</button>
-      <button class="new-session-btn" id="newSessionBtn">+ 新建会话</button>
+      <div class="workflow-task-sidebar-root" id="workflowTaskSidebarRoot"></div>
     </aside>
   </div>
 
@@ -102,7 +101,8 @@
       <div class="messages-inner" id="messagesInner">
         <div class="empty-state" id="emptyState">
           <h2>RemoteLab 对话</h2>
-          <p>从侧边栏选择或创建一个会话，然后开始与你的 AI 编码工具对话。</p>
+          <p>先开始一个任务，系统会根据你的目标推荐更合适的工作流；如果你愿意，也可以切到手动模式直接打开单个会话。</p>
+          <div class="workflow-task-entry-root" id="workflowTaskEntryRoot"></div>
         </div>
       </div>
     </div>
