@@ -322,6 +322,19 @@ try {
   assert.equal(decisionEntryStored?.handoffType, 'decision_result', 'decision handoffs should persist the typed decision result');
   assert.equal(decisionEntryStored?.payload?.confidence, 'high', 'decision handoffs should persist confidence');
 
+  const verification = await createSession(port, { name: '执行验收 · 搜索页改造', appName: '执行验收' });
+  const verificationSubmit = await submitMessage(port, verification.id, 'req-verification-runtime', '请验证搜索页改造');
+  await waitForRunTerminal(port, verificationSubmit.run.id);
+  const verificationManifest = readRunManifest(home, verificationSubmit.run.id);
+  assert.equal(verificationManifest.options?.executionMode, 'verification_read_only', 'verification sessions should declare a read-only execution mode');
+  assert.equal(verificationManifest.options?.sandboxMode, 'read-only', 'verification sessions should request the read-only sandbox');
+  assert.equal(verificationManifest.options?.approvalPolicy, 'never', 'verification sessions should disable approval prompts in detached mode');
+  assert.match(
+    verificationManifest.options?.developerInstructions || '',
+    /Treat the workspace as read-only\./,
+    'verification sessions should pass explicit read-only developer instructions to Codex',
+  );
+
   console.log('test-http-session-handoff: ok');
 } finally {
   await stopServer(server);

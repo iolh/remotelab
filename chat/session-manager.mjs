@@ -29,7 +29,11 @@ import {
 import { buildSourceRuntimePrompt } from './source-runtime-prompts.mjs';
 import { sendCompletionPush } from './push.mjs';
 import { buildSystemContext } from './system-prompt.mjs';
-import { MANAGER_TURN_POLICY_REMINDER } from './runtime-policy.mjs';
+import {
+  CODEX_VERIFICATION_READ_ONLY_DEVELOPER_INSTRUCTIONS,
+  DEFAULT_CODEX_DEVELOPER_INSTRUCTIONS,
+  MANAGER_TURN_POLICY_REMINDER,
+} from './runtime-policy.mjs';
 import {
   buildSessionAgreementsPromptBlock,
   normalizeSessionAgreements,
@@ -403,6 +407,10 @@ function getWorkflowHandoffTypeForSession(session) {
 
 function isWorkflowMainlineAppName(appName) {
   return ['主交付', '功能交付'].includes(normalizeSessionAppName(appName || ''));
+}
+
+function isWorkflowVerificationAppName(appName) {
+  return ['执行验收', '风险复核'].includes(normalizeSessionAppName(appName || ''));
 }
 
 function getWorkflowHandoffLabel(kind) {
@@ -2593,6 +2601,37 @@ function buildWorkflowCurrentTaskPromptBlock(session) {
   return `Current workflow task: ${currentTask}`;
 }
 
+function inferRuntimeFamilyFromTool(toolId, toolDefinition) {
+  if (toolDefinition?.runtimeFamily) return toolDefinition.runtimeFamily;
+  if (toolId === 'codex') return 'codex-json';
+  if (toolId === 'claude') return 'claude-stream-json';
+  if (toolId === 'cursor') return 'cursor-stream-json';
+  return '';
+}
+
+async function resolveWorkflowExecutionRuntimeOptions(session, effectiveTool) {
+  const appName = normalizeSessionAppName(session?.templateAppName || session?.appName || '');
+  if (!isWorkflowVerificationAppName(appName)) {
+    return {};
+  }
+
+  const toolDefinition = await getToolDefinitionAsync(effectiveTool);
+  const runtimeFamily = inferRuntimeFamilyFromTool(effectiveTool, toolDefinition);
+  if (runtimeFamily !== 'codex-json') {
+    return {};
+  }
+
+  return {
+    executionMode: 'verification_read_only',
+    sandboxMode: 'read-only',
+    approvalPolicy: 'never',
+    developerInstructions: [
+      DEFAULT_CODEX_DEVELOPER_INSTRUCTIONS,
+      CODEX_VERIFICATION_READ_ONLY_DEVELOPER_INSTRUCTIONS,
+    ].filter(Boolean).join(' '),
+  };
+}
+
 function buildManagerTurnContextText(session, text = '') {
   return [
     MANAGER_TURN_POLICY_BLOCK,
@@ -4323,6 +4362,9 @@ export async function submitHttpMessage(sessionId, text, images, options = {}) {
     claudeSessionId: persistedClaudeSessionId,
     codexThreadId: persistedCodexThreadId,
   } = resolveResumeState(effectiveTool, session, options);
+  const workflowExecutionRuntimeOptions = options.internalOperation
+    ? {}
+    : await resolveWorkflowExecutionRuntimeOptions(session, effectiveTool);
 
   const run = await createRun({
     status: {
@@ -4366,6 +4408,10 @@ export async function submitHttpMessage(sessionId, text, images, options = {}) {
         providerResumeId: persistedProviderResumeId || undefined,
         claudeSessionId: persistedClaudeSessionId || undefined,
         codexThreadId: persistedCodexThreadId || undefined,
+        executionMode: workflowExecutionRuntimeOptions.executionMode || undefined,
+        sandboxMode: workflowExecutionRuntimeOptions.sandboxMode || undefined,
+        approvalPolicy: workflowExecutionRuntimeOptions.approvalPolicy || undefined,
+        developerInstructions: workflowExecutionRuntimeOptions.developerInstructions || undefined,
       },
     },
   });

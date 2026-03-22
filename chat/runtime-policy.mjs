@@ -46,6 +46,15 @@ export const DEFAULT_CODEX_DEVELOPER_INSTRUCTIONS = [
   'Treat unstated preferences as open and adaptable; let the user and session context shape tone and working style over time.',
 ].join(' ');
 
+export const CODEX_VERIFICATION_READ_ONLY_DEVELOPER_INSTRUCTIONS = [
+  'This run is in execution verification mode.',
+  'Treat the workspace as read-only.',
+  'Do not create, edit, rename, or delete files.',
+  'Do not run git commit, git rebase, git reset, or any command whose purpose is to mutate the repository state.',
+  'Focus on inspection, test execution, reading code, and collecting verification evidence.',
+  'If a useful verification step would require mutating files or repository state, say it is unverified instead of working around the restriction.',
+].join(' ');
+
 const DEFAULT_CODEX_HOME_MODE = 'managed';
 const MANAGED_CODEX_HOME_NOTES = [
   '# RemoteLab-managed Codex runtime home.',

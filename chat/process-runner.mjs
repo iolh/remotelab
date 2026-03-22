@@ -63,6 +63,8 @@ export async function createToolInvocation(toolId, prompt, options = {}) {
       model: options.model,
       reasoningEffort: options.effort,
       developerInstructions: options.developerInstructions,
+      sandboxMode: options.sandboxMode,
+      approvalPolicy: options.approvalPolicy,
       systemPrefix: options.systemPrefix,
     });
   } else if (isCursorFamily) {

@@ -224,9 +224,20 @@ function resolveDeveloperInstructions(options = {}) {
 export function buildCodexArgs(prompt, options = {}) {
   const args = ['exec'];
   const developerInstructions = resolveDeveloperInstructions(options);
+  const sandboxMode = typeof options.sandboxMode === 'string' ? options.sandboxMode.trim() : '';
+  const approvalPolicy = typeof options.approvalPolicy === 'string' ? options.approvalPolicy.trim() : '';
 
   args.push('--json');
-  args.push('--dangerously-bypass-approvals-and-sandbox');
+  if (sandboxMode || approvalPolicy) {
+    if (sandboxMode) {
+      args.push('--sandbox', sandboxMode);
+    }
+    if (approvalPolicy) {
+      args.push('--ask-for-approval', approvalPolicy);
+    }
+  } else {
+    args.push('--dangerously-bypass-approvals-and-sandbox');
+  }
   args.push('--skip-git-repo-check');
 
   if (developerInstructions) {

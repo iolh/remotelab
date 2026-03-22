@@ -114,6 +114,9 @@ async function main() {
     thinking: manifest.options?.thinking,
     model: manifest.options?.model,
     effort: manifest.options?.effort,
+    developerInstructions: manifest.options?.developerInstructions,
+    sandboxMode: manifest.options?.sandboxMode,
+    approvalPolicy: manifest.options?.approvalPolicy,
   });
 
   const proc = spawn(await resolveCommand(command), args, {
