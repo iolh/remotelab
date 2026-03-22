@@ -90,6 +90,10 @@ async function dispatchAction(msg) {
           body: JSON.stringify({
             folder: msg.folder || "~",
             tool: msg.tool,
+            codexThreadId: msg.codexThreadId || "",
+            model: msg.model || "",
+            effort: msg.effort || "",
+            thinking: msg.thinking === true,
             name: msg.name || "",
             appId: msg.appId || "",
             sourceId: msg.sourceId || "",

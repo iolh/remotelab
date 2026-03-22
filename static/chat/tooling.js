@@ -227,6 +227,109 @@ function resetHeaderActionButton(button) {
   }
 }
 
+function getWorkflowSessionAppName(session) {
+  const templateAppId = typeof getEffectiveSessionTemplateAppId === "function"
+    ? getEffectiveSessionTemplateAppId(session)
+    : "";
+  const appEntry = templateAppId && typeof getSessionAppCatalogEntry === "function"
+    ? getSessionAppCatalogEntry(templateAppId)
+    : null;
+  const appName = appEntry?.name || session?.templateAppName || session?.appName || "";
+  return typeof appName === "string" ? appName.trim() : "";
+}
+
+function isMainlineWorkflowSession(session) {
+  return ["主交付", "功能交付"].includes(getWorkflowSessionAppName(session));
+}
+
+function isHandoffSourceWorkflowSession(session) {
+  return [
+    "风险复核",
+    "PR把关",
+    "挑战",
+    "合并",
+    "发布把关",
+    "后台挑战",
+  ].includes(getWorkflowSessionAppName(session));
+}
+
+function findSessionById(sessionId) {
+  return getActiveSessions().find((session) => session.id === sessionId) || null;
+}
+
+function getHandoffCandidates(sourceSession) {
+  const active = getActiveSessions().filter((session) => (
+    session?.id
+    && session.id !== sourceSession?.id
+    && !session.archived
+    && !session.visitorId
+  ));
+  const mainline = active.filter((session) => isMainlineWorkflowSession(session));
+  const candidates = (mainline.length > 0 ? mainline : active).slice();
+  const sourceFolder = typeof sourceSession?.folder === "string" ? sourceSession.folder : "";
+  candidates.sort((a, b) => {
+    const aSameFolder = sourceFolder && a.folder === sourceFolder ? 1 : 0;
+    const bSameFolder = sourceFolder && b.folder === sourceFolder ? 1 : 0;
+    return (
+      bSameFolder - aSameFolder
+      || (typeof getSessionSortTime === "function" ? getSessionSortTime(b) - getSessionSortTime(a) : 0)
+    );
+  });
+  return candidates;
+}
+
+function formatHandoffCandidate(session) {
+  const name = typeof getSessionDisplayName === "function"
+    ? getSessionDisplayName(session)
+    : (session?.name || "Session");
+  const appName = getWorkflowSessionAppName(session);
+  const folder = typeof getShortFolder === "function"
+    ? getShortFolder(session?.folder || "")
+    : (session?.folder || "");
+  return [name, appName, folder].filter(Boolean).join(" · ");
+}
+
+function selectHandoffTargetSession(sourceSession) {
+  const candidates = getHandoffCandidates(sourceSession);
+  if (candidates.length === 0) {
+    throw new Error("还没有可回灌的主交付会话");
+  }
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  const lines = candidates.slice(0, 12).map((session, index) => `${index + 1}. ${formatHandoffCandidate(session)}`);
+  const answer = window.prompt(
+    `选择要回灌到的主交付会话：\n\n${lines.join("\n")}\n\n输入序号`,
+    "1",
+  );
+  if (answer === null) {
+    return null;
+  }
+  const index = Number.parseInt(String(answer).trim(), 10);
+  if (!Number.isInteger(index) || index < 1 || index > lines.length) {
+    throw new Error("请输入有效序号");
+  }
+  return candidates[index - 1];
+}
+
+function syncHandoffButton() {
+  if (!handoffSessionBtn) return;
+  const session = getCurrentSession();
+  const activity = getSessionActivity(session);
+  const visible = !visitorMode
+    && !!currentSessionId
+    && !!session
+    && !session.archived
+    && (isHandoffSourceWorkflowSession(session) || !!session?.handoffTargetSessionId);
+  handoffSessionBtn.style.display = visible ? "" : "none";
+  if (!visible) {
+    resetHeaderActionButton(handoffSessionBtn);
+    return;
+  }
+  handoffSessionBtn.disabled = !session || activity.run.state === "running" || activity.compact.state === "pending";
+}
+
 function syncShareButton() {
   if (!shareSnapshotBtn) return;
   const visible = !visitorMode && !!currentSessionId;
@@ -242,11 +345,13 @@ function syncForkButton() {
   forkSessionBtn.style.display = visible ? "" : "none";
   if (!visible) {
     resetHeaderActionButton(forkSessionBtn);
+    syncHandoffButton();
     return;
   }
   const session = getCurrentSession();
   const activity = getSessionActivity(session);
   forkSessionBtn.disabled = !session || activity.run.state === "running" || activity.compact.state === "pending";
+  syncHandoffButton();
 }
 
 function getShareSnapshotTitle(session) {
@@ -338,6 +443,52 @@ async function forkCurrentSession() {
     updateCopyButtonLabel(forkSessionBtn, "Failed");
   } finally {
     syncForkButton();
+  }
+}
+
+async function handoffCurrentSessionResult() {
+  if (!currentSessionId || visitorMode || !handoffSessionBtn) return;
+  const sourceSession = getCurrentSession();
+  if (!sourceSession) return;
+
+  let targetSession = null;
+  const rememberedTarget = typeof sourceSession?.handoffTargetSessionId === "string"
+    ? sourceSession.handoffTargetSessionId.trim()
+    : "";
+  if (rememberedTarget) {
+    targetSession = findSessionById(rememberedTarget);
+  }
+  if (!targetSession) {
+    targetSession = selectHandoffTargetSession(sourceSession);
+    if (!targetSession) return;
+  }
+
+  const original = handoffSessionBtn.dataset.originalLabel || handoffSessionBtn.textContent;
+  handoffSessionBtn.dataset.originalLabel = original;
+  handoffSessionBtn.disabled = true;
+  handoffSessionBtn.textContent = "回灌中…";
+
+  try {
+    const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(currentSessionId)}/handoff`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetSessionId: targetSession.id }),
+    });
+    if (data?.sourceSession) {
+      upsertSession(data.sourceSession);
+    }
+    if (data?.session) {
+      upsertSession(data.session);
+      renderSessionList();
+      updateCopyButtonLabel(handoffSessionBtn, "已回灌");
+    } else {
+      updateCopyButtonLabel(handoffSessionBtn, "失败");
+    }
+  } catch (error) {
+    console.warn("[handoff] Failed to hand off session result:", error.message);
+    updateCopyButtonLabel(handoffSessionBtn, "失败");
+  } finally {
+    syncHandoffButton();
   }
 }
 
@@ -760,6 +911,10 @@ copyProviderPromptBtn.addEventListener("click", async () => {
 
 if (shareSnapshotBtn) {
   shareSnapshotBtn.addEventListener("click", shareCurrentSessionSnapshot);
+}
+
+if (handoffSessionBtn) {
+  handoffSessionBtn.addEventListener("click", handoffCurrentSessionResult);
 }
 
 if (forkSessionBtn) {

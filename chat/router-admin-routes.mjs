@@ -59,8 +59,17 @@ if (pathname === '/api/apps' && req.method === 'POST') {
     return true;
   }
   try {
-    const { name, systemPrompt, welcomeMessage, skills, tool } = JSON.parse(body);
-    const app = await createApp({ name, systemPrompt, welcomeMessage, skills, tool });
+    const {
+      name,
+      systemPrompt,
+      welcomeMessage,
+      skills,
+      tool,
+      model,
+      effort,
+      thinking,
+    } = JSON.parse(body);
+    const app = await createApp({ name, systemPrompt, welcomeMessage, skills, tool, model, effort, thinking });
     res.writeHead(201, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ app }));
   } catch {

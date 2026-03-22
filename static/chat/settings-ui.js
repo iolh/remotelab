@@ -42,6 +42,21 @@ function getAppKindLabel(app) {
   return labels.join(" · ");
 }
 
+function summarizeAppRuntime(app) {
+  const toolId = typeof app?.tool === "string" && app.tool.trim()
+    ? app.tool.trim()
+    : (preferredTool || selectedTool || "");
+  const toolName = [...(Array.isArray(allToolsList) ? allToolsList : []), ...(Array.isArray(toolsList) ? toolsList : [])]
+    .find((tool) => tool?.id === toolId)?.name || toolId || "未设置";
+  const pieces = [toolName];
+  const model = typeof app?.model === "string" ? app.model.trim() : "";
+  const effort = typeof app?.effort === "string" ? app.effort.trim() : "";
+  if (model) pieces.push(model);
+  if (effort) pieces.push(effort);
+  if (app?.thinking === true) pieces.push("thinking");
+  return `默认运行时 · ${pieces.join(" / ")}`;
+}
+
 function setTemporaryButtonText(button, nextText, durationMs = 1400) {
   if (!button) return;
   if (!button.dataset.originalLabel) {
@@ -135,27 +150,84 @@ function getAppRecordById(appId) {
   return getOrderedSettingsApps().find((app) => app.id === normalized) || null;
 }
 
-function createSessionForApp(app, { closeSidebar = true, principal = getAdminSessionPrincipal() } = {}) {
+let pendingCodexImportResolver = null;
+
+function setCodexImportModalStatus(message) {
+  if (!codexImportStatus) return;
+  codexImportStatus.textContent = message || "";
+}
+
+function finalizeCodexImportModal(result) {
+  if (codexImportModal) {
+    codexImportModal.hidden = true;
+  }
+  setCodexImportModalStatus("留空会创建新的 Codex 会话。");
+  const resolver = pendingCodexImportResolver;
+  pendingCodexImportResolver = null;
+  if (resolver) resolver(result);
+}
+
+function openCodexImportModal() {
+  if (!codexImportModal || !codexImportThreadInput) {
+    const raw = window.prompt("可选：输入已有 Codex thread id 以导入并续接历史；留空则创建全新会话。", "");
+    if (raw === null) return Promise.resolve(null);
+    return Promise.resolve(raw.trim());
+  }
+
+  if (pendingCodexImportResolver) {
+    pendingCodexImportResolver(null);
+    pendingCodexImportResolver = null;
+  }
+
+  codexImportThreadInput.value = "";
+  setCodexImportModalStatus("留空会创建新的 Codex 会话。");
+  codexImportModal.hidden = false;
+  window.setTimeout(() => {
+    codexImportThreadInput.focus();
+    codexImportThreadInput.select();
+  }, 0);
+
+  return new Promise((resolve) => {
+    pendingCodexImportResolver = resolve;
+  });
+}
+
+async function requestOptionalCodexThreadId(toolId) {
+  if (toolId !== "codex") return "";
+  return openCodexImportModal();
+}
+
+async function createSessionForApp(app, { closeSidebar = true, principal = getAdminSessionPrincipal() } = {}) {
   if (!app?.id) return false;
-  if (closeSidebar && !isDesktop) closeSidebarFn();
   const tool =
-    preferredTool
-    || (typeof app?.tool === "string" && app.tool.trim())
+    (typeof app?.tool === "string" && app.tool.trim())
+    || preferredTool
     || selectedTool
     || toolsList[0]?.id;
   if (!tool) return false;
+  const codexThreadId = await requestOptionalCodexThreadId(tool);
+  if (codexThreadId === null) return false;
+  const model = typeof app?.model === "string" ? app.model.trim() : "";
+  const effort = typeof app?.effort === "string" ? app.effort.trim() : "";
+  const thinking = app?.thinking === true;
   if (typeof switchTab === "function") {
     switchTab("sessions");
   }
-  return dispatchAction({
+  const result = await dispatchAction({
     action: "create",
     folder: "~",
     tool,
+    codexThreadId,
+    model,
+    effort,
+    thinking,
     sourceId: DEFAULT_APP_ID,
     sourceName: DEFAULT_APP_NAME,
     appId: app.id,
     ...buildSessionPrincipalPayload(principal),
   });
+  if (closeSidebar && !isDesktop) closeSidebarFn();
+  return result;
 }
 
 function renderAppToolSelectOptions(selectEl, selectedValue = "") {
@@ -517,7 +589,7 @@ function renderSettingsAppsPanel() {
 
     const meta = document.createElement("div");
     meta.className = "settings-app-meta";
-    meta.textContent = `默认工具 · ${(app.tool || preferredTool || selectedTool || "未设置")}`;
+    meta.textContent = summarizeAppRuntime(app);
     card.appendChild(meta);
 
     const shareUrl = buildAppShareUrl(app);
@@ -850,3 +922,33 @@ function renderSettingsUsersPanel() {
     settingsUsersList.appendChild(card);
   }
 }
+
+closeCodexImportModalBtn?.addEventListener("click", () => {
+  finalizeCodexImportModal(null);
+});
+
+cancelCodexImportBtn?.addEventListener("click", () => {
+  finalizeCodexImportModal(null);
+});
+
+confirmCodexImportBtn?.addEventListener("click", () => {
+  finalizeCodexImportModal((codexImportThreadInput?.value || "").trim());
+});
+
+codexImportModal?.addEventListener("click", (event) => {
+  if (event.target === codexImportModal) {
+    finalizeCodexImportModal(null);
+  }
+});
+
+codexImportThreadInput?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  finalizeCodexImportModal((codexImportThreadInput.value || "").trim());
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && codexImportModal && !codexImportModal.hidden) {
+    finalizeCodexImportModal(null);
+  }
+});

@@ -41,12 +41,18 @@ async function cleanEnv(toolId, manifest = {}, options = {}) {
   }
   return applyManagedRuntimeEnv(toolId, env, {
     runtimeFamily: typeof options.runtimeFamily === 'string' ? options.runtimeFamily : '',
+    codexHomeMode: manifest.options?.codexHomeMode,
   });
 }
 
-function captureResume(run, parsed) {
+function captureResume(run, parsed, runtimeFamily = '') {
   if (!run || !parsed || typeof parsed !== 'object') return null;
   if (parsed.session_id) {
+    if (runtimeFamily === 'cursor-stream-json') {
+      return {
+        providerResumeId: parsed.session_id,
+      };
+    }
     return {
       claudeSessionId: parsed.session_id,
       providerResumeId: parsed.session_id,
@@ -104,6 +110,7 @@ async function main() {
     dangerouslySkipPermissions: true,
     claudeSessionId: manifest.options?.claudeSessionId,
     codexThreadId: manifest.options?.codexThreadId,
+    providerResumeId: manifest.options?.providerResumeId,
     thinking: manifest.options?.thinking,
     model: manifest.options?.model,
     effort: manifest.options?.effort,
@@ -146,7 +153,7 @@ async function main() {
       line,
       ...(parsed ? { json: parsed } : {}),
     });
-    const resumeUpdate = captureResume(await getRun(runId), parsed);
+    const resumeUpdate = captureResume(await getRun(runId), parsed, runtimeFamily);
     if (resumeUpdate) {
       await updateRun(runId, (current) => ({
         ...current,

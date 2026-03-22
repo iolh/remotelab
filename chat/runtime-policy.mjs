@@ -126,6 +126,7 @@ export async function applyManagedRuntimeEnv(toolId, baseEnv = {}, options = {})
 
   const mode = normalizeCodexHomeMode(options.codexHomeMode || process.env.REMOTELAB_CODEX_HOME_MODE);
   if (mode === 'personal') {
+    delete env.CODEX_HOME;
     return env;
   }
 

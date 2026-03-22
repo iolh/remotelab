@@ -159,6 +159,8 @@ try {
       systemPrompt: 'Ask for a video and produce a review-first cut plan.',
       welcomeMessage: 'Upload your video and describe what to keep or cut.',
       tool: 'fake-codex',
+      model: 'fake-model',
+      effort: 'low',
       skills: [],
     }, {
       Cookie: ownerCookie,
@@ -181,6 +183,8 @@ try {
     assert.equal(ownerSessionCreate.json.session?.appName, 'Video Cut Demo', 'session should auto-fill the custom app name');
     assert.equal(ownerSessionCreate.json.session?.sourceId, 'chat', 'session should preserve the explicit chat source');
     assert.equal(ownerSessionCreate.json.session?.sourceName, 'Chat', 'session should preserve the explicit chat source name');
+    assert.equal(ownerSessionCreate.json.session?.model, 'fake-model', 'session should inherit the app model');
+    assert.equal(ownerSessionCreate.json.session?.effort, 'low', 'session should inherit the app effort');
 
     const ownerEvents = await request(port, 'GET', `/api/sessions/${ownerSessionCreate.json.session.id}/events`, null, {
       Cookie: ownerCookie,
@@ -218,6 +222,8 @@ try {
     assert.ok(visitorSession, 'all-users owner list should include visitor sessions');
     assert.equal(visitorSession.appId, appCreate.json.app.id, 'visitor session should stay inside the custom app scope');
     assert.equal(visitorSession.sourceId, 'chat', 'visitor session should expose the chat source');
+    assert.equal(visitorSession.model, 'fake-model', 'visitor session should inherit the app model');
+    assert.equal(visitorSession.effort, 'low', 'visitor session should inherit the app effort');
 
     console.log('test-http-owner-app-bootstrap-and-visitor-listing: ok');
   } finally {

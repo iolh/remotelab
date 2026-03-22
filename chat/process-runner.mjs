@@ -2,6 +2,7 @@ import { homedir } from 'os';
 import { resolve, join } from 'path';
 import { createClaudeAdapter, buildClaudeArgs } from './adapters/claude.mjs';
 import { createCodexAdapter, buildCodexArgs } from './adapters/codex.mjs';
+import { createCursorAdapter, buildCursorArgs } from './adapters/cursor.mjs';
 import { getToolDefinitionAsync, getToolCommandAsync, resolveToolCommandPathAsync } from '../lib/tools.mjs';
 import { pathExists } from './fs-utils.mjs';
 
@@ -30,9 +31,16 @@ export async function createToolInvocation(toolId, prompt, options = {}) {
   const tool = await getToolDefinitionAsync(toolId);
   const command = tool?.command || await getToolCommandAsync(toolId);
   const runtimeFamily = tool?.runtimeFamily
-    || (toolId === 'claude' ? 'claude-stream-json' : toolId === 'codex' ? 'codex-json' : null);
+    || (toolId === 'claude'
+      ? 'claude-stream-json'
+      : toolId === 'codex'
+        ? 'codex-json'
+        : toolId === 'cursor'
+          ? 'cursor-stream-json'
+          : null);
   const isClaudeFamily = runtimeFamily === 'claude-stream-json';
   const isCodexFamily = runtimeFamily === 'codex-json';
+  const isCursorFamily = runtimeFamily === 'cursor-stream-json';
 
   let adapter;
   let args;
@@ -57,6 +65,12 @@ export async function createToolInvocation(toolId, prompt, options = {}) {
       developerInstructions: options.developerInstructions,
       systemPrefix: options.systemPrefix,
     });
+  } else if (isCursorFamily) {
+    adapter = createCursorAdapter();
+    args = buildCursorArgs(prompt, {
+      resume: options.providerResumeId,
+      model: options.model,
+    });
   } else {
     adapter = createClaudeAdapter();
     args = buildClaudeArgs(prompt, {
@@ -75,6 +89,7 @@ export async function createToolInvocation(toolId, prompt, options = {}) {
     args,
     isClaudeFamily,
     isCodexFamily,
+    isCursorFamily,
     runtimeFamily,
   };
 }

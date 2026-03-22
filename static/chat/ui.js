@@ -182,6 +182,21 @@ function renderMessageInto(container, evt, { finalizeActiveThinkingBlock = false
   } else {
     const div = document.createElement("div");
     div.className = "msg-assistant md-content";
+    if (evt.messageKind === "workflow_handoff") {
+      div.classList.add("workflow-handoff-card");
+      const meta = document.createElement("div");
+      meta.className = "workflow-handoff-meta";
+      const sourceName = typeof evt.handoffSourceSessionName === "string" && evt.handoffSourceSessionName.trim()
+        ? evt.handoffSourceSessionName.trim()
+        : "辅助会话";
+      const label = evt.handoffKind === "risk_review"
+        ? "风险复核回灌"
+        : evt.handoffKind === "pr_gate"
+          ? "PR 把关回灌"
+          : "结果回灌";
+      meta.textContent = `${label} · 来自 ${sourceName}`;
+      div.appendChild(meta);
+    }
     const content = document.createElement("div");
     content.className = "msg-assistant-body";
     if (evt.content) {

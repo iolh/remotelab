@@ -81,7 +81,8 @@ remotelab/
 │   ├── history.mjs          # Canonical append-only per-event history + externalized bodies
 │   └── adapters/
 │       ├── claude.mjs       # Claude Code CLI output parser (201 lines)
-│       └── codex.mjs        # Codex CLI output parser (207 lines)
+│       ├── codex.mjs        # Codex CLI output parser (207 lines)
+│       └── cursor.mjs       # Cursor Agent CLI output parser
 │
 ├── lib/                     # ── Shared modules (used by both services) ──
 │   ├── auth.mjs             # Token/password verification, session cookies

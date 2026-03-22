@@ -24,6 +24,7 @@
 <div class="header">
   <button class="header-btn" id="menuBtn" title="会话" aria-label="会话" data-icon="menu">&#9776;</button>
   <h1 id="headerTitle">RemoteLab 对话</h1>
+  <button class="header-share-btn" id="handoffSessionBtn" title="把当前会话的最新结论回灌到主交付" style="display:none">回灌</button>
   <button class="header-share-btn" id="forkSessionBtn" title="Fork current session into an isolated copy" style="display:none">Fork</button>
   <button class="header-share-btn" id="shareSnapshotBtn" title="Create a read-only share link" style="display:none">Share</button>
   <button class="header-refresh-btn" id="refreshFrontendBtn" type="button" title="刷新到最新前端" aria-label="刷新到最新前端" data-icon="refresh" hidden></button>
@@ -148,6 +149,30 @@
 
 <div class="gesture-pill" id="gesturePill" aria-hidden="true"></div>
 
+<div class="modal-backdrop" id="codexImportModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="codexImportModalTitle">
+    <div class="modal-header">
+      <div class="modal-title" id="codexImportModalTitle">连接已有 Codex 会话</div>
+      <button class="modal-close" id="closeCodexImportModal" type="button" aria-label="关闭" data-icon="close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-lead">
+        可选：填入已有的 Codex `thread id`，RemoteLab 会导入已有用户/助手消息，并把后续对话续接到这个线程。
+        留空则按原样创建一个全新的 Codex 会话。
+      </p>
+      <div class="provider-helper-field">
+        <label for="codexImportThreadInput">Codex thread id</label>
+        <input id="codexImportThreadInput" type="text" placeholder="例如：019d1194-31c3-7271-bda6-6f78311b198d" autocomplete="off">
+      </div>
+      <div class="provider-helper-note" id="codexImportStatus">留空会创建新的 Codex 会话。</div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn" id="cancelCodexImportBtn" type="button">取消</button>
+      <button class="modal-btn primary" id="confirmCodexImportBtn" type="button">继续</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="addToolModal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="addToolModalTitle">
     <div class="modal-header">
@@ -183,6 +208,7 @@
             <select id="addToolRuntimeFamilySelect">
               <option value="claude-stream-json">Claude 风格流式 JSON</option>
               <option value="codex-json">Codex JSON</option>
+              <option value="cursor-stream-json">Cursor 流式 JSON</option>
             </select>
           </div>
         </div>

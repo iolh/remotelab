@@ -76,6 +76,7 @@ import {
   isSessionRunning,
   resolveSessionRunActivity,
 } from './session-activity.mjs';
+import { readCodexThreadImport } from './codex-thread-import.mjs';
 import {
   findSessionMeta,
   findSessionMetaCached,
@@ -378,6 +379,65 @@ function buildDelegationNoticeMessage(task, childSession) {
     `- Session: ${link}`,
     '',
     'This new session is independent and can continue on its own.',
+  ].filter(Boolean).join('\n');
+}
+
+function getWorkflowHandoffKind(session) {
+  const appName = normalizeSessionAppName(
+    session?.templateAppName
+    || session?.appName
+    || '',
+  );
+  if (['风险复核', '挑战', '后台挑战'].includes(appName)) {
+    return 'risk_review';
+  }
+  if (['PR把关', '合并', '发布把关'].includes(appName)) {
+    return 'pr_gate';
+  }
+  return 'workflow';
+}
+
+function getWorkflowHandoffLabel(kind) {
+  if (kind === 'risk_review') return '风险复核回灌';
+  if (kind === 'pr_gate') return 'PR 把关回灌';
+  return '结果回灌';
+}
+
+function isWorkflowAuxiliaryMessage(event) {
+  return event?.type === 'message'
+    && event?.role === 'assistant'
+    && ['session_delegate_notice', 'workflow_handoff_notice'].includes(event?.messageKind || '');
+}
+
+function findLatestAssistantConclusion(history = []) {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const event = history[index];
+    if (event?.type !== 'message' || event?.role !== 'assistant') continue;
+    if (isWorkflowAuxiliaryMessage(event)) continue;
+    if (typeof event?.content === 'string' && event.content.trim()) {
+      return event;
+    }
+  }
+  return null;
+}
+
+function buildWorkflowHandoffMessage({ source, handoffKind, conclusion }) {
+  const sourceName = typeof source?.name === 'string' && source.name.trim()
+    ? source.name.trim()
+    : '辅助会话';
+  const sourceLink = `[${sourceName}](${buildSessionNavigationHref(source?.id || '')})`;
+  const intro = handoffKind === 'risk_review'
+    ? '以下是本轮风险复核的最新结论。'
+    : handoffKind === 'pr_gate'
+      ? '以下是本轮 PR 把关的最新结论。'
+      : '以下是本会话的最新结论。';
+  return [
+    `### ${getWorkflowHandoffLabel(handoffKind)}`,
+    `- 来源会话：${sourceLink}`,
+    '',
+    intro,
+    '',
+    conclusion,
   ].filter(Boolean).join('\n');
 }
 
@@ -995,8 +1055,12 @@ async function syncDetachedRunUnlocked(sessionId, runId) {
     ...(Number.isInteger(contextWindowTokens) ? { contextWindowTokens } : {}),
   })) || run;
 
-  if (run.claudeSessionId || run.codexThreadId) {
-    sessionChanged = await persistResumeIds(sessionId, run.claudeSessionId, run.codexThreadId) || sessionChanged;
+  if (run.providerResumeId || run.claudeSessionId || run.codexThreadId) {
+    sessionChanged = await persistResumeIds(sessionId, {
+      providerResumeId: run.providerResumeId,
+      claudeSessionId: run.claudeSessionId,
+      codexThreadId: run.codexThreadId,
+    }) || sessionChanged;
   }
 
   const isStructuredRuntime = projection.runtimeInvocation.isClaudeFamily || projection.runtimeInvocation.isCodexFamily;
@@ -1134,14 +1198,23 @@ async function resumePendingCompletionTargets() {
   }
 }
 
-async function persistResumeIds(sessionId, claudeSessionId, codexThreadId) {
+async function persistResumeIds(sessionId, {
+  providerResumeId = null,
+  claudeSessionId = null,
+  codexThreadId = null,
+} = {}) {
   return (await mutateSessionMeta(sessionId, (session) => {
     let changed = false;
+    const codexTranscriptOnly = session.codexResumeMode === 'transcript_only';
+    if (!codexTranscriptOnly && providerResumeId && session.providerResumeId !== providerResumeId) {
+      session.providerResumeId = providerResumeId;
+      changed = true;
+    }
     if (claudeSessionId && session.claudeSessionId !== claudeSessionId) {
       session.claudeSessionId = claudeSessionId;
       changed = true;
     }
-    if (codexThreadId && session.codexThreadId !== codexThreadId) {
+    if (!codexTranscriptOnly && codexThreadId && session.codexThreadId !== codexThreadId) {
       session.codexThreadId = codexThreadId;
       changed = true;
     }
@@ -1155,6 +1228,10 @@ async function persistResumeIds(sessionId, claudeSessionId, codexThreadId) {
 async function clearPersistedResumeIds(sessionId) {
   return (await mutateSessionMeta(sessionId, (session) => {
     let changed = false;
+    if (session.providerResumeId) {
+      delete session.providerResumeId;
+      changed = true;
+    }
     if (session.claudeSessionId) {
       delete session.claudeSessionId;
       changed = true;
@@ -2283,6 +2360,7 @@ function resolveResumeState(toolId, session, options = {}) {
   if (options.freshThread === true) {
     return {
       hasResume: false,
+      providerResumeId: null,
       claudeSessionId: null,
       codexThreadId: null,
     };
@@ -2293,22 +2371,43 @@ function resolveResumeState(toolId, session, options = {}) {
     const claudeSessionId = session?.claudeSessionId || null;
     return {
       hasResume: !!claudeSessionId,
+      providerResumeId: claudeSessionId,
       claudeSessionId,
       codexThreadId: null,
     };
   }
 
   if (tool === 'codex') {
+    if (session?.codexResumeMode === 'transcript_only') {
+      return {
+        hasResume: false,
+        providerResumeId: null,
+        claudeSessionId: null,
+        codexThreadId: null,
+      };
+    }
     const codexThreadId = session?.codexThreadId || null;
     return {
       hasResume: !!codexThreadId,
+      providerResumeId: codexThreadId,
       claudeSessionId: null,
       codexThreadId,
     };
   }
 
+  const providerResumeId = session?.providerResumeId || null;
+  if (providerResumeId) {
+    return {
+      hasResume: true,
+      providerResumeId,
+      claudeSessionId: null,
+      codexThreadId: null,
+    };
+  }
+
   return {
     hasResume: false,
+    providerResumeId: null,
     claudeSessionId: null,
     codexThreadId: null,
   };
@@ -2687,16 +2786,21 @@ async function finalizeDetachedRun(sessionId, run, manifest, normalizedEvents = 
 
   const finalizedMeta = await mutateSessionMeta(sessionId, (session) => {
     let changed = false;
+    const codexTranscriptOnly = session.codexResumeMode === 'transcript_only';
     if (session.activeRunId === run.id) {
       delete session.activeRunId;
       changed = true;
     }
     if (!compacting) {
+      if (!codexTranscriptOnly && run.providerResumeId && session.providerResumeId !== run.providerResumeId) {
+        session.providerResumeId = run.providerResumeId;
+        changed = true;
+      }
       if (run.claudeSessionId && session.claudeSessionId !== run.claudeSessionId) {
         session.claudeSessionId = run.claudeSessionId;
         changed = true;
       }
-      if (run.codexThreadId && session.codexThreadId !== run.codexThreadId) {
+      if (!codexTranscriptOnly && run.codexThreadId && session.codexThreadId !== run.codexThreadId) {
         session.codexThreadId = run.codexThreadId;
         changed = true;
       }
@@ -3102,6 +3206,59 @@ export async function createSession(folder, tool, name, extra = {}) {
   return enrichSessionMeta(created.session);
 }
 
+export async function importCodexThreadSession({
+  threadId,
+  folder = '',
+  name = '',
+} = {}) {
+  const imported = await readCodexThreadImport(threadId);
+  const sessionFolder = typeof folder === 'string' && folder.trim()
+    ? folder.trim()
+    : imported.cwd || '~';
+  const sessionName = typeof name === 'string' && name.trim()
+    ? name.trim()
+    : imported.suggestedName;
+  const session = await createSession(sessionFolder, 'codex', sessionName);
+
+  await mutateSessionMeta(session.id, (draft) => {
+    let changed = false;
+    if (draft.importedCodexThreadId !== imported.threadId) {
+      draft.importedCodexThreadId = imported.threadId;
+      changed = true;
+    }
+    if (draft.codexResumeMode !== 'transcript_only') {
+      draft.codexResumeMode = 'transcript_only';
+      changed = true;
+    }
+    if (draft.codexHomeMode !== 'personal') {
+      draft.codexHomeMode = 'personal';
+      changed = true;
+    }
+    if (draft.providerResumeId) {
+      delete draft.providerResumeId;
+      changed = true;
+    }
+    if (draft.codexThreadId) {
+      delete draft.codexThreadId;
+      changed = true;
+    }
+    if (changed) {
+      draft.updatedAt = nowIso();
+    }
+    return changed;
+  });
+
+  const importedEvents = [
+    statusEvent(`Imported existing Codex thread (${imported.threadId}) from ${imported.sessionLogFilename}`),
+    ...imported.messages.map((message) => messageEvent(message.role, message.content, undefined, {
+      timestamp: Number.isFinite(message.timestamp) ? message.timestamp : Date.now(),
+    })),
+  ];
+  await appendEvents(session.id, importedEvents);
+
+  return getSession(session.id);
+}
+
 export async function setSessionArchived(id, archived = true) {
   const shouldArchive = archived === true;
   const current = await findSessionMeta(id);
@@ -3283,6 +3440,39 @@ export async function updateSessionLastReviewedAt(id, lastReviewedAt) {
   return enrichSessionMeta(result.meta);
 }
 
+export async function updateSessionHandoffTarget(id, handoffTargetSessionId) {
+  const nextTargetSessionId = typeof handoffTargetSessionId === 'string'
+    ? handoffTargetSessionId.trim()
+    : '';
+  const result = await mutateSessionMeta(id, (session) => {
+    const currentTargetSessionId = typeof session.handoffTargetSessionId === 'string'
+      ? session.handoffTargetSessionId.trim()
+      : '';
+    if (nextTargetSessionId) {
+      if (currentTargetSessionId === nextTargetSessionId) {
+        return false;
+      }
+      session.handoffTargetSessionId = nextTargetSessionId;
+      session.updatedAt = nowIso();
+      return true;
+    }
+
+    if (currentTargetSessionId) {
+      delete session.handoffTargetSessionId;
+      session.updatedAt = nowIso();
+      return true;
+    }
+
+    return false;
+  });
+
+  if (!result.meta) return null;
+  if (result.changed) {
+    broadcastSessionInvalidation(id);
+  }
+  return enrichSessionMeta(result.meta);
+}
+
 export async function updateSessionWorkflowClassification(id, payload = {}) {
   const {
     workflowState,
@@ -3356,6 +3546,9 @@ async function applySessionAppMetadata(id, app, extra = {}) {
     const nextAppName = typeof app?.name === 'string' ? app.name.trim() : '';
     const nextSystemPrompt = typeof app?.systemPrompt === 'string' ? app.systemPrompt : '';
     const nextTool = typeof app?.tool === 'string' ? app.tool.trim() : '';
+    const nextModel = typeof app?.model === 'string' ? app.model.trim() : '';
+    const nextEffort = typeof app?.effort === 'string' ? app.effort.trim() : '';
+    const nextThinking = app?.thinking === true;
 
     if (session.appId !== nextAppId) {
       session.appId = nextAppId;
@@ -3384,6 +3577,36 @@ async function applySessionAppMetadata(id, app, extra = {}) {
 
     if (nextTool && session.tool !== nextTool) {
       session.tool = nextTool;
+      changed = true;
+    }
+
+    if (nextModel) {
+      if ((session.model || '') !== nextModel) {
+        session.model = nextModel;
+        changed = true;
+      }
+    } else if (session.model) {
+      delete session.model;
+      changed = true;
+    }
+
+    if (nextEffort) {
+      if ((session.effort || '') !== nextEffort) {
+        session.effort = nextEffort;
+        changed = true;
+      }
+    } else if (session.effort) {
+      delete session.effort;
+      changed = true;
+    }
+
+    if (nextThinking) {
+      if (session.thinking !== true) {
+        session.thinking = true;
+        changed = true;
+      }
+    } else if (session.thinking) {
+      delete session.thinking;
       changed = true;
     }
 
@@ -3527,6 +3750,9 @@ export async function saveSessionAsTemplate(sessionId, name = '') {
     welcomeMessage: '',
     skills: [],
     tool: session.tool || 'codex',
+    model: session.model || '',
+    effort: session.effort || '',
+    thinking: session.thinking === true,
     templateContext: templateContent
       ? {
           content: templateContent,
@@ -3712,6 +3938,7 @@ export async function submitHttpMessage(sessionId, text, images, options = {}) {
   }
 
   const {
+    providerResumeId: persistedProviderResumeId,
     claudeSessionId: persistedClaudeSessionId,
     codexThreadId: persistedCodexThreadId,
   } = resolveResumeState(effectiveTool, session, options);
@@ -3727,7 +3954,7 @@ export async function submitHttpMessage(sessionId, text, images, options = {}) {
       thinking: options.thinking === true,
       claudeSessionId: persistedClaudeSessionId,
       codexThreadId: persistedCodexThreadId,
-      providerResumeId: persistedCodexThreadId || persistedClaudeSessionId || null,
+      providerResumeId: persistedProviderResumeId,
       internalOperation: options.internalOperation || null,
     },
     manifest: {
@@ -3754,6 +3981,8 @@ export async function submitHttpMessage(sessionId, text, images, options = {}) {
         thinking: options.thinking === true,
         model: options.model || undefined,
         effort: options.effort || undefined,
+        codexHomeMode: session.codexHomeMode || undefined,
+        providerResumeId: persistedProviderResumeId || undefined,
         claudeSessionId: persistedClaudeSessionId || undefined,
         codexThreadId: persistedCodexThreadId || undefined,
       },
@@ -3969,6 +4198,67 @@ export async function delegateSession(sessionId, payload = {}) {
   return {
     session: outcome.session || await getSession(child.id) || child,
     run: outcome.run || null,
+  };
+}
+
+export async function handoffSessionResult(sessionId, payload = {}) {
+  const source = await getSession(sessionId);
+  if (!source) return null;
+  if (source.visitorId) return null;
+
+  const targetSessionId = typeof payload?.targetSessionId === 'string'
+    ? payload.targetSessionId.trim()
+    : '';
+  const resolvedTargetSessionId = targetSessionId || (typeof source?.handoffTargetSessionId === 'string'
+    ? source.handoffTargetSessionId.trim()
+    : '');
+  if (!resolvedTargetSessionId) {
+    throw new Error('targetSessionId is required');
+  }
+  if (resolvedTargetSessionId === source.id) {
+    throw new Error('targetSessionId must be different from the source session');
+  }
+
+  const target = await getSession(resolvedTargetSessionId);
+  if (!target) {
+    throw new Error('Target session not found');
+  }
+  if (target.visitorId) {
+    throw new Error('Target session must be an owner session');
+  }
+
+  const history = await loadHistory(source.id);
+  const latestConclusion = findLatestAssistantConclusion(history);
+  const conclusionText = typeof latestConclusion?.content === 'string'
+    ? latestConclusion.content.trim()
+    : '';
+  if (!conclusionText) {
+    throw new Error('No assistant conclusion available to hand off yet');
+  }
+
+  const handoffKind = getWorkflowHandoffKind(source);
+  const content = buildWorkflowHandoffMessage({
+    source,
+    handoffKind,
+    conclusion: conclusionText,
+  });
+  await appendEvent(target.id, messageEvent('assistant', content, undefined, {
+    messageKind: 'workflow_handoff',
+    handoffKind,
+    handoffSourceSessionId: source.id,
+    handoffSourceSessionName: typeof source?.name === 'string' ? source.name.trim() : '',
+    handoffTargetSessionId: target.id,
+  }));
+  broadcastSessionInvalidation(target.id);
+
+  return {
+    sourceSession: await getSession(source.id) || source,
+    targetSession: await getSession(target.id) || target,
+    handoff: {
+      kind: handoffKind,
+      label: getWorkflowHandoffLabel(handoffKind),
+      summary: clipCompactionSection(conclusionText, 280),
+    },
   };
 }
 

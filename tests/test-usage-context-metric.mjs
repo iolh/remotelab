@@ -16,6 +16,9 @@ const { createClaudeAdapter } = await import(
 const { createCodexAdapter } = await import(
   pathToFileURL(join(repoRoot, 'chat', 'adapters', 'codex.mjs')).href
 );
+const { createCursorAdapter, buildCursorArgs } = await import(
+  pathToFileURL(join(repoRoot, 'chat', 'adapters', 'cursor.mjs')).href
+);
 const {
   buildCodexContextMetricsPayload,
   readLatestCodexSessionMetrics,
@@ -143,6 +146,57 @@ try {
   assert.equal(codexUsage.outputTokens, 531, 'Codex usage should preserve total turn output');
   assert.equal(codexUsage.contextWindowTokens, 258400, 'Codex usage should carry context window when available');
   assert.equal(codexUsage.contextSource, 'provider_last_token_count', 'Codex usage should identify the provider-backed context source');
+
+  const cursor = createCursorAdapter();
+  const cursorInitEvents = cursor.parseLine(JSON.stringify({
+    type: 'system',
+    subtype: 'init',
+    session_id: 'cursor-session-1',
+  }));
+  assert.equal(cursorInitEvents.find((event) => event.type === 'status')?.content, 'Session started (cursor-session-1)');
+
+  const cursorToolStartEvents = cursor.parseLine(JSON.stringify({
+    type: 'tool_call',
+    subtype: 'started',
+    tool_call: {
+      readToolCall: {
+        args: { path: 'README.md' },
+      },
+    },
+  }));
+  assert.equal(cursorToolStartEvents.find((event) => event.type === 'tool_use')?.toolName, 'read');
+
+  const cursorToolCompleteEvents = cursor.parseLine(JSON.stringify({
+    type: 'tool_call',
+    subtype: 'completed',
+    tool_call: {
+      writeToolCall: {
+        args: { path: 'summary.txt' },
+        result: {
+          success: {
+            path: '/tmp/summary.txt',
+            linesCreated: 4,
+          },
+        },
+      },
+    },
+  }));
+  assert.equal(cursorToolCompleteEvents.find((event) => event.type === 'file_change')?.filePath, '/tmp/summary.txt');
+  assert.equal(cursorToolCompleteEvents.find((event) => event.type === 'tool_result')?.toolName, 'write');
+
+  const cursorResultEvents = cursor.parseLine(JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+  }));
+  assert.equal(cursorResultEvents.find((event) => event.type === 'status')?.content, 'completed');
+
+  const cursorArgs = buildCursorArgs('Reply with exactly: cursor-ok');
+  assert.deepEqual(
+    cursorArgs.slice(0, 7),
+    ['-p', '--output-format', 'stream-json', '--force', '--trust', '--model', 'auto'],
+    'Cursor runs should default to the auto model so region-limited defaults do not block execution',
+  );
 
   const snapshot = await createShareSnapshot(
     { name: 'Usage test', tool: 'codex', created: new Date().toISOString() },

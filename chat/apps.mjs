@@ -261,6 +261,9 @@ export async function createApp(input = {}) {
     welcomeMessage,
     skills,
     tool,
+    model,
+    effort,
+    thinking,
     templateContext,
   } = input;
   return runAppsMutation(async () => {
@@ -276,6 +279,9 @@ export async function createApp(input = {}) {
       shareToken,
       createdAt: new Date().toISOString(),
     };
+    if (typeof model === 'string' && model.trim()) app.model = model.trim();
+    if (typeof effort === 'string' && effort.trim()) app.effort = effort.trim();
+    if (thinking === true) app.thinking = true;
     const normalizedTemplateContext = normalizeTemplateContext(templateContext);
     if (normalizedTemplateContext) {
       app.templateContext = normalizedTemplateContext;
@@ -293,9 +299,20 @@ export async function updateApp(id, updates) {
     const apps = await loadApps();
     const idx = apps.findIndex((app) => app.id === id && !app.deleted);
     if (idx === -1) return null;
-    const allowed = ['name', 'systemPrompt', 'welcomeMessage', 'skills', 'tool'];
+    const allowed = ['name', 'systemPrompt', 'welcomeMessage', 'skills', 'tool', 'model', 'effort', 'thinking'];
     for (const key of allowed) {
       if (updates[key] !== undefined) {
+        if (key === 'thinking') {
+          if (updates[key] === true) apps[idx][key] = true;
+          else delete apps[idx][key];
+          continue;
+        }
+        if (typeof updates[key] === 'string') {
+          const trimmed = updates[key].trim();
+          if (trimmed) apps[idx][key] = trimmed;
+          else delete apps[idx][key];
+          continue;
+        }
         apps[idx][key] = updates[key];
       }
     }

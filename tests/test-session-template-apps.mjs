@@ -30,6 +30,8 @@ const {
 try {
   const source = await createSession(workspace, 'missing-tool', 'Source template session', {
     systemPrompt: 'Stay inside the saved subtask template.',
+    model: 'gpt-5.4',
+    effort: 'high',
     group: 'Templates',
     description: 'Saved template source session for app-template coverage.',
   });
@@ -75,6 +77,8 @@ try {
   assert.ok(app?.id, 'saving a session as a template should create an app');
   assert.equal(app.name, 'Warmed subtask');
   assert.equal(app.tool, 'missing-tool');
+  assert.equal(app.model, 'gpt-5.4');
+  assert.equal(app.effort, 'high');
   assert.equal(app.systemPrompt, 'Stay inside the saved subtask template.');
   assert.ok(app.templateContext?.sourceSessionUpdatedAt, 'saved templates should track the source session freshness timestamp');
   assert.match(app.templateContext?.content || '', /This template covers the warmed subtask context\./);
@@ -90,6 +94,8 @@ try {
   assert.equal(applied.appName, 'Warmed subtask', 'session should keep the template display name');
   assert.equal(applied.systemPrompt, 'Stay inside the saved subtask template.', 'template prompt should be applied');
   assert.equal(applied.tool, 'missing-tool', 'template tool should be applied to the session');
+  assert.equal(applied.model, 'gpt-5.4', 'template model should be applied to the session');
+  assert.equal(applied.effort, 'high', 'template effort should be applied to the session');
   assert.equal(applied.templateAppId, app.id, 'session should record which template was applied');
 
   const targetHistory = await getHistory(target.id);

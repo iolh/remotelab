@@ -802,6 +802,7 @@ The currently shipped implementation uses a pragmatic tool abstraction.
 - current first-class runtime families are:
   - `claude-stream-json`
   - `codex-json`
+  - `cursor-stream-json`
 - simple custom tool configs can be saved via `/api/tools`
 - models/reasoning metadata are returned by `/api/models`
 

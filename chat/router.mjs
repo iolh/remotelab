@@ -30,6 +30,7 @@ import {
   getSession,
   getSessionEventsAfter,
   getSessionTimelineEvents,
+  importCodexThreadSession,
   listSessions,
   renameSession,
   rewriteVoiceTranscriptForSession,
@@ -39,10 +40,12 @@ import {
   setSessionPinned,
   submitHttpMessage,
   updateSessionLastReviewedAt,
+  updateSessionHandoffTarget,
   updateSessionGrouping,
   updateSessionAgreements,
   updateSessionWorkflowClassification,
   updateSessionRuntimePreferences,
+  handoffSessionResult,
 } from './session-manager.mjs';
 import {
   createTrigger,
@@ -549,6 +552,10 @@ async function createOwnerTemplatedSession({ folder = '~', tool = '', name = '',
       sourceName: 'Chat',
       userId,
       userName,
+      systemPrompt: app.systemPrompt || '',
+      model: typeof app?.model === 'string' ? app.model : '',
+      effort: typeof app?.effort === 'string' ? app.effort : '',
+      thinking: app?.thinking === true,
     },
   );
   session = await applyAppTemplateToSession(session.id, app.id) || session;
@@ -625,6 +632,9 @@ async function bootstrapPublicVisitorSession(app, { visitorId, visitorName = '',
       visitorId,
       visitorName,
       systemPrompt: app.systemPrompt,
+      model: typeof app?.model === 'string' ? app.model : '',
+      effort: typeof app?.effort === 'string' ? app.effort : '',
+      thinking: app?.thinking === true,
       externalTriggerId: buildVisitorSessionExternalTriggerId(app.id, visitorId),
     }
   );
@@ -1087,6 +1097,7 @@ function isOwnerOnlyRoute(pathname, method) {
   if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/share') && method === 'POST') return true;
   if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/fork') && method === 'POST') return true;
   if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/delegate') && method === 'POST') return true;
+  if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/handoff') && method === 'POST') return true;
   if (pathname.startsWith('/api/sessions/') && method === 'PATCH') return true;
   if (pathname === '/api/models' && method === 'GET') return true;
   if (pathname === '/api/tools' && (method === 'GET' || method === 'POST')) return true;
@@ -1450,6 +1461,7 @@ export async function handleRequest(req, res) {
     const hasWorkflowStatePatch = Object.prototype.hasOwnProperty.call(patch || {}, 'workflowState');
     const hasWorkflowPriorityPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'workflowPriority');
     const hasLastReviewedAtPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'lastReviewedAt');
+    const hasHandoffTargetPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'handoffTargetSessionId');
     if (hasArchivedPatch && typeof patch.archived !== 'boolean') {
       writeJson(res, 400, { error: 'archived must be a boolean' });
       return;
@@ -1503,6 +1515,10 @@ export async function handleRequest(req, res) {
     }
     if (hasLastReviewedAtPatch && patch.lastReviewedAt !== null && typeof patch.lastReviewedAt !== 'string') {
       writeJson(res, 400, { error: 'lastReviewedAt must be a string or null' });
+      return;
+    }
+    if (hasHandoffTargetPatch && patch.handoffTargetSessionId !== null && typeof patch.handoffTargetSessionId !== 'string') {
+      writeJson(res, 400, { error: 'handoffTargetSessionId must be a string or null' });
       return;
     }
     if (
@@ -1569,6 +1585,17 @@ export async function handleRequest(req, res) {
     }
     if (hasLastReviewedAtPatch) {
       session = await updateSessionLastReviewedAt(sessionId, patch.lastReviewedAt || '') || session;
+    }
+    if (hasHandoffTargetPatch) {
+      const targetSessionId = typeof patch.handoffTargetSessionId === 'string' ? patch.handoffTargetSessionId.trim() : '';
+      if (targetSessionId) {
+        if (targetSessionId === sessionId) {
+          writeJson(res, 400, { error: 'handoffTargetSessionId must be different from the session id' });
+          return;
+        }
+        if (!requireSessionAccess(res, authSession, targetSessionId)) return;
+      }
+      session = await updateSessionHandoffTarget(sessionId, targetSessionId) || session;
     }
     if (!session) {
       session = await getSessionForClient(sessionId);
@@ -1906,6 +1933,61 @@ export async function handleRequest(req, res) {
       }
       return;
     }
+
+    if (parts.length === 4 && parts[0] === 'api' && parts[1] === 'sessions' && sessionId && action === 'handoff') {
+      if (!requireSessionAccess(res, authSession, sessionId)) return;
+      const source = await getSessionForClient(sessionId);
+      if (!source) {
+        writeJson(res, 404, { error: 'Session not found' });
+        return;
+      }
+      if (source.visitorId) {
+        writeJson(res, 409, { error: 'Visitor sessions cannot hand off results' });
+        return;
+      }
+
+      let payload = {};
+      try {
+        const body = await readBody(req, 32768);
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        writeJson(res, 400, { error: 'Invalid request body' });
+        return;
+      }
+
+      const requestedTargetSessionId = typeof payload?.targetSessionId === 'string'
+        ? payload.targetSessionId.trim()
+        : '';
+      if (requestedTargetSessionId) {
+        if (requestedTargetSessionId === sessionId) {
+          writeJson(res, 400, { error: 'targetSessionId must be different from the source session' });
+          return;
+        }
+        if (!requireSessionAccess(res, authSession, requestedTargetSessionId)) return;
+      }
+
+      try {
+        let refreshedSource = source;
+        if (requestedTargetSessionId) {
+          refreshedSource = await updateSessionHandoffTarget(sessionId, requestedTargetSessionId) || refreshedSource;
+        }
+        const outcome = await handoffSessionResult(sessionId, {
+          targetSessionId: requestedTargetSessionId,
+        });
+        if (!outcome?.targetSession) {
+          writeJson(res, 409, { error: 'Unable to hand off session result' });
+          return;
+        }
+        writeJson(res, 201, {
+          session: createClientSessionDetail(outcome.targetSession),
+          sourceSession: createClientSessionDetail(outcome.sourceSession || refreshedSource),
+          handoff: outcome.handoff || null,
+        });
+      } catch (error) {
+        writeJson(res, 400, { error: error.message || 'Failed to hand off session result' });
+      }
+      return;
+    }
   }
 
   if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/share') && req.method === 'POST') {
@@ -1948,6 +2030,7 @@ export async function handleRequest(req, res) {
         folder,
         tool,
         name,
+        codexThreadId,
         appId,
         appName,
         userId,
@@ -1957,6 +2040,9 @@ export async function handleRequest(req, res) {
         group,
         description,
         systemPrompt,
+        model,
+        effort,
+        thinking,
         completionTargets,
         externalTriggerId,
       } = JSON.parse(body);
@@ -2011,6 +2097,33 @@ export async function handleRequest(req, res) {
       };
       if (Object.prototype.hasOwnProperty.call(body, 'systemPrompt')) {
         createOptions.systemPrompt = typeof systemPrompt === 'string' ? systemPrompt : '';
+      } else if (resolvedApp?.systemPrompt) {
+        createOptions.systemPrompt = resolvedApp.systemPrompt;
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'model')) {
+        createOptions.model = typeof model === 'string' ? model : '';
+      } else if (typeof resolvedApp?.model === 'string') {
+        createOptions.model = resolvedApp.model;
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'effort')) {
+        createOptions.effort = typeof effort === 'string' ? effort : '';
+      } else if (typeof resolvedApp?.effort === 'string') {
+        createOptions.effort = resolvedApp.effort;
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'thinking')) {
+        createOptions.thinking = thinking === true;
+      } else if (resolvedApp?.thinking === true) {
+        createOptions.thinking = true;
+      }
+      if (tool === 'codex' && typeof codexThreadId === 'string' && codexThreadId.trim()) {
+        const importedSession = await importCodexThreadSession({
+          threadId: codexThreadId.trim(),
+          folder: resolvedFolder,
+          name: name || '',
+        });
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ session: createClientSessionDetail(importedSession) }));
+        return;
       }
       let session = await createSession(resolvedFolder, tool, name || '', createOptions);
 
@@ -2029,9 +2142,9 @@ export async function handleRequest(req, res) {
 
       res.writeHead(201, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ session: createClientSessionDetail(session) }));
-    } catch {
+    } catch (error) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid request body' }));
+      res.end(JSON.stringify({ error: error?.message || 'Invalid request body' }));
     }
     return;
   }

@@ -38,7 +38,7 @@ newAppBtn.addEventListener("click", () => {
 });
 
 newSessionBtn.addEventListener("click", () => {
-  createNewSessionShortcut();
+  void createNewSessionShortcut();
 });
 
 createUserBtn?.addEventListener("click", () => {
