@@ -5,6 +5,7 @@ import path from 'path';
 
 const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'remotelab-system-prompt-'));
 process.env.HOME = tempHome;
+process.env.REMOTELAB_MEMORY_DIR = path.join(tempHome, 'instance-data', 'memory');
 
 const { buildSystemContext } = await import('../chat/system-prompt.mjs');
 
@@ -45,5 +46,7 @@ assert.match(context, /let the child fetch it from the parent session/);
 assert.match(context, /REMOTELAB_SESSION_ID/);
 assert.match(context, /trigger command defaults to REMOTELAB_SESSION_ID/);
 assert.match(context, /session-test-123/);
+assert.match(context, /~\/instance-data\/memory\//);
+assert.doesNotMatch(context, /~\/\.remotelab\/memory\//);
 
 console.log('test-system-prompt: ok');
