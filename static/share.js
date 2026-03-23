@@ -12,6 +12,21 @@
     ? snapshot.view
     : {};
 
+  function getRenderableEvents() {
+    if (Array.isArray(snapshot.displayEvents)) {
+      return snapshot.displayEvents;
+    }
+    return Array.isArray(snapshot.events) ? snapshot.events : [];
+  }
+
+  function getEventBlockEvents(event) {
+    const startSeq = Number.isInteger(event?.blockStartSeq) ? event.blockStartSeq : 0;
+    const endSeq = Number.isInteger(event?.blockEndSeq) ? event.blockEndSeq : 0;
+    if (startSeq < 1 || endSeq < startSeq) return [];
+    const key = `${startSeq}-${endSeq}`;
+    return Array.isArray(snapshot.eventBlocks?.[key]) ? snapshot.eventBlocks[key] : [];
+  }
+
   function renderShareIcon(name, className = "") {
     return window.RemoteLabIcons?.render(name, { className }) || "";
   }
@@ -262,9 +277,8 @@
     return link;
   }
 
-  function renderMessage(event) {
+  function renderMessageInto(container, event) {
     const role = event.role || "assistant";
-    if (inThinkingBlock) finalizeThinkingBlock();
 
     if (role === "user") {
       const wrap = document.createElement("div");
@@ -293,7 +307,7 @@
       }
 
       wrap.appendChild(bubble);
-      messagesInner.appendChild(wrap);
+      container.appendChild(wrap);
       return;
     }
 
@@ -304,11 +318,15 @@
     div.innerHTML = rendered;
     sanitizeRenderedContent(div);
     enhanceCodeBlocks(div);
-    messagesInner.appendChild(div);
+    container.appendChild(div);
   }
 
-  function renderToolUse(event) {
-    const container = getThinkingBody();
+  function renderMessage(event) {
+    if (inThinkingBlock) finalizeThinkingBlock();
+    renderMessageInto(messagesInner, event);
+  }
+
+  function renderToolUseInto(container, event) {
     if (currentThinkingBlock && event.toolName) {
       currentThinkingBlock.tools.add(event.toolName);
     }
@@ -339,8 +357,11 @@
     container.appendChild(card);
   }
 
-  function renderStandaloneToolResult(event) {
-    const container = getThinkingBody();
+  function renderToolUse(event) {
+    renderToolUseInto(getThinkingBody(), event);
+  }
+
+  function renderStandaloneToolResultInto(container, event) {
     const card = document.createElement("div");
     card.className = "tool-card";
 
@@ -366,8 +387,8 @@
     container.appendChild(card);
   }
 
-  function renderToolResult(event) {
-    const searchRoot = inThinkingBlock && currentThinkingBlock ? currentThinkingBlock.body : messagesInner;
+  function renderToolResultInto(container, event) {
+    const searchRoot = container || messagesInner;
     const cards = searchRoot.querySelectorAll(".tool-card");
     let targetCard = null;
     for (let i = cards.length - 1; i >= 0; i -= 1) {
@@ -378,7 +399,7 @@
     }
 
     if (!targetCard) {
-      renderStandaloneToolResult(event);
+      renderStandaloneToolResultInto(searchRoot, event);
       return;
     }
 
@@ -399,12 +420,31 @@
     }
   }
 
-  function renderFileChange(event) {
-    const container = getThinkingBody();
+  function renderToolResult(event) {
+    const container = inThinkingBlock && currentThinkingBlock ? currentThinkingBlock.body : messagesInner;
+    renderToolResultInto(container, event);
+  }
+
+  function renderFileChangeInto(container, event) {
     const div = document.createElement("div");
     div.className = "file-card";
     const kind = event.changeType || "edit";
     div.innerHTML = `<span class="file-path">${esc(event.filePath || "")}</span><span class="change-type ${esc(kind)}">${esc(kind)}</span>`;
+    container.appendChild(div);
+  }
+
+  function renderFileChange(event) {
+    renderFileChangeInto(getThinkingBody(), event);
+  }
+
+  function renderShareReasoningInto(container, event) {
+    const div = document.createElement("div");
+    div.className = "reasoning msg-assistant";
+    const rendered = marked.parse(event.content || "");
+    if (!rendered.trim()) return;
+    div.innerHTML = rendered;
+    sanitizeRenderedContent(div);
+    enhanceCodeBlocks(div);
     container.appendChild(div);
   }
 
@@ -420,25 +460,33 @@
     container.appendChild(div);
   }
 
-  function renderStatus(event) {
-    if (inThinkingBlock && event.content !== "thinking") {
-      finalizeThinkingBlock();
-    }
+  function renderStatusInto(container, event) {
     if (!event.content || event.content === "thinking" || event.content === "completed") return;
     const div = document.createElement("div");
     div.className = "msg-system";
     div.textContent = event.content;
-    messagesInner.appendChild(div);
+    container.appendChild(div);
+  }
+
+  function renderStatus(event) {
+    if (inThinkingBlock && event.content !== "thinking") {
+      finalizeThinkingBlock();
+    }
+    renderStatusInto(messagesInner, event);
+  }
+
+  function renderContextBarrierInto(container, event) {
+    const div = document.createElement("div");
+    div.className = "context-barrier";
+    div.textContent = event.content || "此标记以上的旧消息已不再处于当前实时上下文中。";
+    container.appendChild(div);
   }
 
   function renderContextBarrier(event) {
     if (inThinkingBlock) {
       finalizeThinkingBlock();
     }
-    const div = document.createElement("div");
-    div.className = "context-barrier";
-    div.textContent = event.content || "此标记以上的旧消息已不再处于当前实时上下文中。";
-    messagesInner.appendChild(div);
+    renderContextBarrierInto(messagesInner, event);
   }
 
   function formatCompactTokens(n) {
@@ -447,7 +495,7 @@
     return `${Math.round(n / 1000)}K`;
   }
 
-  function renderUsage(event) {
+  function renderUsageInto(container, event) {
     const contextSize = Number.isFinite(event.contextTokens)
       ? event.contextTokens
       : 0;
@@ -468,13 +516,98 @@
     div.title = percent !== null
       ? `实时上下文：${contextSize.toLocaleString()} / ${contextWindowSize.toLocaleString()}（${percent.toFixed(1)}%）`
       : `实时上下文：${contextSize.toLocaleString()}`;
-    messagesInner.appendChild(div);
+    container.appendChild(div);
+  }
+
+  function renderUsage(event) {
+    renderUsageInto(messagesInner, event);
+  }
+
+  function buildThinkingBlockLabel(event) {
+    if (typeof event?.label === "string" && event.label.trim()) {
+      return event.label.trim();
+    }
+    const toolNames = Array.isArray(event?.toolNames)
+      ? event.toolNames.filter((name) => typeof name === "string" && name.trim())
+      : [];
+    if (toolNames.length > 0) {
+      return `思考过程 · 使用了 ${toolNames.join(", ")}`;
+    }
+    return event?.state === "running" ? "思考中…" : "思考过程";
+  }
+
+  function renderEventInto(container, event) {
+    switch (event.type) {
+      case "message":
+        renderMessageInto(container, event);
+        break;
+      case "tool_use":
+        renderToolUseInto(container, event);
+        break;
+      case "tool_result":
+        renderToolResultInto(container, event);
+        break;
+      case "file_change":
+        renderFileChangeInto(container, event);
+        break;
+      case "reasoning":
+        renderShareReasoningInto(container, event);
+        break;
+      case "status":
+        renderStatusInto(container, event);
+        break;
+      case "context_barrier":
+        renderContextBarrierInto(container, event);
+        break;
+      case "usage":
+        renderUsageInto(container, event);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function renderThinkingBlock(event) {
+    if (inThinkingBlock) finalizeThinkingBlock();
+
+    const block = document.createElement("div");
+    block.className = "thinking-block collapsed";
+
+    const header = document.createElement("div");
+    header.className = "thinking-header";
+    header.innerHTML = `${renderShareIcon("gear", "thinking-icon")}<span class="thinking-label">${esc(buildThinkingBlockLabel(event))}</span><span class="thinking-chevron">${renderShareIcon("chevron-down")}</span>`;
+
+    const body = document.createElement("div");
+    body.className = "thinking-body";
+
+    let loaded = false;
+    function ensureLoaded() {
+      if (loaded) return;
+      loaded = true;
+      for (const blockEvent of getEventBlockEvents(event)) {
+        renderEventInto(body, blockEvent);
+      }
+    }
+
+    header.addEventListener("click", () => {
+      block.classList.toggle("collapsed");
+      if (!block.classList.contains("collapsed")) {
+        ensureLoaded();
+      }
+    });
+
+    block.appendChild(header);
+    block.appendChild(body);
+    messagesInner.appendChild(block);
   }
 
   function renderEvent(event) {
     switch (event.type) {
       case "message":
         renderMessage(event);
+        break;
+      case "thinking_block":
+        renderThinkingBlock(event);
         break;
       case "tool_use":
         renderToolUse(event);
@@ -505,6 +638,7 @@
   function renderMeta() {
     const name = snapshot.session?.name || snapshot.session?.tool || "共享会话快照";
     const tool = snapshot.session?.tool || "未知工具";
+    const events = getRenderableEvents();
     const timestampLabel = typeof view.timestampLabel === "string" && view.timestampLabel
       ? view.timestampLabel
       : "分享时间";
@@ -520,7 +654,7 @@
     const items = [
       { label: "工具", value: tool },
       { label: timestampLabel, value: formatDate(snapshot.createdAt) },
-      { label: "事件数", value: String(Array.isArray(snapshot.events) ? snapshot.events.length : 0) },
+      { label: "事件数", value: String(Number.isInteger(snapshot.eventCount) ? snapshot.eventCount : events.length) },
     ];
 
     document.title = `${name} · ${titleSuffix}`;
@@ -535,7 +669,7 @@
   function renderSnapshot() {
     renderMeta();
     messagesInner.innerHTML = "";
-    const events = Array.isArray(snapshot.events) ? snapshot.events : [];
+    const events = getRenderableEvents();
     if (events.length === 0) {
       messagesInner.innerHTML = '<div class="empty-state">这个快照还是空的。</div>';
       return;

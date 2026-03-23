@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
   ChevronDown,
@@ -31,9 +31,21 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
 import "./chat-chrome.css";
+
+type ParallelTask = {
+  title?: string;
+  task?: string;
+  boundary?: string;
+  repo?: string;
+};
 
 type Conclusion = {
   id: string;
@@ -45,8 +57,15 @@ type Conclusion = {
   payload?: {
     confidence?: string;
     recommendation?: string;
+    parallelTasks?: ParallelTask[];
   } | null;
 };
+
+type WorkflowSuggestion = {
+  type?: string;
+  title?: string;
+  body?: string;
+} | null;
 
 type ChromeState = {
   title?: string;
@@ -55,6 +74,8 @@ type ChromeState = {
   visitorMode?: boolean;
   summary?: {
     currentTask?: string;
+    suggestion?: WorkflowSuggestion;
+    workflowStatus?: string;
     pending?: Conclusion[];
     decisions?: Conclusion[];
     handled?: Conclusion[];
@@ -104,6 +125,10 @@ declare global {
         fork: () => Promise<void> | void;
         share: () => Promise<void> | void;
         handoff: () => Promise<void> | void;
+        workflowConclusionStatus?: (conclusionId: string, status: string) => Promise<void> | void;
+        acceptWorkflowSuggestion?: () => Promise<void> | void;
+        dismissWorkflowSuggestion?: () => Promise<void> | void;
+        createParallelSessionsFromConclusion?: (conclusionId: string) => Promise<void> | void;
       };
     };
     remotelabToastBridge?: {
@@ -132,6 +157,7 @@ declare global {
         input: WorkflowTaskInput;
         kickoffMessage: string;
         successToast: string;
+        workflowMode?: WorkflowModeKey;
       }) => Promise<unknown>;
     };
     RemoteLabTheme?: {
@@ -348,68 +374,313 @@ function useChromeState() {
   return state;
 }
 
-const SUMMARY_TOAST_ID = "remotelab-summary-toast";
-
-function getSummaryToastTitle(summary: ChromeState["summary"]) {
+function getStatusButtonTitle(summary: ChromeState["summary"]) {
   const decisionCount = summary?.decisions?.length || 0;
   const pendingCount = summary?.pending?.length || 0;
-  const handledCount = summary?.handled?.length || 0;
-  if (decisionCount > 0) return "有待决策摘要";
-  if (pendingCount > 0) return "有待处理摘要";
-  if (handledCount > 0) return "最近摘要已更新";
-  return "主线摘要";
+  if (decisionCount > 0) return "任务状态：有待决策事项";
+  if (pendingCount > 0) return "任务状态：有待处理事项";
+  return "任务状态";
 }
 
-function getSummaryToastDescription(summary: ChromeState["summary"]) {
+function getStatusButtonDescription(summary: ChromeState["summary"]) {
   const pending = summary?.pending || [];
   const decisions = summary?.decisions || [];
   const handled = summary?.handled || [];
+  const suggestion = summary?.suggestion || null;
   const currentTask = normalizeText(summary?.currentTask);
   const parts: string[] = [];
+  if (suggestion) parts.push("有系统建议");
   if (decisions.length > 0) parts.push(`${decisions.length} 条待决策`);
   if (pending.length > 0) parts.push(`${pending.length} 条待处理`);
   if (!parts.length && handled.length > 0) parts.push(`最近已处理 ${handled.length} 条`);
   const lead = normalizeText(decisions[0]?.summary || pending[0]?.summary || handled[0]?.summary);
   const detail = parts.length && lead
-    ? `${parts.join("，")} · ${lead}`
+    ? `${parts.join("，")}，${lead}`
     : (parts.join("，") || lead || "暂无新的摘要通知");
   if (currentTask) return `${currentTask} · ${detail}`;
   return detail;
 }
 
-function SummaryToastButton({ summary }: { summary: ChromeState["summary"] }) {
+function getConclusionLabel(conclusion: Conclusion) {
+  return normalizeText(conclusion.label) || "结果转交";
+}
+
+function getConclusionSource(conclusion: Conclusion) {
+  return normalizeText(conclusion.sourceSessionName) || "辅助会话";
+}
+
+function getConclusionTone(status?: string) {
+  if (status === "accepted") return "success";
+  if (status === "ignored") return "muted";
+  if (status === "needs_decision") return "notice";
+  return "neutral";
+}
+
+function getConclusionParallelTasks(conclusion: Conclusion) {
+  const tasks = Array.isArray(conclusion?.payload?.parallelTasks) ? conclusion.payload.parallelTasks : [];
+  return tasks
+    .map((task, index) => {
+      if (!task || typeof task !== "object") return null;
+      const title = normalizeText(task.title) || `并行子任务 ${index + 1}`;
+      const taskText = normalizeText(task.task);
+      const boundary = normalizeText(task.boundary);
+      const repo = normalizeText(task.repo);
+      return {
+        title,
+        ...(taskText ? { task: taskText } : {}),
+        ...(boundary ? { boundary } : {}),
+        ...(repo ? { repo } : {}),
+      };
+    })
+    .filter(Boolean) as ParallelTask[];
+}
+
+function getRecommendationBadge(conclusion: Conclusion): { text: string; className: string } | null {
+  const rec = conclusion?.payload?.recommendation;
+  if (!rec || typeof rec !== "string") return null;
+  const normalized = rec.trim().toLowerCase();
+  if (normalized === "accept") return { text: "验收通过", className: "chrome-status-badge-success" };
+  if (normalized === "revise") return { text: "需要修复", className: "chrome-status-badge-warning" };
+  if (normalized === "reject") return { text: "验收未通过", className: "chrome-status-badge-error" };
+  return { text: rec, className: "chrome-status-badge-neutral" };
+}
+
+function WorkflowStatusButton({ summary }: { summary: ChromeState["summary"] }) {
   const pending = summary?.pending || [];
   const decisions = summary?.decisions || [];
-  const hasNotice = decisions.length > 0 || pending.length > 0;
+  const handled = summary?.handled || [];
+  const suggestion = summary?.suggestion || null;
+  const currentTask = normalizeText(summary?.currentTask) || "当前暂无任务摘要";
+  const latestHandled = handled[0] || null;
+  const hasNotice = !!suggestion || decisions.length > 0 || pending.length > 0;
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth <= 640);
 
-  function handleClick() {
-    toast(getSummaryToastTitle(summary), {
-      id: SUMMARY_TOAST_ID,
-      description: getSummaryToastDescription(summary),
-      position: "top-center",
-      duration: 5200,
-      className: "remotelab-summary-toast",
-      action: {
-        label: "知道了",
-        onClick: () => {
-          toast.dismiss(SUMMARY_TOAST_ID);
-        },
-      },
-    });
+  useEffect(() => {
+    function syncViewportMode() {
+      setIsMobile(window.innerWidth <= 640);
+    }
+
+    syncViewportMode();
+    window.addEventListener("resize", syncViewportMode);
+    return () => window.removeEventListener("resize", syncViewportMode);
+  }, []);
+
+  async function handleConclusionAction(conclusionId: string, status: string) {
+    const run = window.remotelabChromeBridge?.actions?.workflowConclusionStatus;
+    if (!run || busyKey) return;
+    const nextKey = `conclusion:${conclusionId}:${status}`;
+    try {
+      setBusyKey(nextKey);
+      await run(conclusionId, status);
+    } finally {
+      setBusyKey(null);
+    }
   }
 
-  return (
+  async function handleSuggestionAction(action: "accept" | "dismiss") {
+    const run = action === "accept"
+      ? window.remotelabChromeBridge?.actions?.acceptWorkflowSuggestion
+      : window.remotelabChromeBridge?.actions?.dismissWorkflowSuggestion;
+    if (!run || busyKey) return;
+    try {
+      setBusyKey(`suggestion:${action}`);
+      await run();
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleCreateParallelSessions(conclusionId: string) {
+    const run = window.remotelabChromeBridge?.actions?.createParallelSessionsFromConclusion;
+    if (!run || busyKey) return;
+    try {
+      setBusyKey(`parallel:${conclusionId}`);
+      await run(conclusionId);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  const triggerButton = (
     <Button
       variant="ghost"
       size="icon"
-      className="chrome-action-button text-[color:var(--text-secondary)] hover:text-[color:var(--text)]"
-      title="摘要通知"
-      aria-label="摘要通知"
-      onClick={handleClick}
+      className={`chrome-action-button ${hasNotice ? "chrome-action-button-notice" : "text-[color:var(--text-secondary)] hover:text-[color:var(--text)]"}`}
+      title={`${getStatusButtonTitle(summary)} · ${getStatusButtonDescription(summary)}`}
+      aria-label={`${getStatusButtonTitle(summary)} · ${getStatusButtonDescription(summary)}`}
+      onClick={isMobile ? () => setMobileOpen(true) : undefined}
     >
       <Bell className="size-4" strokeWidth={1.8} />
       {hasNotice ? <span className="chrome-action-dot" /> : null}
     </Button>
+  );
+
+  const panelContent = (
+        <div className="chrome-status-scroll">
+          <section className="chrome-status-zone">
+            <div className="chrome-status-zone-title">当前任务</div>
+            <div className="chrome-status-task-row">
+              <div className="chrome-status-task">{currentTask}</div>
+            </div>
+            {latestHandled?.summary ? (
+              <div className="chrome-status-task-meta">
+                最近进展：{normalizeText(latestHandled.summary)}
+              </div>
+            ) : null}
+          </section>
+
+          {(suggestion || decisions.length > 0 || pending.length > 0) ? (
+            <section className="chrome-status-zone">
+              <div className="chrome-status-zone-title">需要你处理</div>
+
+              {suggestion ? (
+                <div className="chrome-status-card chrome-status-suggestion">
+                  <div className="chrome-status-card-eyebrow">建议下一步</div>
+                  <div className="chrome-status-card-title">
+                    {normalizeText(suggestion.title) || "建议继续推进工作流"}
+                  </div>
+                  <div className="chrome-status-card-text">
+                    {normalizeText(suggestion.body) || "系统建议你进入下一步工作流。"}
+                  </div>
+                  <div className="chrome-status-card-actions">
+                    <Button
+                      size="sm"
+                      className="chrome-status-card-btn chrome-status-primary-btn"
+                      disabled={busyKey !== null}
+                      onClick={() => void handleSuggestionAction("accept")}
+                    >
+                      开启验收（自动开始）
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="chrome-status-card-btn"
+                      disabled={busyKey !== null}
+                      onClick={() => void handleSuggestionAction("dismiss")}
+                    >
+                      暂时跳过
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {[...decisions, ...pending].slice(0, 2).map((conclusion) => {
+                const busyPrefix = `conclusion:${conclusion.id}:`;
+                const parallelTasks = getConclusionParallelTasks(conclusion);
+                return (
+                  <div key={conclusion.id} className="chrome-status-card chrome-status-conclusion">
+                    <div className="chrome-status-card-meta">
+                      <Badge variant="secondary" className="chrome-status-badge">
+                        {getConclusionLabel(conclusion)}
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className={`chrome-status-badge chrome-status-badge-${getConclusionTone(conclusion.status)}`}
+                      >
+                        {normalizeText(conclusion.status === "needs_decision" ? "待决策" : "待处理")}
+                      </Badge>
+                      <span className="chrome-status-card-source">来自 {getConclusionSource(conclusion)}</span>
+                    </div>
+                    {(() => {
+                      const recBadge = getRecommendationBadge(conclusion);
+                      if (!recBadge) return null;
+                      return (
+                        <Badge variant="outline" className={`chrome-status-badge ${recBadge.className}`}>
+                          {recBadge.text}
+                        </Badge>
+                      );
+                    })()}
+                    <div className="chrome-status-card-text">
+                      {normalizeText(conclusion.summary) || "暂无摘要"}
+                    </div>
+                    {parallelTasks.length > 0 ? (
+                      <div className="chrome-status-parallel-list">
+                        {parallelTasks.map((task, index) => (
+                          <div key={`${conclusion.id}-parallel-${index}`} className="chrome-status-parallel-item">
+                            <div className="chrome-status-parallel-title">{normalizeText(task.title) || `并行子任务 ${index + 1}`}</div>
+                            {normalizeText(task.task) ? (
+                              <div className="chrome-status-parallel-meta">{normalizeText(task.task)}</div>
+                            ) : null}
+                            {normalizeText(task.boundary) ? (
+                              <div className="chrome-status-parallel-meta">边界：{normalizeText(task.boundary)}</div>
+                            ) : null}
+                            {normalizeText(task.repo) ? (
+                              <div className="chrome-status-parallel-meta">仓库：{normalizeText(task.repo)}</div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="chrome-status-card-actions">
+                      {parallelTasks.length > 0 ? (
+                        <Button
+                          size="sm"
+                          className="chrome-status-card-btn chrome-status-primary-btn"
+                          disabled={busyKey !== null}
+                          onClick={() => void handleCreateParallelSessions(conclusion.id)}
+                        >
+                          创建 {parallelTasks.length} 个并行 session
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        className="chrome-status-card-btn"
+                        disabled={busyKey !== null}
+                        onClick={() => void handleConclusionAction(conclusion.id, "accepted")}
+                      >
+                        接受
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="chrome-status-card-btn"
+                        disabled={busyKey !== null}
+                        onClick={() => void handleConclusionAction(conclusion.id, "ignored")}
+                      >
+                        忽略
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="chrome-status-card-btn"
+                        disabled={busyKey !== null || busyKey === `${busyPrefix}pending`}
+                        onClick={() => void handleConclusionAction(conclusion.id, "pending")}
+                      >
+                        稍后
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          ) : null}
+        </div>
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        {triggerButton}
+        <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
+          <DialogContent className="chrome-status-dialog">
+            {panelContent}
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        {triggerButton}
+      </PopoverTrigger>
+      <PopoverContent className="chrome-status-popover" align="center" sideOffset={12}>
+        {panelContent}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -467,7 +738,7 @@ function HeaderActions() {
 
   return (
     <div className="flex items-center gap-1">
-      {summary ? <SummaryToastButton summary={summary} /> : null}
+      {summary ? <WorkflowStatusButton summary={summary} /> : null}
       {actionDefs
         .filter((entry) => entry.visible)
         .map((entry) => {
@@ -663,6 +934,7 @@ function WorkflowTaskDialog() {
         input,
         kickoffMessage,
         successToast: successToastOverride || mode.successToast,
+        workflowMode: mode.key,
       });
       setOpen(false);
       setShowOptionalFields(false);
@@ -882,7 +1154,7 @@ function App() {
   );
 }
 
-function mountRoot(id: string, element: JSX.Element) {
+function mountRoot(id: string, element: ReactElement) {
   const mount = document.getElementById(id);
   if (!mount) return;
   createRoot(mount).render(element);

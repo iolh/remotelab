@@ -1,4 +1,4 @@
-import { copyFile, lstat, readlink, symlink, unlink } from 'fs/promises';
+import { copyFile, lstat, readFile, readlink, symlink, unlink } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
 import { CODEX_MANAGED_HOME_DIR } from '../lib/config.mjs';
@@ -75,6 +75,58 @@ function normalizeCodexHomeMode(value) {
   return DEFAULT_CODEX_HOME_MODE;
 }
 
+function extractManagedCodexMcpSections(configText = '') {
+  const normalized = String(configText || '');
+  if (!normalized.trim()) {
+    return '';
+  }
+
+  const preservedSections = [];
+  const lines = normalized.split(/\r?\n/);
+  let currentSectionName = '';
+  let currentSectionLines = [];
+
+  const flushSection = () => {
+    if (!currentSectionName || !currentSectionLines.length) {
+      currentSectionName = '';
+      currentSectionLines = [];
+      return;
+    }
+
+    preservedSections.push(currentSectionLines.join('\n').trimEnd());
+    currentSectionName = '';
+    currentSectionLines = [];
+  };
+
+  for (const line of lines) {
+    const match = /^\s*\[\[?([^\]]+)\]\]?\s*$/.exec(line);
+    if (match) {
+      flushSection();
+      const sectionName = match[1].trim();
+      if (sectionName === 'mcp_servers' || sectionName.startsWith('mcp_servers.')) {
+        currentSectionName = sectionName;
+        currentSectionLines = [line];
+      }
+      continue;
+    }
+
+    if (currentSectionName) {
+      currentSectionLines.push(line);
+    }
+  }
+
+  flushSection();
+  return preservedSections.join('\n\n');
+}
+
+function buildManagedCodexConfig(existingConfigText = '') {
+  const preservedMcpSections = extractManagedCodexMcpSections(existingConfigText);
+  if (!preservedMcpSections) {
+    return MANAGED_CODEX_HOME_NOTES;
+  }
+  return `${MANAGED_CODEX_HOME_NOTES}${preservedMcpSections}\n`;
+}
+
 async function ensureSymlinkOrCopy(sourcePath, targetPath) {
   if (!await pathExists(sourcePath)) {
     return false;
@@ -116,7 +168,13 @@ export async function ensureManagedCodexHome(options = {}) {
       : PERSONAL_CODEX_AUTH_FILE;
 
     await ensureDir(homeDir);
-    await writeTextAtomic(join(homeDir, 'config.toml'), MANAGED_CODEX_HOME_NOTES);
+    const configPath = join(homeDir, 'config.toml');
+    let existingConfigText = '';
+    try {
+      existingConfigText = await readFile(configPath, 'utf8');
+    } catch {
+    }
+    await writeTextAtomic(configPath, buildManagedCodexConfig(existingConfigText));
     await writeTextAtomic(join(homeDir, 'AGENTS.md'), '');
     await ensureSymlinkOrCopy(authSource, join(homeDir, 'auth.json'));
     return homeDir;
@@ -135,7 +193,6 @@ export async function applyManagedRuntimeEnv(toolId, baseEnv = {}, options = {})
 
   const mode = normalizeCodexHomeMode(options.codexHomeMode || process.env.REMOTELAB_CODEX_HOME_MODE);
   if (mode === 'personal') {
-    delete env.CODEX_HOME;
     return env;
   }
 

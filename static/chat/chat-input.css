@@ -222,6 +222,22 @@
   min-width: 0;
   flex-shrink: 0;
 }
+.session-worktree-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.session-worktree-inline[hidden] {
+  display: none !important;
+}
+#worktreeStatusText {
+  color: var(--text-muted);
+}
+.session-worktree-inline .compact-btn {
+  font-size: 11px;
+}
 .input-footer-tagline {
   margin-left: auto;
 }

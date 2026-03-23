@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copy Icon Preview</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; background: #fff; color: #222; display: flex; flex-direction: column; align-items: center; padding: 40px 20px; gap: 32px; }
+  h2 { font-size: 18px; font-weight: 600; }
+  .grid { display: flex; gap: 40px; flex-wrap: wrap; justify-content: center; }
+  .card {
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    padding: 24px 28px; border: 1px solid #e0e0e0; border-radius: 16px;
+    cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .card:hover { border-color: #999; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+  .card svg { width: 48px; height: 48px; color: #333; }
+  .card .small svg { width: 20px; height: 20px; }
+  .label { font-size: 14px; font-weight: 600; color: #555; }
+  .sizes { display: flex; align-items: center; gap: 16px; margin-top: 4px; }
+  .sizes svg { color: #555; }
+</style>
+</head>
+<body>
+<h2>选择复制 Icon 样式</h2>
+<div class="grid">
+
+  <div class="card" data-id="1">
+    <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+      <rect x="2.5" y="2.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+    </svg>
+    <div class="sizes">
+      <svg viewBox="0 0 16 16" fill="none" width="20" height="20"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="2.5" y="2.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/></svg>
+      <svg viewBox="0 0 16 16" fill="none" width="16" height="16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="2.5" y="2.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/></svg>
+    </div>
+    <span class="label">#1 经典双框</span>
+  </div>
+
+  <div class="card" data-id="2">
+    <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="5" y="5" width="8.5" height="8.5" rx="2" stroke="currentColor" stroke-width="1.3"/>
+      <path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" stroke="currentColor" stroke-width="1.3"/>
+    </svg>
+    <div class="sizes">
+      <svg viewBox="0 0 16 16" fill="none" width="20" height="20"><rect x="5" y="5" width="8.5" height="8.5" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" stroke="currentColor" stroke-width="1.3"/></svg>
+      <svg viewBox="0 0 16 16" fill="none" width="16" height="16"><rect x="5" y="5" width="8.5" height="8.5" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" stroke="currentColor" stroke-width="1.3"/></svg>
+    </div>
+    <span class="label">#2 前框+后折线</span>
+  </div>
+
+  <div class="card" data-id="3">
+    <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="6" y="6" width="7.5" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+      <rect x="2.5" y="2" width="7.5" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+    </svg>
+    <div class="sizes">
+      <svg viewBox="0 0 16 16" fill="none" width="20" height="20"><rect x="6" y="6" width="7.5" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="2.5" y="2" width="7.5" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/></svg>
+      <svg viewBox="0 0 16 16" fill="none" width="16" height="16"><rect x="6" y="6" width="7.5" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="2.5" y="2" width="7.5" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/></svg>
+    </div>
+    <span class="label">#3 双页纵向</span>
+  </div>
+
+  <div class="card" data-id="4">
+    <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4.5" y="4.5" width="9" height="9" rx="2" stroke="currentColor" stroke-width="1.2"/>
+      <path d="M4.5 11.5H4a1.5 1.5 0 01-1.5-1.5V4A1.5 1.5 0 014 2.5h6A1.5 1.5 0 0111.5 4v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+    </svg>
+    <div class="sizes">
+      <svg viewBox="0 0 16 16" fill="none" width="20" height="20"><rect x="4.5" y="4.5" width="9" height="9" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 11.5H4a1.5 1.5 0 01-1.5-1.5V4A1.5 1.5 0 014 2.5h6A1.5 1.5 0 0111.5 4v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <svg viewBox="0 0 16 16" fill="none" width="16" height="16"><rect x="4.5" y="4.5" width="9" height="9" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 11.5H4a1.5 1.5 0 01-1.5-1.5V4A1.5 1.5 0 014 2.5h6A1.5 1.5 0 0111.5 4v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+    </div>
+    <span class="label">#4 大前框+后L</span>
+  </div>
+
+  <div class="card" data-id="5">
+    <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+      <path d="M3 11V3.5A1.5 1.5 0 014.5 2H11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+    </svg>
+    <div class="sizes">
+      <svg viewBox="0 0 16 16" fill="none" width="20" height="20"><rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 11V3.5A1.5 1.5 0 014.5 2H11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      <svg viewBox="0 0 16 16" fill="none" width="16" height="16"><rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 11V3.5A1.5 1.5 0 014.5 2H11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+    </div>
+    <span class="label">#5 框+角折线</span>
+  </div>
+
+</div>
+</body>
+</html>

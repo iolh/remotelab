@@ -19,6 +19,8 @@ const CURSOR_FALLBACK_MODELS = [
   { id: 'auto', label: 'Auto' },
   { id: 'claude-4.6-opus-high-thinking', label: 'Opus 4.6 1M Thinking' },
   { id: 'claude-4.6-opus-high', label: 'Opus 4.6 1M' },
+  { id: 'claude-4.6-opus-max-thinking', label: 'Opus 4.6 1M Max Thinking' },
+  { id: 'claude-4.6-opus-max', label: 'Opus 4.6 1M Max' },
   { id: 'claude-4.6-sonnet-medium-thinking', label: 'Sonnet 4.6 1M Thinking' },
   { id: 'claude-4.6-sonnet-medium', label: 'Sonnet 4.6 1M' },
 ];
@@ -40,8 +42,39 @@ function buildCursorModelsResult(models, defaultModel = null) {
   };
 }
 
+function mergeCursorModels(primaryModels = [], supplementalModels = []) {
+  const merged = [];
+  const seen = new Set();
+
+  for (const entry of [...primaryModels, ...supplementalModels]) {
+    const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    merged.push({
+      id,
+      label: typeof entry?.label === 'string' && entry.label.trim() ? entry.label.trim() : id,
+    });
+  }
+
+  return merged;
+}
+
+function summarizeCursorModelIds(models = []) {
+  return models
+    .map((model) => (typeof model?.id === 'string' ? model.id.trim() : ''))
+    .filter(Boolean)
+    .join(', ');
+}
+
+/** Strip CSI/OSC so cursor-agent TTY output still parses in non-interactive runs. */
+function stripAnsi(text) {
+  return String(text || '')
+    .replace(/\x1b\[[\d;?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b\][^\x07]*\x07/g, '');
+}
+
 export function parseCursorModelsOutput(raw) {
-  const lines = String(raw || '')
+  const lines = stripAnsi(String(raw || ''))
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
@@ -183,9 +216,21 @@ async function getCursorModels() {
       throw new Error('no cursor models parsed');
     }
 
-    cursorModelsCache = buildCursorModelsResult(parsed.models, parsed.defaultModel);
+    const mergedModels = mergeCursorModels(parsed.models, CURSOR_FALLBACK_MODELS);
+    console.log(
+      `[cursor-models] cursor-agent returned ${parsed.models.length} models: ${summarizeCursorModelIds(parsed.models)}; `
+      + `RemoteLab merged ${mergedModels.length} models: ${summarizeCursorModelIds(mergedModels)}`
+    );
+    cursorModelsCache = buildCursorModelsResult(
+      mergedModels,
+      parsed.defaultModel,
+    );
     return cursorModelsCache;
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[cursor-models] Falling back to built-in cursor model list because cursor-agent model discovery failed: ${message}`
+    );
     cursorModelsCache = buildCursorModelsResult(CURSOR_FALLBACK_MODELS, 'auto');
     return cursorModelsCache;
   }

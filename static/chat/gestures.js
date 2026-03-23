@@ -11,8 +11,8 @@ function canUseSwipeGestures() {
   if (!gesturePill) return false;
   if (isDesktop || visitorMode) return false;
   if (sidebarOverlay?.classList.contains("open")) return false;
-  if (codexImportModal && !codexImportModal.hidden) return false;
-  if (addToolModal && !addToolModal.hidden) return false;
+  if (typeof codexImportModal !== "undefined" && codexImportModal && !codexImportModal.hidden) return false;
+  if (typeof addToolModal !== "undefined" && addToolModal && !addToolModal.hidden) return false;
   return true;
 }
 

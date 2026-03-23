@@ -463,6 +463,9 @@ function applyAttachedSessionState(id, session) {
     reconcileComposerPendingSendWithSession(session);
   }
   updateStatus("connected", session);
+  if (typeof renderSessionWorktreePanel === "function") {
+    renderSessionWorktreePanel(session);
+  }
   if (typeof renderWorkflowSummaryPanel === "function") {
     renderWorkflowSummaryPanel(session);
   }

@@ -33,6 +33,51 @@ try {
   const authStat = lstatSync(join(managedHome, 'auth.json'));
   assert.ok(authStat.isSymbolicLink() || authStat.isFile(), 'managed Codex home should expose auth.json');
 
+  writeFileSync(join(managedHome, 'config.toml'), [
+    'model = "gpt-5.4"',
+    '',
+    '[mcp_servers.figma]',
+    'url = "https://mcp.figma.com/mcp"',
+    '',
+    '[profiles.test]',
+    'enabled = true',
+    '',
+    '[mcp_servers.playwright]',
+    'command = "npx"',
+    'args = ["@playwright/mcp@latest"]',
+    '',
+  ].join('\n'), 'utf8');
+  await ensureManagedCodexHome({
+    homeDir: managedHome,
+    authSource: join(personalCodexHome, 'auth.json'),
+  });
+  const rewrittenManagedConfig = readFileSync(join(managedHome, 'config.toml'), 'utf8');
+  assert.match(
+    rewrittenManagedConfig,
+    /RemoteLab-managed Codex runtime home/,
+    'managed Codex home should keep the manager-owned notes when refreshing config',
+  );
+  assert.match(
+    rewrittenManagedConfig,
+    /\[mcp_servers\.figma\][\s\S]*url = "https:\/\/mcp\.figma\.com\/mcp"/,
+    'managed Codex home should preserve existing MCP server registrations',
+  );
+  assert.match(
+    rewrittenManagedConfig,
+    /\[mcp_servers\.playwright\][\s\S]*command = "npx"/,
+    'managed Codex home should preserve multiple MCP server registrations',
+  );
+  assert.doesNotMatch(
+    rewrittenManagedConfig,
+    /^model = "gpt-5\.4"$/m,
+    'managed Codex home should still strip non-MCP top-level drift',
+  );
+  assert.doesNotMatch(
+    rewrittenManagedConfig,
+    /\[profiles\.test\]/,
+    'managed Codex home should still strip non-MCP tables',
+  );
+
   const managedEnv = await applyManagedRuntimeEnv('codex', { FOO: 'bar', CODEX_HOME: '/tmp/elsewhere' }, {
     codexHomeDir: managedHome,
     codexAuthSource: join(personalCodexHome, 'auth.json'),

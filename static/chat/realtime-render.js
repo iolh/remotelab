@@ -18,6 +18,9 @@ function showEmpty() {
   if (typeof renderWorkflowSummaryPanel === "function") {
     renderWorkflowSummaryPanel(null);
   }
+  if (typeof renderSessionWorktreePanel === "function") {
+    renderSessionWorktreePanel(null);
+  }
   if (typeof renderQueuedMessagePanel === "function") {
     renderQueuedMessagePanel(null);
   }
@@ -81,6 +84,10 @@ function renderEvent(evt, autoScroll) {
       rendered = true;
       renderMessage(evt);
       break;
+    case "template_context":
+      rendered = true;
+      renderTemplateContext(evt);
+      break;
     case "collapsed_block":
       rendered = true;
       renderCollapsedBlock(evt);
@@ -104,6 +111,10 @@ function renderEvent(evt, autoScroll) {
     case "reasoning":
       rendered = true;
       renderReasoning(evt);
+      break;
+    case "manager_context":
+      rendered = true;
+      renderManagerContext(evt);
       break;
     case "status":
       rendered = true;

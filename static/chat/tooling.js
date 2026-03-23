@@ -96,6 +96,23 @@ function getSelectedToolDefinition(toolId = selectedTool) {
   return toolsList.find((tool) => tool.id === toolId) || null;
 }
 
+function getPinnedDefaultModelId(toolId, models = []) {
+  if (toolId !== "cursor") return "";
+  const availableIds = new Set(
+    models.map((model) => String(model?.id || "").trim()).filter(Boolean),
+  );
+  const preferredOrder = [
+    "claude-4.6-opus-high-thinking",
+    "claude-4.6-opus-high",
+    "claude-4.6-opus-max-thinking",
+    "claude-4.6-opus-max",
+  ];
+  return preferredOrder.find((id) => availableIds.has(id)) || "";
+}
+
+function updateModelQuickSwitchUi() {
+}
+
 function parseModelLines(raw) {
   return String(raw || "")
     .split(/\r?\n/)
@@ -424,24 +441,13 @@ function syncForkButton() {
   if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
 }
 
-function getShareSnapshotTitle(session) {
-  const name = typeof session?.name === "string" ? session.name.trim() : "";
-  if (name) return name;
-  const tool = typeof session?.tool === "string" ? session.tool.trim() : "";
-  if (tool) return tool;
-  return "RemoteLab snapshot";
-}
-
-function buildShareSnapshotShareText(session, shareUrl) {
-  const title = getShareSnapshotTitle(session);
-  const link = typeof shareUrl === "string" ? shareUrl.trim() : "";
-  return link ? `${title}\n${link}` : title;
+function buildShareSnapshotShareText(shareUrl) {
+  return typeof shareUrl === "string" ? shareUrl.trim() : "";
 }
 
 async function shareCurrentSessionSnapshot() {
   if (!currentSessionId || visitorMode || !shareSnapshotBtn) return;
 
-  const currentSession = getCurrentSession();
   shareSnapshotBtn.disabled = true;
 
   try {
@@ -457,7 +463,7 @@ async function shareCurrentSessionSnapshot() {
     const shareUrl = payload?.share?.url
       ? new URL(payload.share.url, location.origin).toString()
       : null;
-    const shareText = buildShareSnapshotShareText(currentSession, shareUrl);
+    const shareText = buildShareSnapshotShareText(shareUrl);
 
     if (!res.ok || !shareUrl) {
       throw new Error(payload?.error || "Failed to create share link");
@@ -478,13 +484,13 @@ async function shareCurrentSessionSnapshot() {
 
     try {
       await copyText(shareText);
-      showAppToast("分享内容已复制", "success", {
+      showAppToast("分享链接已复制", "success", {
         position: "top-center",
         className: "remotelab-top-notice-toast",
       });
     } catch {
-      window.prompt("Copy share text", shareText);
-      showAppToast("已准备分享内容", "neutral", {
+      window.prompt("Copy share link", shareText);
+      showAppToast("已准备分享链接", "neutral", {
         position: "top-center",
         className: "remotelab-top-notice-toast",
       });
@@ -822,6 +828,7 @@ async function loadModelsForCurrentTool({ refresh = false } = {}) {
     inlineModelSelect.style.display = "none";
     thinkingToggle.style.display = "none";
     effortSelect.style.display = "none";
+    updateModelQuickSwitchUi();
     return;
   }
   const toolId = selectedTool;
@@ -837,6 +844,7 @@ async function loadModelsForCurrentTool({ refresh = false } = {}) {
     inlineModelSelect.style.display = "none";
     thinkingToggle.style.display = "none";
     effortSelect.style.display = "none";
+    updateModelQuickSwitchUi();
     return;
   }
   try {
@@ -869,9 +877,14 @@ async function loadModelsForCurrentTool({ refresh = false } = {}) {
     // Restore saved model for this tool
     const savedModel = localStorage.getItem(`selectedModel_${toolId}`) || "";
     const defaultModel = data.defaultModel || "";
+    const pinnedDefaultModel = getPinnedDefaultModelId(toolId, currentToolModels);
     selectedModel = sessionPreferences?.hasModel ? sessionPreferences.model : savedModel;
     if (selectedModel && currentToolModels.some((m) => m.id === selectedModel)) {
       inlineModelSelect.value = selectedModel;
+    } else if (pinnedDefaultModel && currentToolModels.some((m) => m.id === pinnedDefaultModel)) {
+      inlineModelSelect.value = pinnedDefaultModel;
+      selectedModel = pinnedDefaultModel;
+      localStorage.setItem(`selectedModel_${toolId}`, selectedModel);
     } else if (defaultModel && currentToolModels.some((m) => m.id === defaultModel)) {
       inlineModelSelect.value = defaultModel;
       selectedModel = defaultModel;
@@ -927,6 +940,7 @@ async function loadModelsForCurrentTool({ refresh = false } = {}) {
       effortSelect.style.display = "none";
       selectedEffort = null;
     }
+    updateModelQuickSwitchUi();
     queueRuntimeSelectionSync();
   } catch {
     currentToolModels = [];
@@ -935,6 +949,7 @@ async function loadModelsForCurrentTool({ refresh = false } = {}) {
     inlineModelSelect.style.display = "none";
     thinkingToggle.style.display = "none";
     effortSelect.style.display = "none";
+    updateModelQuickSwitchUi();
   }
 }
 
@@ -949,9 +964,11 @@ inlineModelSelect.addEventListener("change", () => {
       selectedEffort = modelData.defaultEffort;
     }
   }
+  updateModelQuickSwitchUi();
   queueRuntimeSelectionSync();
   persistCurrentSessionToolPreferences();
 });
+
 
 addToolNameInput.addEventListener("input", () => {
   syncAddToolModal();
@@ -1009,10 +1026,6 @@ if (forkSessionBtn) {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && addToolModal && !addToolModal.hidden) {
     closeAddToolModal();
-    return;
-  }
-  if (e.key === "Escape" && workflowSummaryModal && !workflowSummaryModal.hidden) {
-    closeWorkflowSummaryModal();
     return;
   }
 });

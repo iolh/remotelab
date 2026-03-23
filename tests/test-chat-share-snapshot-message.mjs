@@ -24,9 +24,21 @@ function createContext({ navigatorShare = null, copyShouldFail = false } = {}) {
   };
   const shareSnapshotBtn = {
     disabled: false,
+    hidden: false,
     textContent: 'Share',
     dataset: {},
     style: {},
+    classList: {
+      contains() {
+        return false;
+      },
+      add() {},
+      remove() {},
+    },
+    setAttribute() {},
+    getAttribute() {
+      return '';
+    },
   };
   const context = {
     console,
@@ -101,8 +113,8 @@ await nativeShareContext.shareCurrentSessionSnapshot();
 
 assert.equal(
   nativeShareContext.__captured.navigatorPayload?.text,
-  'A better share title\nhttps://chat.example.com/share/snap_1234567890abcdef1234567890abcdef1234567890abcdef',
-  'native share should use a clean title-plus-link payload',
+  'https://chat.example.com/share/snap_1234567890abcdef1234567890abcdef1234567890abcdef',
+  'native share should only expose the share link',
 );
 assert.equal(nativeShareContext.shareSnapshotBtn.disabled, false, 'share button should recover after sharing');
 
@@ -113,8 +125,8 @@ await copyFallbackContext.shareCurrentSessionSnapshot();
 
 assert.equal(
   copyFallbackContext.__captured.copiedText,
-  'A better share title\nhttps://chat.example.com/share/snap_1234567890abcdef1234567890abcdef1234567890abcdef',
-  'copy fallback should preserve the same title-plus-link share text',
+  'https://chat.example.com/share/snap_1234567890abcdef1234567890abcdef1234567890abcdef',
+  'copy fallback should only copy the share link',
 );
 assert.equal(copyFallbackContext.__captured.promptArgs, null, 'copy fallback should not prompt when clipboard copy succeeds');
 
@@ -125,13 +137,13 @@ await promptFallbackContext.shareCurrentSessionSnapshot();
 
 assert.equal(
   promptFallbackContext.__captured.promptArgs?.title,
-  'Copy share text',
-  'prompt fallback should label the shareable text clearly',
+  'Copy share link',
+  'prompt fallback should label the shareable link clearly',
 );
 assert.equal(
   promptFallbackContext.__captured.promptArgs?.value,
-  'A better share title\nhttps://chat.example.com/share/snap_1234567890abcdef1234567890abcdef1234567890abcdef',
-  'prompt fallback should expose the same title-plus-link share text',
+  'https://chat.example.com/share/snap_1234567890abcdef1234567890abcdef1234567890abcdef',
+  'prompt fallback should expose only the share link',
 );
 
 console.log('test-chat-share-snapshot-message: ok');

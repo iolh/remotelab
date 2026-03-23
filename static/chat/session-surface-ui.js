@@ -4,6 +4,186 @@ function esc(s) {
   return el.innerHTML;
 }
 
+const worktreeStatusInline = document.getElementById("worktreeStatusInline");
+const worktreeStatusText = document.getElementById("worktreeStatusText");
+const mergeWorktreeBtn = document.getElementById("mergeWorktreeBtn");
+let mergeWorktreePending = false;
+
+function getSessionWorktree(session) {
+  const wt = session?.worktree;
+  return wt && typeof wt === "object" ? wt : null;
+}
+
+function getWorktreeMergeButtonLabel(worktree) {
+  const branch = typeof worktree?.branch === "string" ? worktree.branch.trim() : "";
+  const baseRef = typeof worktree?.baseRef === "string" ? worktree.baseRef.trim() : "";
+  if (branch && baseRef) return `合并 ${branch} → ${baseRef}`;
+  return "合并到主分支";
+}
+
+function getWorktreeStatusLabel(worktree) {
+  if (!worktree?.enabled) return "";
+  if (worktree.status === "merged") {
+    const baseRef = typeof worktree?.baseRef === "string" ? worktree.baseRef.trim() : "";
+    return baseRef ? `已合并到 ${baseRef}` : "已合并";
+  }
+  if (worktree.status === "cleaned") return "已清理 worktree";
+  return "";
+}
+
+function getWorktreeBranchShortLabel(branch) {
+  const normalized = typeof branch === "string" ? branch.trim() : "";
+  if (!normalized) return "";
+  const short = normalized.includes("/") ? normalized.split("/").slice(1).join("/") : normalized;
+  return short.length > 22 ? `${short.slice(0, 22)}…` : short;
+}
+
+function revealSessionGroup(group) {
+  const normalized = typeof group === "string" ? group.trim() : "";
+  if (!normalized) return;
+  if (typeof collapsedFolders !== "undefined" && collapsedFolders && typeof collapsedFolders === "object") {
+    collapsedFolders[`group:${normalized}`] = false;
+    try {
+      localStorage.setItem("collapsedFolders", JSON.stringify(collapsedFolders));
+    } catch {}
+  }
+  if (typeof renderSessionList === "function") {
+    renderSessionList();
+  }
+  if (typeof switchTab === "function") {
+    switchTab("sessions");
+  }
+}
+
+function buildWorktreeMergeToastMessage(result, session, didNavigate) {
+  const coordination = result?.coordination && typeof result.coordination === "object" ? result.coordination : null;
+  const baseRef = typeof result?.baseRef === "string" && result.baseRef.trim()
+    ? result.baseRef.trim()
+    : (typeof session?.worktree?.baseRef === "string" ? session.worktree.baseRef.trim() : "");
+  const mergedLabel = baseRef ? `已合并到 ${baseRef}` : "已合并到主分支";
+
+  if (coordination?.remainingActiveCount > 0) {
+    const labels = Array.isArray(coordination.remainingActiveWorktrees)
+      ? coordination.remainingActiveWorktrees
+        .map((item) => (typeof item?.name === "string" ? item.name.trim() : ""))
+        .filter(Boolean)
+      : [];
+    const suffix = labels.length > 0
+      ? `：${labels.slice(0, 2).join("、")}${labels.length > 2 ? " 等" : ""}`
+      : "";
+    return `${mergedLabel}，还有 ${coordination.remainingActiveCount} 个分支待合并${suffix}`;
+  }
+
+  if (coordination?.allMerged) {
+    return didNavigate
+      ? `${mergedLabel}，并行分支已全部收口 · 已跳转到主线`
+      : `${mergedLabel}，并行分支已全部收口`;
+  }
+
+  return mergedLabel;
+}
+
+function renderSessionWorktreeMetaHtml(session) {
+  const worktree = getSessionWorktree(session);
+  if (!worktree?.enabled) return "";
+  if (worktree.status === "active") {
+    const branch = typeof worktree?.branch === "string" ? worktree.branch.trim() : "";
+    const baseRef = typeof worktree?.baseRef === "string" ? worktree.baseRef.trim() : "";
+    const shortBranch = getWorktreeBranchShortLabel(branch);
+    if (!shortBranch) return "";
+    const title = baseRef ? `独立分支：${branch} → ${baseRef}` : `独立分支：${branch}`;
+    return `<span class="session-worktree-pill active" title="${esc(title)}">分支 ${esc(shortBranch)}</span>`;
+  }
+  if (worktree.status === "merged") {
+    const baseRef = typeof worktree?.baseRef === "string" ? worktree.baseRef.trim() : "";
+    const title = baseRef ? `已合并到 ${baseRef}` : "已合并";
+    return `<span class="session-worktree-pill merged" title="${esc(title)}">已合并</span>`;
+  }
+  if (worktree.status === "cleaned") {
+    return `<span class="session-worktree-pill cleaned" title="Worktree 已清理">已清理</span>`;
+  }
+  return "";
+}
+
+async function mergeCurrentSessionWorktree() {
+  const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
+  const sessionId = typeof currentSessionId === "string" ? currentSessionId : "";
+  const worktree = getSessionWorktree(session);
+  if (!sessionId || !worktree?.enabled || worktree.status !== "active" || mergeWorktreePending) return;
+
+  mergeWorktreePending = true;
+  renderSessionWorktreePanel(session);
+  try {
+    const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(sessionId)}/worktree/merge`, {
+      method: "POST",
+    });
+    const updated = data?.session ? (upsertSession(data.session) || data.session) : null;
+    const coordination = data?.coordination && typeof data.coordination === "object" ? data.coordination : null;
+    renderSessionList();
+    if (updated && currentSessionId === updated.id) {
+      applyAttachedSessionState(updated.id, updated);
+    } else if (currentSessionId === sessionId && typeof refreshCurrentSession === "function") {
+      await refreshCurrentSession();
+    }
+    if (coordination?.remainingActiveCount > 0) {
+      revealSessionGroup(typeof coordination.group === "string" ? coordination.group : "");
+    }
+    const targetSession = coordination?.allMerged && typeof coordination?.handoffTargetSessionId === "string" && coordination.handoffTargetSessionId
+      ? sessions.find((s) => s.id === coordination.handoffTargetSessionId)
+      : null;
+    const didNavigate = !!(targetSession && typeof attachSession === "function");
+    if (typeof showAppToast === "function") {
+      showAppToast(buildWorktreeMergeToastMessage(data, updated || session, didNavigate), "success");
+    }
+    if (didNavigate) {
+      attachSession(targetSession.id, targetSession);
+    }
+  } catch (error) {
+    if (typeof showAppToast === "function") {
+      showAppToast(error instanceof Error ? error.message : "合并失败", "error");
+    }
+  } finally {
+    mergeWorktreePending = false;
+    const latestSession = typeof getCurrentSession === "function" ? getCurrentSession() : session;
+    renderSessionWorktreePanel(latestSession);
+  }
+}
+
+function renderSessionWorktreePanel(session) {
+  if (!worktreeStatusInline || !worktreeStatusText || !mergeWorktreeBtn) return;
+  const worktree = getSessionWorktree(session);
+  if (!worktree?.enabled) {
+    worktreeStatusInline.hidden = true;
+    worktreeStatusText.textContent = "";
+    mergeWorktreeBtn.hidden = true;
+    mergeWorktreeBtn.disabled = false;
+    mergeWorktreeBtn.textContent = "";
+    return;
+  }
+
+  worktreeStatusInline.hidden = false;
+  const mergeLabel = getWorktreeMergeButtonLabel(worktree);
+  mergeWorktreeBtn.title = mergeLabel;
+  mergeWorktreeBtn.setAttribute("aria-label", mergeLabel);
+
+  if (worktree.status === "active") {
+    worktreeStatusText.textContent = "";
+    mergeWorktreeBtn.hidden = false;
+    mergeWorktreeBtn.disabled = mergeWorktreePending;
+    mergeWorktreeBtn.textContent = mergeWorktreePending ? "合并中…" : mergeLabel;
+    return;
+  }
+
+  worktreeStatusText.textContent = getWorktreeStatusLabel(worktree);
+  mergeWorktreeBtn.hidden = true;
+  mergeWorktreeBtn.disabled = false;
+  mergeWorktreeBtn.textContent = mergeLabel;
+}
+
+mergeWorktreeBtn?.addEventListener("click", () => {
+  mergeCurrentSessionWorktree().catch(() => {});
+});
+
 function getWorkflowPanelAppName(session) {
   const templateAppId = typeof getEffectiveSessionTemplateAppId === "function"
     ? getEffectiveSessionTemplateAppId(session)
@@ -98,340 +278,27 @@ function formatWorkflowConclusionHandledAt(stamp) {
   return messageTimeFormatter.format(parsed);
 }
 
-async function updateWorkflowConclusionStatus(sessionId, conclusionId, status, button) {
-  if (!sessionId || !conclusionId || !status) return;
-  const buttons = button?.closest?.(".workflow-conclusion-actions")?.querySelectorAll?.("button") || [];
-  for (const entry of buttons) {
-    entry.disabled = true;
-  }
-  try {
-    const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(sessionId)}/conclusions/${encodeURIComponent(conclusionId)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    if (data?.session) {
-      const updated = upsertSession(data.session) || data.session;
-      if (updated && currentSessionId === updated.id) {
-        applyAttachedSessionState(updated.id, updated);
-      } else {
-        renderSessionList();
-      }
-    } else if (currentSessionId === sessionId) {
-      await refreshCurrentSession();
-    }
-  } catch (error) {
-    console.warn("[workflow-summary] Failed to update conclusion status:", error.message);
-  }
-}
-
-async function handleWorkflowSuggestionAction(session, action, button) {
-  if (!session?.id || !action) return;
-  const actions = button?.closest?.(".workflow-suggestion-actions")?.querySelectorAll?.("button") || [];
-  for (const entry of actions) {
-    entry.disabled = true;
-  }
-  try {
-    const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(session.id)}/workflow-suggestion/${encodeURIComponent(action)}`, {
-      method: "POST",
-    });
-    if (action === "accept" && data?.session) {
-      if (data?.sourceSession) {
-        upsertSession(data.sourceSession);
-      }
-      const created = upsertSession(data.session) || data.session;
-      if (typeof showAppToast === "function") {
-        showAppToast("已开启验收", "success");
-      }
-      attachSession(created.id, created);
-      return;
-    }
-    if (action === "dismiss" && data?.session) {
-      const updated = upsertSession(data.session) || data.session;
-      if (updated && currentSessionId === updated.id) {
-        applyAttachedSessionState(updated.id, updated);
-      } else {
-        renderSessionList();
-      }
-      if (typeof showAppToast === "function") {
-        showAppToast("已跳过本轮建议", "neutral");
-      }
-    }
-  } catch (error) {
-    if (typeof showAppToast === "function") {
-      showAppToast(action === "accept" ? "开启验收失败" : "跳过建议失败", "error");
-    }
-    console.warn("[workflow-suggestion] Failed to process action:", error.message);
-    for (const entry of actions) {
-      entry.disabled = false;
-    }
-  }
-}
-
-function buildWorkflowSuggestionCard(session, suggestion) {
-  const card = document.createElement("section");
-  card.className = "workflow-summary-section workflow-suggestion-card";
-
-  const heading = document.createElement("div");
-  heading.className = "workflow-summary-heading";
-  heading.textContent = getWorkflowSuggestionTitle(suggestion);
-  card.appendChild(heading);
-
-  const body = document.createElement("div");
-  body.className = "workflow-suggestion-text";
-  body.textContent = getWorkflowSuggestionBody(session, suggestion);
-  card.appendChild(body);
-
-  const actions = document.createElement("div");
-  actions.className = "workflow-suggestion-actions";
-
-  const acceptBtn = document.createElement("button");
-  acceptBtn.type = "button";
-  acceptBtn.className = "workflow-conclusion-btn primary";
-  acceptBtn.textContent = "开启验收";
-  acceptBtn.addEventListener("click", () => {
-    void handleWorkflowSuggestionAction(session, "accept", acceptBtn);
-  });
-  actions.appendChild(acceptBtn);
-
-  const dismissBtn = document.createElement("button");
-  dismissBtn.type = "button";
-  dismissBtn.className = "workflow-conclusion-btn";
-  dismissBtn.textContent = "暂时跳过";
-  dismissBtn.addEventListener("click", () => {
-    void handleWorkflowSuggestionAction(session, "dismiss", dismissBtn);
-  });
-  actions.appendChild(dismissBtn);
-
-  card.appendChild(actions);
-  return card;
-}
-
-function openWorkflowSummaryModal() {
-  if (!workflowSummaryModal || !workflowSummaryModalBody) return;
-  if (!workflowSummaryModalBody.childElementCount) return;
-  workflowSummaryModal.hidden = false;
-}
-
-function closeWorkflowSummaryModal() {
-  if (!workflowSummaryModal) return;
-  workflowSummaryModal.hidden = true;
-}
-
-function buildWorkflowSummaryDetails(session) {
-  const wrap = document.createElement("div");
-  wrap.className = "workflow-summary-grid";
-
-  const pendingConclusions = getWorkflowConclusionsByStatus(session, ["pending"]);
-  const decisionConclusions = getWorkflowConclusionsByStatus(session, ["needs_decision"]);
-  const handledConclusions = getWorkflowConclusionsByStatus(session, ["accepted", "ignored"])
-    .sort((left, right) => {
-      const rightStamp = new Date(right?.handledAt || right?.createdAt || 0).getTime();
-      const leftStamp = new Date(left?.handledAt || left?.createdAt || 0).getTime();
-      return rightStamp - leftStamp;
-    })
-    .slice(0, 4);
-
-  const taskSection = document.createElement("section");
-  taskSection.className = "workflow-summary-section";
-  const taskHeading = document.createElement("div");
-  taskHeading.className = "workflow-summary-heading";
-  taskHeading.textContent = "当前任务";
-  const taskBody = document.createElement("div");
-  taskBody.className = "workflow-summary-task";
-  taskBody.textContent = getWorkflowPanelCurrentTask(session) || "暂未设置";
-  taskSection.appendChild(taskHeading);
-  taskSection.appendChild(taskBody);
-  wrap.appendChild(taskSection);
-
-  if (decisionConclusions.length > 0) {
-    const decisionSection = document.createElement("section");
-    decisionSection.className = "workflow-summary-section workflow-decision-brief";
-    const decisionHeading = document.createElement("div");
-    decisionHeading.className = "workflow-summary-heading";
-    decisionHeading.textContent = "待我决策";
-    decisionSection.appendChild(decisionHeading);
-
-    const decisionText = document.createElement("div");
-    decisionText.className = "workflow-decision-text";
-    const pendingHint = pendingConclusions.length > 0
-      ? `另外还有 ${pendingConclusions.length} 条待处理结论可稍后再看。`
-      : "处理完这些后，主线就能更顺地继续往前推进。";
-    decisionText.textContent = `现在有 ${decisionConclusions.length} 条结论在等你拍板。${pendingHint}`;
-    decisionSection.appendChild(decisionText);
-    const decisionList = document.createElement("div");
-    decisionList.className = "workflow-decision-list";
-    for (const conclusion of decisionConclusions.slice(0, 3)) {
-      const item = document.createElement("div");
-      item.className = "workflow-decision-item";
-      const source = conclusion.sourceSessionName
-        ? `来自 ${conclusion.sourceSessionName}`
-        : "来自辅助会话";
-      const confidence = getWorkflowDecisionConfidenceLabel(conclusion?.payload?.confidence || "");
-      item.textContent = `${source}${confidence ? `（置信度：${confidence}）` : ""}：${conclusion.summary || "暂无摘要"}`;
-      decisionList.appendChild(item);
-    }
-    decisionSection.appendChild(decisionList);
-    wrap.appendChild(decisionSection);
-  }
-  const hasConclusionContent = pendingConclusions.length > 0 || decisionConclusions.length > 0 || handledConclusions.length > 0;
-  if (hasConclusionContent) {
-    const conclusionSection = document.createElement("section");
-    conclusionSection.className = "workflow-summary-section";
-    const conclusionHeading = document.createElement("div");
-    conclusionHeading.className = "workflow-summary-heading";
-    conclusionHeading.textContent = "主线吸收区";
-    conclusionSection.appendChild(conclusionHeading);
-
-    const renderConclusionGroup = (title, conclusions, { handled = false } = {}) => {
-      if (!conclusions.length) return null;
-      const group = document.createElement("div");
-      group.className = "workflow-summary-subsection";
-
-      const heading = document.createElement("div");
-      heading.className = "workflow-summary-subheading";
-      heading.textContent = title;
-      group.appendChild(heading);
-
-      const list = document.createElement("div");
-      list.className = "workflow-conclusion-list";
-      for (const conclusion of conclusions) {
-        const item = document.createElement("div");
-        item.className = "workflow-conclusion-item";
-
-      const meta = document.createElement("div");
-      meta.className = "workflow-conclusion-meta";
-
-      const label = document.createElement("span");
-      label.className = "workflow-conclusion-label";
-      label.textContent = conclusion.label || getWorkflowConclusionTypeLabel(conclusion);
-
-      const normalizedStatus = String(conclusion.status || "").trim();
-      const status = document.createElement("span");
-      status.className = `workflow-conclusion-status ${normalizedStatus || "pending"}`.trim();
-      status.textContent = normalizeWorkflowConclusionStatusLabel(normalizedStatus);
-
-      const source = document.createElement("span");
-      source.className = "workflow-conclusion-source";
-      source.textContent = conclusion.sourceSessionName
-        ? `来自 ${conclusion.sourceSessionName}`
-        : "来自辅助会话";
-
-      meta.appendChild(label);
-      meta.appendChild(status);
-      meta.appendChild(source);
-
-      const confidence = getWorkflowDecisionConfidenceLabel(conclusion?.payload?.confidence || "");
-      if (confidence) {
-        const confidenceNode = document.createElement("span");
-        confidenceNode.className = "workflow-conclusion-confidence";
-        confidenceNode.textContent = `置信度 ${confidence}`;
-        meta.appendChild(confidenceNode);
-      }
-
-      const handledAt = handled ? formatWorkflowConclusionHandledAt(conclusion.handledAt || "") : "";
-      if (handledAt) {
-        const handledStamp = document.createElement("span");
-        handledStamp.className = "workflow-conclusion-handled-at";
-        handledStamp.textContent = `处理于 ${handledAt}`;
-        meta.appendChild(handledStamp);
-      }
-
-      item.appendChild(meta);
-
-      const summary = document.createElement("div");
-      summary.className = "workflow-conclusion-summary";
-      summary.textContent = conclusion.summary || "暂无摘要";
-      item.appendChild(summary);
-
-      const actions = document.createElement("div");
-      actions.className = "workflow-conclusion-actions";
-      const options = handled
-        ? [
-            { status: "pending", label: "改回待处理" },
-            { status: "needs_decision", label: "改成待决策" },
-          ]
-        : [
-            { status: "accepted", label: "已吸收" },
-            { status: "needs_decision", label: "待决策" },
-            { status: "ignored", label: "忽略" },
-          ];
-      for (const option of options) {
-        const actionBtn = document.createElement("button");
-        actionBtn.className = "workflow-conclusion-btn";
-        actionBtn.type = "button";
-        actionBtn.textContent = option.label;
-        actionBtn.addEventListener("click", () => {
-          void updateWorkflowConclusionStatus(session.id, conclusion.id, option.status, actionBtn);
-        });
-        actions.appendChild(actionBtn);
-      }
-        item.appendChild(actions);
-        list.appendChild(item);
-      }
-
-      group.appendChild(list);
-      return group;
-    };
-
-    const pendingGroup = renderConclusionGroup("待处理", pendingConclusions);
-    const decisionGroup = renderConclusionGroup("待决策", decisionConclusions);
-    const handledGroup = renderConclusionGroup("最近已处理", handledConclusions, {
-      handled: true,
-    });
-    if (pendingGroup) conclusionSection.appendChild(pendingGroup);
-    if (decisionGroup) conclusionSection.appendChild(decisionGroup);
-    if (handledGroup) conclusionSection.appendChild(handledGroup);
-    wrap.appendChild(conclusionSection);
-  }
-  return wrap;
-}
-
 function renderWorkflowSummaryPanel(session) {
   if (!workflowSummaryBtn) return;
   if (!session || !isWorkflowMainlineSession(session)) {
-    workflowSummaryPanel.hidden = true;
-    workflowSummaryPanel.innerHTML = "";
     workflowSummaryBtn.hidden = true;
     workflowSummaryBtn.classList.remove("has-notice");
-    if (workflowSummaryModalBody) {
-      workflowSummaryModalBody.innerHTML = "";
-    }
-    closeWorkflowSummaryModal();
     if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
     return;
   }
 
   const pendingConclusions = getWorkflowConclusionsByStatus(session, ["pending"]);
   const decisionConclusions = getWorkflowConclusionsByStatus(session, ["needs_decision"]);
-  const suggestion = getActiveWorkflowSuggestion(session);
-  workflowSummaryPanel.innerHTML = "";
-  if (suggestion) {
-    workflowSummaryPanel.hidden = false;
-    workflowSummaryPanel.appendChild(buildWorkflowSuggestionCard(session, suggestion));
-  } else {
-    workflowSummaryPanel.hidden = true;
-  }
   workflowSummaryBtn.hidden = false;
   workflowSummaryBtn.classList.toggle("has-notice", decisionConclusions.length > 0 || pendingConclusions.length > 0);
   const task = getWorkflowPanelCurrentTask(session) || "当前任务";
   const detail = decisionConclusions.length > 0
     ? `，${decisionConclusions.length} 条待决策`
     : (pendingConclusions.length > 0 ? `，${pendingConclusions.length} 条待处理` : "");
-  workflowSummaryBtn.title = `摘要通知：${task}${detail}`;
-  workflowSummaryBtn.setAttribute("aria-label", `摘要通知：${task}${detail}`);
-  if (workflowSummaryModalBody) {
-    workflowSummaryModalBody.innerHTML = "";
-    workflowSummaryModalBody.appendChild(buildWorkflowSummaryDetails(session));
-  }
+  workflowSummaryBtn.title = `任务状态：${task}${detail}`;
+  workflowSummaryBtn.setAttribute("aria-label", `任务状态：${task}${detail}`);
   if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
 }
-
-workflowSummaryBtn?.addEventListener("click", openWorkflowSummaryModal);
-closeWorkflowSummaryModalBtn?.addEventListener("click", closeWorkflowSummaryModal);
-workflowSummaryModal?.addEventListener("click", (event) => {
-  if (event.target === workflowSummaryModal) closeWorkflowSummaryModal();
-});
 
 function getShortFolder(folder) {
   return (folder || "").replace(/^\/Users\/[^/]+/, "~");
@@ -569,6 +436,8 @@ function buildSessionMetaParts(session) {
     ? renderSessionStatusHtml(liveStatus)
     : "";
   if (statusHtml) parts.push(statusHtml);
+  const worktreeHtml = renderSessionWorktreeMetaHtml(session);
+  if (worktreeHtml) parts.push(worktreeHtml);
   const countHtml = renderSessionMessageCount(session);
   if (countHtml) parts.push(countHtml);
   return parts;
@@ -581,6 +450,8 @@ function buildBoardCardMetaParts(session) {
   if (reviewHtml) parts.push(reviewHtml);
   const statusHtml = renderSessionStatusHtml(getSessionMetaStatusInfo(session));
   if (statusHtml) parts.push(statusHtml);
+  const worktreeHtml = renderSessionWorktreeMetaHtml(session);
+  if (worktreeHtml) parts.push(worktreeHtml);
   return parts;
 }
 

@@ -146,7 +146,7 @@
   <button class="header-refresh-btn" id="refreshFrontendBtn" type="button" title="刷新到最新前端" aria-label="刷新到最新前端" data-icon="refresh" hidden></button>
 </div>
 <div class="legacy-header-action-cache" hidden aria-hidden="true">
-  <button class="header-btn" id="workflowSummaryBtn" type="button" title="摘要通知" aria-label="摘要通知" aria-haspopup="dialog" data-icon="bell" hidden></button>
+  <button class="header-btn" id="workflowSummaryBtn" type="button" title="任务状态" aria-label="任务状态" aria-haspopup="dialog" data-icon="bell" hidden></button>
   <button class="header-btn" id="handoffSessionBtn" type="button" title="转交" aria-label="转交" data-icon="handoff" hidden></button>
   <button class="header-btn" id="forkSessionBtn" type="button" title="Fork" aria-label="Fork" data-icon="fork" hidden></button>
   <button class="header-btn" id="shareSnapshotBtn" type="button" title="Share" aria-label="Share" data-icon="share" hidden></button>
@@ -224,7 +224,6 @@
 
   <!-- Chat area -->
   <main class="chat-area">
-    <section class="workflow-summary-panel" id="workflowSummaryPanel" hidden aria-hidden="true"></section>
     <div class="messages" id="messages">
       <div class="messages-inner" id="messagesInner">
         <div class="empty-state" id="emptyState">
@@ -275,6 +274,10 @@
           <span class="status-dot" id="statusDot"></span>
           <span id="statusText">未连接</span>
         </div>
+        <div class="session-worktree-inline" id="worktreeStatusInline" hidden>
+          <span id="worktreeStatusText"></span>
+          <button class="compact-btn" id="mergeWorktreeBtn" type="button" hidden></button>
+        </div>
         <span class="input-footer-tagline">由 AI 驱动构建</span>
       </div>
     </div>
@@ -283,16 +286,6 @@
 </div>
 
 <div class="gesture-pill" id="gesturePill" aria-hidden="true"></div>
-
-<div class="modal-backdrop" id="workflowSummaryModal" hidden>
-  <div class="modal workflow-summary-modal" role="dialog" aria-modal="true" aria-labelledby="workflowSummaryModalTitle">
-    <div class="modal-header">
-      <div class="modal-title" id="workflowSummaryModalTitle">主线摘要</div>
-      <button class="modal-close" id="closeWorkflowSummaryModal" type="button" aria-label="关闭" data-icon="close">&times;</button>
-    </div>
-    <div class="modal-body workflow-summary-modal-body" id="workflowSummaryModalBody"></div>
-  </div>
-</div>
 
 <div class="modal-backdrop" id="addToolModal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="addToolModalTitle">

@@ -355,22 +355,11 @@
   pointer-events: none !important;
 }
 
-.remotelab-summary-toast {
-  border-radius: 20px !important;
-  padding: 18px 20px !important;
-  gap: 14px !important;
-  pointer-events: auto !important;
-}
-
 .remotelab-top-notice-toast {
   border-radius: 20px !important;
   padding: 16px 18px !important;
   gap: 10px !important;
   pointer-events: none !important;
-}
-
-.remotelab-summary-toast [data-content] {
-  gap: 6px !important;
 }
 
 .remotelab-top-notice-toast [data-title] {
@@ -379,36 +368,18 @@
   line-height: 1.4 !important;
 }
 
-.remotelab-summary-toast [data-title] {
-  font-size: 15px !important;
-  font-weight: 600 !important;
-  line-height: 1.35 !important;
-}
-
-.remotelab-summary-toast [data-description] {
-  color: var(--text-secondary) !important;
-  font-size: 14px !important;
-  line-height: 1.6 !important;
-}
-
-.remotelab-summary-toast [data-button] {
-  min-height: 40px !important;
-  padding: 0 16px !important;
-  border-radius: 12px !important;
-  background: var(--text) !important;
-  color: var(--bg) !important;
-  font-size: 14px !important;
-  font-weight: 600 !important;
-}
-
-.remotelab-summary-toast [data-button]:hover {
-  opacity: 0.92;
-}
-
 .chrome-action-button {
   width: var(--chrome-button-size);
   height: var(--chrome-button-size);
   position: relative;
+}
+
+.chrome-action-button-notice {
+  color: #07c160;
+}
+
+.chrome-action-button-notice:hover {
+  color: color-mix(in srgb, #07c160 82%, var(--text) 18%);
 }
 
 .chrome-action-dot {
@@ -418,12 +389,239 @@
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: var(--notice);
+  background: #07c160;
   box-shadow: 0 0 0 2px var(--bg);
 }
 
-.chrome-summary-scroll {
+.chrome-status-scroll {
   max-height: min(70dvh, 520px);
+}
+
+.chrome-status-popover {
+  width: min(calc(100vw - 20px), 368px);
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+
+.chrome-status-dialog {
+  width: min(calc(100vw - 16px), 360px);
+  max-width: min(calc(100vw - 16px), 360px);
+  padding: 0;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.chrome-status-dialog > button[aria-label="关闭"] {
+  top: 12px;
+  right: 12px;
+}
+
+.chrome-status-zone {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.chrome-status-zone + .chrome-status-zone {
+  border-top: 1px solid var(--border);
+}
+
+.chrome-status-task-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chrome-status-zone-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.chrome-status-task {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.chrome-status-task-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.chrome-status-card {
+  display: grid;
+  gap: 7px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.chrome-status-suggestion {
+  background: color-mix(in srgb, var(--bg) 96%, var(--accent) 4%);
+}
+
+.chrome-status-card-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.chrome-status-card-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.chrome-status-card-text {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.chrome-status-parallel-list {
+  display: grid;
+  gap: 8px;
+}
+
+.chrome-status-parallel-item {
+  display: grid;
+  gap: 4px;
+  padding: 8px 9px;
+  border-radius: 9px;
+  background: var(--bg-secondary);
+  border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
+}
+
+.chrome-status-parallel-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.chrome-status-parallel-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.chrome-status-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.chrome-status-card-source {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.chrome-status-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chrome-status-card-btn {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.chrome-status-primary-btn {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.chrome-status-primary-btn:hover {
+  background: color-mix(in srgb, var(--text) 92%, var(--bg) 8%);
+}
+
+.chrome-status-badge {
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.chrome-status-badge-neutral {
+  color: var(--text-secondary);
+}
+
+.chrome-status-badge-notice {
+  color: var(--accent);
+  border-color: rgba(10, 132, 255, 0.22);
+  background: rgba(10, 132, 255, 0.08);
+}
+
+.chrome-status-badge-success {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 24%, transparent);
+  background: color-mix(in srgb, var(--success) 10%, var(--bg));
+}
+
+.chrome-status-badge-warning {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 24%, transparent);
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg));
+}
+
+.chrome-status-badge-error {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 22%, transparent);
+  background: color-mix(in srgb, var(--error) 8%, var(--bg));
+}
+
+.chrome-status-badge-muted {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .chrome-status-popover {
+    width: min(calc(100vw - 16px), 360px);
+    border-radius: 14px;
+  }
+
+  .chrome-status-dialog {
+    width: min(calc(100vw - 12px), 356px);
+    max-width: min(calc(100vw - 12px), 356px);
+    border-radius: 14px;
+  }
+
+  .chrome-status-dialog > button[aria-label="关闭"] {
+    top: 10px;
+    right: 10px;
+  }
+
+  .chrome-status-zone {
+    gap: 9px;
+    padding: 14px;
+  }
+
+  .chrome-status-task {
+    font-size: 12px;
+  }
+
+  .chrome-status-card {
+    padding: 10px;
+  }
+
+  .chrome-status-card-actions {
+    gap: 5px;
+  }
+
+  .chrome-status-card-btn {
+    min-height: 30px;
+    padding: 0 10px;
+    font-size: 11px;
+  }
 }
 
 .workflow-task-textarea-main {

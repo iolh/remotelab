@@ -642,6 +642,37 @@
 .board-card-meta .status-done { color: var(--success); }
 .board-card-meta .status-parked { color: var(--text-muted); }
 .session-item-meta .status-archived { color: var(--text-muted); }
+.session-worktree-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.session-worktree-pill.active {
+  color: var(--accent);
+  border-color: rgba(10, 132, 255, 0.2);
+  background: rgba(10, 132, 255, 0.08);
+}
+.session-worktree-pill.merged {
+  color: var(--success);
+  border-color: rgba(48, 209, 88, 0.24);
+  background: rgba(48, 209, 88, 0.1);
+}
+.session-worktree-pill.cleaned {
+  color: var(--text-muted);
+  border-color: var(--border);
+  background: var(--bg-secondary);
+}
 .session-item-actions { display: flex; gap: 2px; align-items: center; flex-shrink: 0; }
 .session-action-btn {
   background: none; border: none; color: var(--text-muted); cursor: pointer;

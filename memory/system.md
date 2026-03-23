@@ -81,6 +81,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 - For manager-controlled style shaping in wrappers like RemoteLab, prefer passing `-c developer_instructions=...` on each Codex invocation over relying on prompt prefixes alone.
 - RemoteLab now benefits from a lightweight default Codex developer instruction that frames Codex as a runtime under manager-owned workflow/style policy, while still allowing explicit per-run override or opt-out for niche cases.
 - To keep manager policy canonical, RemoteLab-managed Codex runs should prefer a dedicated `CODEX_HOME` that shares auth but omits user-global `config.toml` personality/style settings and other local Codex-specific drift.
+- When refreshing that managed `CODEX_HOME`, do not blindly overwrite `config.toml`: keep the manager-owned minimal boundary, but preserve existing `[mcp_servers.*]` sections so MCP registrations added inside the managed home survive future runs without re-importing full personal Codex drift.
 
 ### KYC / Account Registration Requests (2026-03-06)
 - If a user asks for a "public address" or advice on what address/location to enter for account opening, treat it as potential misrepresentation/compliance evasion.

@@ -153,6 +153,7 @@ async function createSession(port, {
   appName = '',
   group = 'Tests',
   description = 'Workflow handoff',
+  workflowMode = '',
 }) {
   const res = await request(port, 'POST', '/api/sessions', {
     folder: repoRoot,
@@ -161,6 +162,7 @@ async function createSession(port, {
     appName,
     group,
     description,
+    workflowMode,
   });
   assert.equal(res.status, 201, 'create session should succeed');
   return res.json.session;
@@ -322,6 +324,28 @@ try {
   assert.equal(decisionEntryStored?.handoffType, 'decision_result', 'decision handoffs should persist the typed decision result');
   assert.equal(decisionEntryStored?.payload?.confidence, 'high', 'decision handoffs should persist confidence');
 
+  const parallelDecision = await createSession(port, { name: 'PR把关 · 并行拆分', appName: 'PR把关' });
+  const parallelDecisionHandoff = await request(port, 'POST', `/api/sessions/${parallelDecision.id}/handoff`, {
+    targetSessionId: mainline.id,
+    summary: [
+      '建议拆成两条并行执行线。',
+      '<parallel_tasks>',
+      JSON.stringify({
+        parallelTasks: [
+          { title: '并行子线 A', task: '新增 alpha 文件', boundary: '只改 alpha', repo: '/tmp/parallel-a' },
+          { title: '并行子线 B', task: '新增 beta 文件', boundary: '只改 beta', repo: '/tmp/parallel-b' },
+        ],
+      }, null, 2),
+      '</parallel_tasks>',
+    ].join('\n\n'),
+  });
+  assert.equal(parallelDecisionHandoff.status, 201, 'decision handoffs with embedded parallel tasks should be accepted');
+  const parallelDecisionEntry = (parallelDecisionHandoff.json.session?.workflowPendingConclusions || [])
+    .find((entry) => entry.sourceSessionId === parallelDecision.id);
+  assert.equal(Array.isArray(parallelDecisionEntry?.payload?.parallelTasks), true, 'embedded parallel tasks should survive handoff normalization');
+  assert.equal(parallelDecisionEntry?.payload?.parallelTasks?.length, 2, 'handoff should persist all parsed parallel tasks');
+  assert.equal(parallelDecisionEntry?.payload?.parallelTasks?.[0]?.title, '并行子线 A', 'handoff should preserve the first parsed task title');
+
   const verification = await createSession(port, { name: '执行验收 · 搜索页改造', appName: '执行验收' });
   const verificationSubmit = await submitMessage(port, verification.id, 'req-verification-runtime', '请验证搜索页改造');
   await waitForRunTerminal(port, verificationSubmit.run.id);
@@ -352,12 +376,22 @@ try {
   assert.equal(acceptSuggestion.json.session?.handoffTargetSessionId, phase2Mainline.id, 'accepted suggestions should wire the new session back to the mainline');
   assert.equal(acceptSuggestion.json.session?.tool, 'fake-codex', 'verification suggestions should inherit the source tool');
   assert.equal(acceptSuggestion.json.session?.effort, 'high', 'verification suggestions should raise the effort for validation');
-
-  const acceptedVerificationSubmit = await submitMessage(port, acceptSuggestion.json.session.id, 'req-phase2-verification', '请根据已有上下文开始验收');
-  await waitForRunTerminal(port, acceptedVerificationSubmit.run.id);
-  const acceptedVerificationManifest = readRunManifest(home, acceptedVerificationSubmit.run.id);
+  assert.ok(acceptSuggestion.json.run?.id, 'accepted suggestions should auto-start the verification run');
+  await waitForRunTerminal(port, acceptSuggestion.json.run.id);
+  const acceptedVerificationManifest = readRunManifest(home, acceptSuggestion.json.run.id);
   assert.match(acceptedVerificationManifest.prompt || '', /自动验收测试/, 'accepted suggestions should seed verification context from the mainline task');
   assert.equal(acceptedVerificationManifest.options?.executionMode, 'verification_read_only', 'auto-created verification sessions should preserve the read-only verification runtime');
+
+  const quickExecute = await createSession(port, {
+    name: '执行 · 快速修复',
+    appName: '执行',
+    workflowMode: 'quick_execute',
+  });
+  assert.equal(quickExecute.workflowMode, 'quick_execute', 'create session should preserve workflow launch mode');
+  const quickSubmit = await submitMessage(port, quickExecute.id, 'req-quick-execute', '修一下空指针');
+  await waitForRunTerminal(port, quickSubmit.run.id);
+  const quickExecuteDetail = await getSession(port, quickExecute.id);
+  assert.equal(quickExecuteDetail.workflowSuggestion || null, null, 'quick execute sessions should not emit verification suggestions after completion');
   assert.equal(acceptedVerificationManifest.options?.sandboxMode, 'read-only', 'auto-created verification sessions should keep the read-only sandbox');
   assert.equal(acceptedVerificationManifest.options?.approvalPolicy, 'never', 'auto-created verification sessions should disable approvals');
 

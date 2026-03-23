@@ -384,6 +384,19 @@
       && !hasSessionUnreadUpdate(session);
   }
 
+  function hasSessionPendingWorkflowAction(session) {
+    if (session?.workflowSuggestion
+        && typeof session.workflowSuggestion === "object"
+        && session.workflowSuggestion.type) {
+      return true;
+    }
+    if (Array.isArray(session?.conclusions)
+        && session.conclusions.some(function(c) { return c && c.status === "needs_decision"; })) {
+      return true;
+    }
+    return false;
+  }
+
   function getSessionAttentionBand(session) {
     const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
     const busy = isSessionBusy(session);
@@ -392,11 +405,12 @@
     if (unread && workflowState === "waiting_user") return 0;
     if (unread) return 1;
     if (workflowState === "waiting_user") return 2;
-    if (!busy && workflowState !== "done" && workflowState !== "parked") return 3;
-    if (busy) return 4;
-    if (workflowState === "parked") return 5;
-    if (workflowState === "done") return 6;
-    return 3;
+    if (hasSessionPendingWorkflowAction(session)) return 3;
+    if (!busy && workflowState !== "done" && workflowState !== "parked") return 4;
+    if (busy) return 5;
+    if (workflowState === "parked") return 6;
+    if (workflowState === "done") return 7;
+    return 4;
   }
 
   function compareSessionListSessions(a, b) {

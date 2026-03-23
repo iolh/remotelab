@@ -49,6 +49,8 @@ import {
   updateSessionWorkflowClassification,
   updateSessionRuntimePreferences,
   handoffSessionResult,
+  mergeSessionWorktree,
+  cleanupSessionWorktree,
 } from './session-manager.mjs';
 import {
   createTrigger,
@@ -1101,6 +1103,8 @@ function isOwnerOnlyRoute(pathname, method) {
   if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/fork') && method === 'POST') return true;
   if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/delegate') && method === 'POST') return true;
   if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/handoff') && method === 'POST') return true;
+  if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/worktree/merge') && method === 'POST') return true;
+  if (pathname.startsWith('/api/sessions/') && pathname.endsWith('/worktree/cleanup') && method === 'POST') return true;
   if (/^\/api\/sessions\/[^/]+\/conclusions\/[^/]+$/.test(pathname) && method === 'POST') return true;
   if (pathname.startsWith('/api/sessions/') && method === 'PATCH') return true;
   if (pathname === '/api/models' && method === 'GET') return true;
@@ -2005,6 +2009,42 @@ export async function handleRequest(req, res) {
       return;
     }
 
+    if (parts.length === 5 && parts[0] === 'api' && parts[1] === 'sessions' && sessionId && parts[3] === 'worktree') {
+      if (!requireSessionAccess(res, authSession, sessionId)) return;
+      const worktreeAction = parts[4];
+
+      try {
+        if (worktreeAction === 'merge') {
+          const result = await mergeSessionWorktree(sessionId);
+          if (!result?.success) {
+            writeJson(res, 409, { error: result?.error || 'Unable to merge session worktree' });
+            return;
+          }
+          writeJson(res, 200, {
+            ...result,
+            session: await getSessionForClient(sessionId),
+          });
+          return;
+        }
+
+        if (worktreeAction === 'cleanup') {
+          const result = await cleanupSessionWorktree(sessionId);
+          if (!result?.success) {
+            writeJson(res, 409, { error: result?.error || 'Unable to clean up session worktree' });
+            return;
+          }
+          writeJson(res, 200, {
+            ...result,
+            session: await getSessionForClient(sessionId),
+          });
+          return;
+        }
+      } catch (error) {
+        writeJson(res, 400, { error: error.message || 'Failed to process worktree action' });
+        return;
+      }
+    }
+
     if (parts.length === 5 && parts[0] === 'api' && parts[1] === 'sessions' && sessionId && parts[3] === 'workflow-suggestion') {
       const suggestionAction = parts[4];
       if (!requireSessionAccess(res, authSession, sessionId)) return;
@@ -2028,6 +2068,7 @@ export async function handleRequest(req, res) {
           writeJson(res, 201, {
             session: createClientSessionDetail(outcome.session),
             sourceSession: createClientSessionDetail(outcome.sourceSession || source),
+            run: outcome.run || null,
           });
           return;
         }
@@ -2125,6 +2166,7 @@ export async function handleRequest(req, res) {
       throw err;
     }
     try {
+      const parsedBody = JSON.parse(body);
       const {
         folder,
         tool,
@@ -2142,9 +2184,11 @@ export async function handleRequest(req, res) {
         model,
         effort,
         thinking,
+        worktree,
         completionTargets,
         externalTriggerId,
-      } = JSON.parse(body);
+        workflowMode,
+      } = parsedBody;
       const wantsCodexImport = tool === 'codex' && typeof codexThreadId === 'string' && codexThreadId.trim();
       if (!tool || (!folder && !wantsCodexImport)) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -2194,25 +2238,27 @@ export async function handleRequest(req, res) {
         sourceName: typeof sourceName === 'string' ? sourceName : '',
         group: group || '',
         description: description || '',
+        workflowMode: typeof workflowMode === 'string' ? workflowMode : '',
+        worktree: worktree === true,
         completionTargets: Array.isArray(completionTargets) ? completionTargets : [],
         externalTriggerId: typeof externalTriggerId === 'string' ? externalTriggerId : '',
       };
-      if (Object.prototype.hasOwnProperty.call(body, 'systemPrompt')) {
+      if (Object.prototype.hasOwnProperty.call(parsedBody, 'systemPrompt')) {
         createOptions.systemPrompt = typeof systemPrompt === 'string' ? systemPrompt : '';
       } else if (resolvedApp?.systemPrompt) {
         createOptions.systemPrompt = resolvedApp.systemPrompt;
       }
-      if (Object.prototype.hasOwnProperty.call(body, 'model')) {
+      if (Object.prototype.hasOwnProperty.call(parsedBody, 'model')) {
         createOptions.model = typeof model === 'string' ? model : '';
       } else if (typeof resolvedApp?.model === 'string') {
         createOptions.model = resolvedApp.model;
       }
-      if (Object.prototype.hasOwnProperty.call(body, 'effort')) {
+      if (Object.prototype.hasOwnProperty.call(parsedBody, 'effort')) {
         createOptions.effort = typeof effort === 'string' ? effort : '';
       } else if (typeof resolvedApp?.effort === 'string') {
         createOptions.effort = resolvedApp.effort;
       }
-      if (Object.prototype.hasOwnProperty.call(body, 'thinking')) {
+      if (Object.prototype.hasOwnProperty.call(parsedBody, 'thinking')) {
         createOptions.thinking = thinking === true;
       } else if (resolvedApp?.thinking === true) {
         createOptions.thinking = true;

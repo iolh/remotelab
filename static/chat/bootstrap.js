@@ -212,10 +212,6 @@ const newSessionBtn = document.getElementById("newSessionBtn");
 const messagesEl = document.getElementById("messages");
 const messagesInner = document.getElementById("messagesInner");
 const emptyState = document.getElementById("emptyState");
-const workflowSummaryPanel = document.getElementById("workflowSummaryPanel");
-const workflowSummaryModal = document.getElementById("workflowSummaryModal");
-const workflowSummaryModalBody = document.getElementById("workflowSummaryModalBody");
-const closeWorkflowSummaryModalBtn = document.getElementById("closeWorkflowSummaryModal");
 const queuedPanel = document.getElementById("queuedPanel");
 const msgInput = document.getElementById("msgInput");
 const sendBtn = document.getElementById("sendBtn");
@@ -293,9 +289,76 @@ function cloneChromeSummaryConclusion(conclusion) {
       ? {
           confidence: conclusion.payload.confidence || "",
           recommendation: conclusion.payload.recommendation || "",
+          parallelTasks: Array.isArray(conclusion.payload.parallelTasks)
+            ? conclusion.payload.parallelTasks
+              .map((task, index) => {
+                if (!task || typeof task !== "object") return null;
+                const title = normalizeWorkflowTaskText(task.title || task.name) || `并行子任务 ${index + 1}`;
+                const taskText = normalizeWorkflowTaskText(task.task || task.goal || task.summary);
+                const boundary = normalizeWorkflowTaskText(task.boundary || task.constraints);
+                const repo = normalizeWorkflowTaskText(task.repo || task.folder || task.project);
+                return {
+                  title,
+                  ...(taskText ? { task: taskText } : {}),
+                  ...(boundary ? { boundary } : {}),
+                  ...(repo ? { repo } : {}),
+                };
+              })
+              .filter(Boolean)
+            : [],
         }
       : null,
   };
+}
+
+function getConclusionById(session, conclusionId) {
+  const entries = Array.isArray(session?.workflowPendingConclusions) ? session.workflowPendingConclusions : [];
+  return entries.find((entry) => entry?.id === conclusionId) || null;
+}
+
+function getConclusionParallelTasks(conclusion) {
+  const tasks = Array.isArray(conclusion?.payload?.parallelTasks) ? conclusion.payload.parallelTasks : [];
+  return tasks
+    .map((task, index) => {
+      if (!task || typeof task !== "object") return null;
+      const title = normalizeWorkflowTaskText(task.title || task.name) || `并行子任务 ${index + 1}`;
+      const taskText = normalizeWorkflowTaskText(task.task || task.goal || task.summary);
+      const boundary = normalizeWorkflowTaskText(task.boundary || task.constraints);
+      const repo = normalizeWorkflowTaskText(task.repo || task.folder || task.project);
+      return {
+        title,
+        ...(taskText ? { task: taskText } : {}),
+        ...(boundary ? { boundary } : {}),
+        ...(repo ? { repo } : {}),
+      };
+    })
+    .filter(Boolean);
+}
+
+function cloneChromeSummarySuggestion(session) {
+  const suggestion = typeof getActiveWorkflowSuggestion === "function"
+    ? getActiveWorkflowSuggestion(session)
+    : null;
+  if (!suggestion) return null;
+  return {
+    type: suggestion.type || "",
+    title: typeof getWorkflowSuggestionTitle === "function"
+      ? getWorkflowSuggestionTitle(suggestion)
+      : "",
+    body: typeof getWorkflowSuggestionBody === "function"
+      ? getWorkflowSuggestionBody(session, suggestion)
+      : "",
+  };
+}
+
+function getChromeWorkflowStatusLabel(session) {
+  const workflowInfo = typeof window !== "undefined"
+    && window.RemoteLabSessionStateModel
+    && typeof window.RemoteLabSessionStateModel.getWorkflowStatusInfo === "function"
+    ? window.RemoteLabSessionStateModel.getWorkflowStatusInfo(session?.workflowState)
+    : null;
+  if (workflowInfo?.label) return workflowInfo.label;
+  return "";
 }
 
 function buildChromeBridgeSummary(session) {
@@ -310,6 +373,8 @@ function buildChromeBridgeSummary(session) {
     : (session?.name || session?.description || "");
   return {
     currentTask: currentTask || "",
+    suggestion: cloneChromeSummarySuggestion(session),
+    workflowStatus: getChromeWorkflowStatusLabel(session),
     pending: getByStatus(session, ["pending"]).map(cloneChromeSummaryConclusion).filter(Boolean),
     decisions: getByStatus(session, ["needs_decision"]).map(cloneChromeSummaryConclusion).filter(Boolean),
     handled: getByStatus(session, ["accepted", "ignored"])
@@ -317,6 +382,175 @@ function buildChromeBridgeSummary(session) {
       .filter(Boolean)
       .slice(0, 4),
   };
+}
+
+async function runChromeWorkflowConclusionAction(conclusionId, status) {
+  const sessionId = typeof currentSessionId === "string" ? currentSessionId : "";
+  if (!sessionId || !conclusionId || !status) return;
+  const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(sessionId)}/conclusions/${encodeURIComponent(conclusionId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  if (data?.session) {
+    const updated = upsertSession(data.session) || data.session;
+    renderSessionList();
+    if (updated && currentSessionId === updated.id) {
+      applyAttachedSessionState(updated.id, updated);
+    }
+    return;
+  }
+  if (currentSessionId === sessionId) {
+    await refreshCurrentSession();
+  }
+}
+
+async function runChromeWorkflowSuggestionAction(action) {
+  const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
+  if (!session?.id || !action) return;
+  const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(session.id)}/workflow-suggestion/${encodeURIComponent(action)}`, {
+    method: "POST",
+  });
+  if (action === "accept" && data?.session) {
+    if (data?.sourceSession) {
+      upsertSession(data.sourceSession);
+    }
+    const created = upsertSession(data.session) || data.session;
+    if (typeof showAppToast === "function") {
+      showAppToast(data?.run ? "已开启验收并自动开始" : "已开启验收", "success");
+    }
+    attachSession(created.id, created);
+    return;
+  }
+  if (action === "dismiss" && data?.session) {
+    const updated = upsertSession(data.session) || data.session;
+    if (updated && currentSessionId === updated.id) {
+      applyAttachedSessionState(updated.id, updated);
+    } else {
+      renderSessionList();
+    }
+    if (typeof showAppToast === "function") {
+      showAppToast("已跳过本轮建议", "neutral");
+    }
+  }
+}
+
+function buildParallelTaskGroupLabel(session) {
+  return normalizeWorkflowTaskText(session?.group)
+    || normalizeWorkflowTaskText(session?.workflowCurrentTask)
+    || (typeof getSessionDisplayName === "function" ? normalizeWorkflowTaskText(getSessionDisplayName(session)) : "")
+    || "并行任务";
+}
+
+function buildParallelTaskKickoffMessage(session, task) {
+  const mainlineLabel = typeof getSessionDisplayName === "function"
+    ? normalizeWorkflowTaskText(getSessionDisplayName(session))
+    : "";
+  return [
+    mainlineLabel ? `这是从主线 session“${mainlineLabel}”拆出来的并行执行子任务。` : "这是一个并行执行子任务。",
+    `目标：${normalizeWorkflowTaskText(task?.task) || normalizeWorkflowTaskText(task?.title) || "请按这条子线直接推进实现。"}`,
+    task?.boundary ? `边界：${normalizeWorkflowTaskText(task.boundary)}` : "",
+    task?.repo ? `目标仓库：${normalizeWorkflowTaskText(task.repo)}` : "",
+    "请直接开始实现；完成后把结果回流主线。",
+  ].filter(Boolean).join("\n");
+}
+
+function resolveParallelTaskFolder(session, task) {
+  return normalizeWorkflowTaskText(task?.repo)
+    || normalizeWorkflowTaskText(session?.folder)
+    || normalizeWorkflowTaskText(session?.worktree?.repoRoot)
+    || "~";
+}
+
+async function createParallelSessionsFromConclusion(conclusionId) {
+  const sourceSession = typeof getCurrentSession === "function" ? getCurrentSession() : null;
+  if (!sourceSession?.id) {
+    throw new Error("当前没有可用的主线 session");
+  }
+
+  const conclusion = getConclusionById(sourceSession, conclusionId);
+  const parallelTasks = getConclusionParallelTasks(conclusion);
+  if (parallelTasks.length === 0) {
+    throw new Error("这条结论没有可创建的并行任务");
+  }
+
+  const groupLabel = buildParallelTaskGroupLabel(sourceSession);
+  const createdSessions = [];
+
+  try {
+    for (const [index, task] of parallelTasks.entries()) {
+      const createPayload = {
+        folder: resolveParallelTaskFolder(sourceSession, task),
+        tool: normalizeWorkflowTaskText(sourceSession.tool) || preferredTool || selectedTool || toolsList?.[0]?.id || "",
+        model: normalizeWorkflowTaskText(sourceSession.model),
+        effort: normalizeWorkflowTaskText(sourceSession.effort),
+        thinking: sourceSession.thinking === true,
+        name: normalizeWorkflowTaskText(task.title) || `并行子任务 ${index + 1}`,
+        description: normalizeWorkflowTaskText(task.task) || normalizeWorkflowTaskText(task.boundary) || normalizeWorkflowTaskText(task.title),
+        appId: sourceSession.appId || "",
+        appName: sourceSession.appName || "",
+        sourceId: sourceSession.sourceId || "",
+        sourceName: sourceSession.sourceName || "",
+        userId: sourceSession.userId || "",
+        userName: sourceSession.userName || "",
+        group: groupLabel,
+        worktree: true,
+      };
+
+      const created = await fetchJsonOrRedirect("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(createPayload),
+      });
+      let nextSession = upsertSession(created.session) || created.session;
+      if (!nextSession?.id) {
+        throw new Error(`创建第 ${index + 1} 条并行 session 失败`);
+      }
+
+      const patched = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(nextSession.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          handoffTargetSessionId: sourceSession.id,
+        }),
+      });
+      nextSession = upsertSession(patched.session) || patched.session || nextSession;
+
+      const kickoffMessage = buildParallelTaskKickoffMessage(sourceSession, task);
+      if (kickoffMessage) {
+        const messageResponse = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(nextSession.id)}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requestId: createRequestId(),
+            text: kickoffMessage,
+          }),
+        });
+        nextSession = upsertSession(messageResponse.session) || messageResponse.session || nextSession;
+      }
+
+      createdSessions.push(nextSession);
+    }
+  } catch (error) {
+    renderSessionList();
+    const prefix = createdSessions.length > 0 ? `前面已创建 ${createdSessions.length} 条。` : "";
+    throw new Error(`${prefix}${error instanceof Error ? error.message : "批量创建失败"}`.trim());
+  }
+
+  await runChromeWorkflowConclusionAction(conclusionId, "accepted");
+  collapsedFolders[`group:${groupLabel}`] = false;
+  try {
+    localStorage.setItem(COLLAPSED_GROUPS_STORAGE_KEY, JSON.stringify(collapsedFolders));
+  } catch {}
+  renderSessionList();
+  if (typeof switchTab === "function") {
+    switchTab("sessions");
+  }
+  if (typeof showAppToast === "function") {
+    showAppToast(`已创建 ${createdSessions.length} 个并行 session`, "success");
+  }
+
+  return createdSessions;
 }
 
 function buildChromeBridgeState() {
@@ -376,6 +610,10 @@ window.remotelabChromeBridge = {
     fork: () => (typeof forkCurrentSession === "function" ? forkCurrentSession() : Promise.resolve()),
     share: () => (typeof shareCurrentSessionSnapshot === "function" ? shareCurrentSessionSnapshot() : Promise.resolve()),
     handoff: () => (typeof handoffCurrentSessionResult === "function" ? handoffCurrentSessionResult() : Promise.resolve()),
+    workflowConclusionStatus: (conclusionId, status) => runChromeWorkflowConclusionAction(conclusionId, status),
+    acceptWorkflowSuggestion: () => runChromeWorkflowSuggestionAction("accept"),
+    dismissWorkflowSuggestion: () => runChromeWorkflowSuggestionAction("dismiss"),
+    createParallelSessionsFromConclusion: (conclusionId) => createParallelSessionsFromConclusion(conclusionId),
   },
 };
 
@@ -439,7 +677,7 @@ async function ensureWorkflowTaskAppsLoaded() {
   return availableApps;
 }
 
-async function createWorkflowTaskSession({ appNames = [], input = {}, kickoffMessage = "", successToast = "" }) {
+async function createWorkflowTaskSession({ appNames = [], input = {}, kickoffMessage = "", successToast = "", workflowMode = "" }) {
   let app = findWorkflowTaskAppByNames(appNames);
   if (!app) {
     await ensureWorkflowTaskAppsLoaded();
@@ -452,6 +690,9 @@ async function createWorkflowTaskSession({ appNames = [], input = {}, kickoffMes
     ? resolveSelectedSessionPrincipal()
     : (typeof getAdminSessionPrincipal === "function" ? getAdminSessionPrincipal() : { kind: "admin" });
   const folder = normalizeWorkflowTaskText(input.project) || "~";
+  const executeAliases = Array.isArray(WORKFLOW_APP_ALIASES.execute) ? WORKFLOW_APP_ALIASES.execute : [];
+  const normalizedAppName = normalizeWorkflowTaskText(app.name);
+  const enableWorktree = executeAliases.includes(normalizedAppName);
   const payload = {
     folder,
     tool: normalizeWorkflowTaskText(app.tool) || preferredTool || selectedTool || toolsList?.[0]?.id || "",
@@ -464,6 +705,8 @@ async function createWorkflowTaskSession({ appNames = [], input = {}, kickoffMes
     appName: app.name || "",
     sourceId: DEFAULT_APP_ID,
     sourceName: DEFAULT_APP_NAME,
+    workflowMode: normalizeWorkflowTaskText(workflowMode),
+    worktree: enableWorktree,
     ...(typeof buildSessionPrincipalPayload === "function" ? buildSessionPrincipalPayload(principal) : {}),
   };
   const created = await fetchJsonOrRedirect("/api/sessions", {
@@ -518,6 +761,7 @@ window.remotelabWorkflowBridge = {
       input: options.input && typeof options.input === "object" ? options.input : {},
       kickoffMessage: normalizeWorkflowTaskText(options.kickoffMessage),
       successToast: normalizeWorkflowTaskText(options.successToast),
+      workflowMode: normalizeWorkflowTaskText(options.workflowMode),
     });
   },
 };

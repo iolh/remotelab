@@ -10,7 +10,7 @@ const tempHome = mkdtempSync(join(tmpdir(), 'remotelab-cursor-models-'));
 process.env.HOME = tempHome;
 
 try {
-  const { parseCursorModelsOutput } = await import(
+  const { parseCursorModelsOutput, getModelsForTool } = await import(
     pathToFileURL(join(repoRoot, 'chat', 'models.mjs')).href
   );
 
@@ -38,6 +38,26 @@ Tip: use --model <id> to switch.
   );
   assert.equal(parsed.models[1]?.label, 'Opus 4.6 1M Thinking');
   assert.equal(parsed.defaultModel, 'claude-4.6-opus-high-thinking');
+
+  const parsedWithAnsi = parseCursorModelsOutput(
+    '\x1b[2K\x1b[Gclaude-4.6-opus-high - Opus 4.6 1M  (default)\n',
+  );
+  assert.equal(parsedWithAnsi.models[0]?.id, 'claude-4.6-opus-high');
+  assert.equal(parsedWithAnsi.defaultModel, 'claude-4.6-opus-high');
+
+  const merged = await getModelsForTool('cursor');
+  assert.ok(
+    merged.models.some((model) => model.id === 'claude-4.6-opus-high-thinking'),
+    'cursor models should always include Opus 4.6 thinking',
+  );
+  assert.ok(
+    merged.models.some((model) => model.id === 'claude-4.6-opus-high'),
+    'cursor models should always include Opus 4.6',
+  );
+  assert.ok(
+    merged.models.some((model) => model.id === 'claude-4.6-opus-max-thinking'),
+    'cursor models should include Opus 4.6 Max Thinking in fallback merge',
+  );
 } finally {
   rmSync(tempHome, { recursive: true, force: true });
 }

@@ -7,6 +7,15 @@ import { createInterface } from 'readline';
 import { CHAT_IMAGES_DIR, MEMORY_DIR } from '../lib/config.mjs';
 import { getToolDefinitionAsync } from '../lib/tools.mjs';
 import { buildToolProcessEnv } from '../lib/user-shell-env.mjs';
+import {
+  isGitRepo,
+  getRepoRoot,
+  createWorktree,
+  mergeWorktreeBranch,
+  cleanupWorktree,
+  getWorktreeDiffSummary,
+  getWorktreeChangedFiles,
+} from '../lib/worktree.mjs';
 import { createToolInvocation, resolveCommand, resolveCwd } from './process-runner.mjs';
 import {
   appendEvent,
@@ -495,6 +504,14 @@ function normalizeWorkflowConclusionStatus(value) {
   return 'pending';
 }
 
+function normalizeWorkflowLaunchMode(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['quick_execute', 'standard_delivery', 'careful_deliberation', 'parallel_split'].includes(normalized)) {
+    return normalized;
+  }
+  return '';
+}
+
 function normalizeWorkflowHandoffType(value, fallbackKind = '') {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (['verification_result', 'decision_result', 'workflow_result'].includes(normalized)) {
@@ -517,6 +534,83 @@ function normalizeWorkflowConclusionSummary(value) {
   if (typeof value !== 'string') return '';
   const compact = value.replace(/\s+/g, ' ').trim();
   return clipCompactionSection(compact, 280);
+}
+
+function normalizeWorkflowParallelTaskText(value, maxChars = 600) {
+  if (typeof value !== 'string') return '';
+  const compact = value.replace(/\s+/g, ' ').trim();
+  return compact ? clipCompactionSection(compact, maxChars) : '';
+}
+
+function normalizeWorkflowParallelTask(task = {}, index = 0) {
+  if (!task || typeof task !== 'object' || Array.isArray(task)) {
+    return null;
+  }
+
+  const title = normalizeWorkflowParallelTaskText(task.title || task.name || '', 120)
+    || `并行子任务 ${index + 1}`;
+  const taskText = normalizeWorkflowParallelTaskText(task.task || task.goal || task.summary || '', 600);
+  const boundary = normalizeWorkflowParallelTaskText(task.boundary || task.constraints || '', 400);
+  const repo = normalizeWorkflowParallelTaskText(task.repo || task.folder || task.project || '', 240);
+
+  if (!(title || taskText || boundary || repo)) {
+    return null;
+  }
+
+  return {
+    title,
+    ...(taskText ? { task: taskText } : {}),
+    ...(boundary ? { boundary } : {}),
+    ...(repo ? { repo } : {}),
+  };
+}
+
+function normalizeWorkflowParallelTasks(values = [], maxItems = 8) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value, index) => normalizeWorkflowParallelTask(value, index))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function extractParallelTasksFromConclusionText(value) {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  const match = /<parallel_tasks>([\s\S]*?)<\/parallel_tasks>/iu.exec(value);
+  if (!match?.[1]) return [];
+
+  let raw = match[1].trim();
+  raw = raw.replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '').trim();
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    const tasks = Array.isArray(parsed)
+      ? parsed
+      : (Array.isArray(parsed?.parallelTasks)
+        ? parsed.parallelTasks
+        : (Array.isArray(parsed?.tasks) ? parsed.tasks : []));
+    return normalizeWorkflowParallelTasks(tasks);
+  } catch {
+    return [];
+  }
+}
+
+function stripParallelTasksFromConclusionText(value) {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/<parallel_tasks>[\s\S]*?<\/parallel_tasks>/giu, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function buildParallelTasksConclusionSummary(tasks = []) {
+  const normalized = normalizeWorkflowParallelTasks(tasks);
+  if (normalized.length === 0) return '';
+  const titles = normalized
+    .map((task) => task.title)
+    .filter(Boolean)
+    .slice(0, 3);
+  return `建议按 ${normalized.length} 条并行执行线推进${titles.length > 0 ? `：${titles.join('、')}` : ''}`;
 }
 
 function normalizeWorkflowConclusionList(values = [], maxItems = 12) {
@@ -558,6 +652,9 @@ function normalizeWorkflowConclusionPayload(payload = {}, handoffType = 'workflo
 
   if (normalizedType === 'decision_result') {
     const confidence = normalizeWorkflowDecisionConfidence(payload.confidence);
+    const parallelTasks = normalizeWorkflowParallelTasks(
+      payload.parallelTasks || payload.parallel_tasks || payload.tasks || [],
+    );
     return {
       ...(normalizeWorkflowConclusionSummary(payload.recommendation || '')
         ? { recommendation: normalizeWorkflowConclusionSummary(payload.recommendation || '') }
@@ -565,6 +662,7 @@ function normalizeWorkflowConclusionPayload(payload = {}, handoffType = 'workflo
       rejectedOptions: normalizeWorkflowConclusionList(payload.rejectedOptions),
       tradeoffs: normalizeWorkflowConclusionList(payload.tradeoffs),
       decisionNeeded: normalizeWorkflowConclusionList(payload.decisionNeeded),
+      ...(parallelTasks.length > 0 ? { parallelTasks } : {}),
       ...(confidence ? { confidence } : {}),
     };
   }
@@ -3348,6 +3446,7 @@ export async function createSession(folder, tool, name, extra = {}) {
   const requestedActiveAgreements = hasRequestedActiveAgreements
     ? normalizeSessionAgreements(extra.activeAgreements || [])
     : [];
+  const requestedWorkflowMode = normalizeWorkflowLaunchMode(extra.workflowMode || '');
   const requestedInitialNaming = resolveInitialSessionName(name, {
     group: requestedGroup,
     appName: requestedAppName,
@@ -3397,6 +3496,11 @@ export async function createSession(folder, tool, name, extra = {}) {
         const workflowPriority = normalizeSessionWorkflowPriority(extra.workflowPriority || '');
         if (workflowPriority && updated.workflowPriority !== workflowPriority) {
           updated.workflowPriority = workflowPriority;
+          changed = true;
+        }
+
+        if (requestedWorkflowMode && updated.workflowMode !== requestedWorkflowMode) {
+          updated.workflowMode = requestedWorkflowMode;
           changed = true;
         }
 
@@ -3511,6 +3615,7 @@ export async function createSession(folder, tool, name, extra = {}) {
     }
     if (workflowState) session.workflowState = workflowState;
     if (workflowPriority) session.workflowPriority = workflowPriority;
+    if (requestedWorkflowMode) session.workflowMode = requestedWorkflowMode;
     if (requestedAppName) session.appName = requestedAppName;
     if (requestedSourceId) session.sourceId = requestedSourceId;
     if (requestedSourceName) session.sourceName = requestedSourceName;
@@ -3543,7 +3648,40 @@ export async function createSession(folder, tool, name, extra = {}) {
     broadcastSessionsInvalidation();
   }
 
-  return enrichSessionMeta(created.session);
+  if (created.created && extra.worktree === true && folder && folder !== '~') {
+    const resolvedFolder = resolveCwd(folder);
+    let gitDetected = false;
+    try { gitDetected = await isGitRepo(resolvedFolder); } catch { /* not a git repo */ }
+
+    if (gitDetected) {
+      const sessionId = created.session.id;
+      const sessionName = created.session.name || '';
+      try {
+        const repoRoot = await getRepoRoot(resolvedFolder);
+        const wt = await createWorktree(repoRoot, sessionId, sessionName);
+        if (wt) {
+          await mutateSessionMeta(sessionId, (draft) => {
+            draft.folder = wt.worktreePath;
+            draft.worktree = {
+              enabled: true,
+              path: wt.worktreePath,
+              branch: wt.branch,
+              baseRef: wt.baseRef,
+              baseCommit: wt.baseCommit,
+              repoRoot: wt.repoRoot,
+              status: 'active',
+            };
+            return true;
+          });
+          broadcastSessionsInvalidation();
+        }
+      } catch (err) {
+        console.error(`[session-manager] Worktree creation failed for session ${sessionId}: ${err.message}`);
+      }
+    }
+  }
+
+  return enrichSessionMeta(await findSessionMeta(created.session.id) || created.session);
 }
 
 export async function importCodexThreadSession({
@@ -4107,6 +4245,10 @@ async function maybeEmitWorkflowSuggestion(sessionId, session, run) {
   if (session.archived || isInternalSession(session)) return null;
   if (!isWorkflowMainlineAppName(session?.appName || session?.templateAppName || '')) return null;
   if (run.state !== 'completed') return null;
+  const persistedSession = await findSessionMeta(sessionId);
+  if (normalizeWorkflowLaunchMode(session?.workflowMode || persistedSession?.workflowMode || '') === 'quick_execute') {
+    return updateSessionWorkflowSuggestion(sessionId, null);
+  }
   if (hasOpenWorkflowConclusionOfType(session, 'verification_result')) {
     return updateSessionWorkflowSuggestion(sessionId, null);
   }
@@ -4175,6 +4317,7 @@ export async function acceptWorkflowSuggestion(sessionId) {
   const verificationSession = await updateSessionHandoffTarget(createdSession.id, sourceSession.id)
     || await getSession(createdSession.id)
     || createdSession;
+  let shouldAutoStartVerification = false;
 
   try {
     const templateContext = await buildWorkflowVerificationTemplateContext(sourceSession, suggestion.runId || '');
@@ -4190,6 +4333,7 @@ export async function acceptWorkflowSuggestion(sessionId) {
         timestamp: Date.now(),
       });
       await clearForkContext(verificationSession.id);
+      shouldAutoStartVerification = true;
     }
   } catch (error) {
     console.warn(`[workflow-suggestion] Failed to attach verification context for ${verificationSession.id?.slice(0, 8)}: ${error.message}`);
@@ -4198,11 +4342,29 @@ export async function acceptWorkflowSuggestion(sessionId) {
   const refreshedSource = await updateSessionWorkflowSuggestion(sourceSession.id, null)
     || await getSession(sourceSession.id)
     || sourceSession;
+  let launchedRun = null;
+  let resolvedVerificationSession = await getSession(verificationSession.id) || verificationSession;
+
+  if (shouldAutoStartVerification) {
+    try {
+      const started = await submitHttpMessage(verificationSession.id, '请基于已附带的自动验收上下文，直接开始本轮独立验收。先简述验证计划，再执行验证并给出结论。', [], {
+        requestId: createInternalRequestId('workflow-verify-auto'),
+        model: verificationDefaults.model || undefined,
+        effort: verificationDefaults.effort || undefined,
+        thinking: verificationDefaults.thinking === true,
+      });
+      resolvedVerificationSession = started.session || await getSession(verificationSession.id) || resolvedVerificationSession;
+      launchedRun = started.run || null;
+    } catch (error) {
+      console.warn(`[workflow-suggestion] Failed to auto-start verification session ${verificationSession.id?.slice(0, 8)}: ${error.message}`);
+    }
+  }
 
   return {
-    session: await getSession(verificationSession.id) || verificationSession,
+    session: resolvedVerificationSession,
     sourceSession: refreshedSource,
     suggestion,
+    run: launchedRun,
   };
 }
 
@@ -4810,6 +4972,29 @@ export async function getHistory(sessionId) {
   return loadHistory(sessionId);
 }
 
+function shouldEnableParallelBranchWorktree(source) {
+  return (
+    isWorkflowMainlineAppName(source?.appName || source?.templateAppName || '')
+    || source?.worktree?.enabled === true
+  );
+}
+
+function buildParallelBranchGroup(source) {
+  return normalizeSessionGroup(source?.group || '')
+    || normalizeSessionGroup(source?.workflowCurrentTask || '')
+    || normalizeSessionGroup(extractWorkflowCurrentTaskFromName(source?.name || ''))
+    || normalizeSessionGroup(source?.name || '')
+    || normalizeSessionGroup(source?.description || '')
+    || '并行任务';
+}
+
+function resolveParallelBranchHandoffTarget(source, enableWorktree) {
+  const explicit = normalizeWorktreeCoordinationText(source?.handoffTargetSessionId || '');
+  if (explicit) return explicit;
+  if (enableWorktree && source?.id) return source.id;
+  return '';
+}
+
 export async function forkSession(sessionId) {
   const source = await getSession(sessionId);
   if (!source) return null;
@@ -4822,22 +5007,35 @@ export async function forkSession(sessionId) {
     getHistorySnapshot(sessionId),
   ]);
   const forkContext = await getOrPrepareForkContext(sessionId, snapshot, contextHead);
+  const enableForkWorktree = shouldEnableParallelBranchWorktree(source);
+  const forkGroup = enableForkWorktree ? buildParallelBranchGroup(source) : normalizeSessionGroup(source.group || '');
+  const forkHandoffTargetSessionId = resolveParallelBranchHandoffTarget(source, enableForkWorktree);
 
-  const child = await createSession(source.folder, source.tool, buildForkSessionName(source), {
-    group: source.group || '',
+  let child = await createSession(source.folder, source.tool, buildForkSessionName(source), {
+    group: forkGroup,
     description: source.description || '',
     appId: source.appId || '',
     appName: source.appName || '',
     systemPrompt: source.systemPrompt || '',
     activeAgreements: source.activeAgreements || [],
+    model: source.model || '',
+    effort: source.effort || '',
+    thinking: source.thinking === true,
     userId: source.userId || '',
     userName: source.userName || '',
     forkedFromSessionId: source.id,
     forkedFromSeq: source.latestSeq || 0,
     rootSessionId: source.rootSessionId || source.id,
     forkedAt: nowIso(),
+    worktree: enableForkWorktree,
   });
   if (!child) return null;
+
+  if (forkHandoffTargetSessionId) {
+    child = await updateSessionHandoffTarget(child.id, forkHandoffTargetSessionId)
+      || await getSession(child.id)
+      || child;
+  }
 
   const copiedEvents = history
     .map((event) => sanitizeForkedEvent(event))
@@ -4879,8 +5077,11 @@ export async function delegateSession(sessionId, payload = {}) {
   }
 
   const requestedName = typeof payload?.name === 'string' ? payload.name.trim() : '';
+  const enableDelegatedWorktree = shouldEnableParallelBranchWorktree(source);
+  const delegatedGroup = enableDelegatedWorktree ? buildParallelBranchGroup(source) : normalizeSessionGroup(source.group || '');
+  const delegatedHandoffTargetSessionId = resolveParallelBranchHandoffTarget(source, enableDelegatedWorktree);
 
-  const child = await createSession(source.folder, source.tool, requestedName || buildDelegatedSessionName(source, task), {
+  let child = await createSession(source.folder, source.tool, requestedName || buildDelegatedSessionName(source, task), {
     appId: source.appId || '',
     appName: source.appName || '',
     sourceId: source.sourceId || '',
@@ -4890,10 +5091,18 @@ export async function delegateSession(sessionId, payload = {}) {
     model: source.model || '',
     effort: source.effort || '',
     thinking: source.thinking === true,
+    group: delegatedGroup,
     userId: source.userId || '',
     userName: source.userName || '',
+    worktree: enableDelegatedWorktree,
   });
   if (!child) return null;
+
+  if (delegatedHandoffTargetSessionId) {
+    child = await updateSessionHandoffTarget(child.id, delegatedHandoffTargetSessionId)
+      || await getSession(child.id)
+      || child;
+  }
 
   const handoffText = buildDelegationHandoff({
     source,
@@ -4948,15 +5157,29 @@ export async function handoffSessionResult(sessionId, payload = {}) {
   const latestConclusionText = typeof latestConclusion?.content === 'string'
     ? latestConclusion.content.trim()
     : '';
-  const requestedSummary = normalizeWorkflowConclusionSummary(payload?.summary || '');
-  const conclusionText = requestedSummary || latestConclusionText;
-  if (!conclusionText) {
+  const requestedSummaryRaw = typeof payload?.summary === 'string'
+    ? payload.summary.trim()
+    : '';
+  const rawConclusionText = requestedSummaryRaw || latestConclusionText;
+  if (!rawConclusionText) {
     throw new Error('No assistant conclusion available to hand off yet');
   }
 
   const handoffKind = getWorkflowHandoffKind(source);
   const handoffType = normalizeWorkflowHandoffType(payload?.handoffType || '', handoffKind);
-  const handoffPayload = normalizeWorkflowConclusionPayload(payload?.payload || {}, handoffType);
+  const extractedParallelTasks = handoffType === 'decision_result'
+    ? extractParallelTasksFromConclusionText(rawConclusionText)
+    : [];
+  const strippedConclusionText = stripParallelTasksFromConclusionText(rawConclusionText);
+  const conclusionText = strippedConclusionText
+    || buildParallelTasksConclusionSummary(extractedParallelTasks)
+    || rawConclusionText;
+  const handoffPayload = normalizeWorkflowConclusionPayload({
+    ...(payload?.payload && typeof payload.payload === 'object' && !Array.isArray(payload.payload)
+      ? payload.payload
+      : {}),
+    ...(extractedParallelTasks.length > 0 ? { parallelTasks: extractedParallelTasks } : {}),
+  }, handoffType);
   const content = buildWorkflowHandoffMessage({
     source,
     handoffKind,
@@ -5041,6 +5264,195 @@ export async function compactSession(sessionId) {
     if (run && !isTerminalRunState(run.state)) return false;
   }
   return queueContextCompaction(sessionId, session, null, { automatic: false });
+}
+
+function normalizeWorktreeCoordinationText(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function getWorktreeSessionStatus(meta) {
+  return normalizeWorktreeCoordinationText(meta?.worktree?.status || '');
+}
+
+function getWorktreeSessionLabel(meta) {
+  const name = normalizeWorktreeCoordinationText(meta?.name || '');
+  if (name) return name;
+  const description = normalizeWorktreeCoordinationText(meta?.description || '');
+  if (description) return description;
+  const id = normalizeWorktreeCoordinationText(meta?.id || '');
+  return id ? `session ${id.slice(0, 8)}` : '未命名 session';
+}
+
+function buildWorktreeCoordinationItem(meta) {
+  return {
+    id: meta?.id || '',
+    name: getWorktreeSessionLabel(meta),
+    branch: normalizeWorktreeCoordinationText(meta?.worktree?.branch || ''),
+    baseRef: normalizeWorktreeCoordinationText(meta?.worktree?.baseRef || ''),
+    status: getWorktreeSessionStatus(meta),
+  };
+}
+
+function getMergedWorktreeChangedFiles(meta) {
+  const files = Array.isArray(meta?.worktree?.mergedChangedFiles) ? meta.worktree.mergedChangedFiles : [];
+  return files
+    .map((entry) => normalizeWorktreeCoordinationText(entry))
+    .filter(Boolean);
+}
+
+function collectMergedWorktreeFiles(metas = []) {
+  const unique = new Set();
+  for (const meta of metas) {
+    for (const filePath of getMergedWorktreeChangedFiles(meta)) {
+      unique.add(filePath);
+    }
+  }
+  return Array.from(unique);
+}
+
+async function buildWorktreeMergeCoordination(session) {
+  if (!session?.id || !session?.worktree?.enabled) return null;
+
+  const group = normalizeSessionGroup(session.group || '');
+  const handoffTargetSessionId = normalizeWorktreeCoordinationText(session.handoffTargetSessionId || '');
+  const repoRoot = normalizeWorktreeCoordinationText(session.worktree.repoRoot || '');
+  if (!group && !handoffTargetSessionId) return null;
+
+  const metas = await loadSessionsMeta();
+  const related = metas.filter((meta) => {
+    if (!meta || meta.archived || !shouldExposeSession(meta)) return false;
+    if (!meta?.worktree?.enabled) return false;
+
+    const metaGroup = normalizeSessionGroup(meta.group || '');
+    const metaTarget = normalizeWorktreeCoordinationText(meta.handoffTargetSessionId || '');
+    const metaRepoRoot = normalizeWorktreeCoordinationText(meta.worktree.repoRoot || '');
+
+    if (group && metaGroup !== group) return false;
+    if (handoffTargetSessionId && metaTarget !== handoffTargetSessionId) return false;
+    if (repoRoot && metaRepoRoot && metaRepoRoot !== repoRoot) return false;
+    return true;
+  });
+
+  if (related.length === 0) return null;
+
+  const active = related.filter((meta) => getWorktreeSessionStatus(meta) === 'active');
+  const merged = related.filter((meta) => getWorktreeSessionStatus(meta) === 'merged');
+  const cleaned = related.filter((meta) => getWorktreeSessionStatus(meta) === 'cleaned');
+  const mergedFiles = collectMergedWorktreeFiles(merged);
+
+  return {
+    group,
+    handoffTargetSessionId,
+    repoRoot,
+    relatedCount: related.length,
+    remainingActiveCount: active.length,
+    remainingActiveWorktrees: active.map(buildWorktreeCoordinationItem),
+    mergedCount: merged.length,
+    mergedWorktrees: merged.map(buildWorktreeCoordinationItem),
+    cleanedCount: cleaned.length,
+    cleanedWorktrees: cleaned.map(buildWorktreeCoordinationItem),
+    mergedFileCount: mergedFiles.length,
+    allMerged: related.length > 0 && active.length === 0 && cleaned.length === 0 && merged.length === related.length,
+  };
+}
+
+function buildAllMergedStatusText(coordination) {
+  const mergedLabels = Array.isArray(coordination?.mergedWorktrees)
+    ? coordination.mergedWorktrees.map((item) => normalizeWorktreeCoordinationText(item?.name || '')).filter(Boolean)
+    : [];
+  const headline = Number.isInteger(coordination?.mergedFileCount) && coordination.mergedFileCount > 0
+    ? `所有并行分支已合并，涉及 ${coordination.mergedFileCount} 个文件变更。`
+    : `所有并行分支已合并，共 ${Array.isArray(coordination?.mergedWorktrees) ? coordination.mergedWorktrees.length : 0} 条支线已收口。`;
+  return [
+    headline,
+    mergedLabels.length > 0 ? `已合并支线：${mergedLabels.join('、')}` : '',
+    coordination?.group ? `分组：${coordination.group}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+export async function mergeSessionWorktree(sessionId) {
+  const session = await getSession(sessionId);
+  if (!session) return { success: false, error: 'Session not found' };
+
+  const wt = session.worktree;
+  if (!wt?.enabled || wt.status !== 'active') {
+    return { success: false, error: 'Session does not have an active worktree' };
+  }
+
+  const diffSummary = await getWorktreeDiffSummary(wt.repoRoot, wt.branch, wt.baseRef);
+  const changedFiles = await getWorktreeChangedFiles(wt.repoRoot, wt.branch, wt.baseRef);
+  const result = await mergeWorktreeBranch(wt.repoRoot, wt.branch, wt.baseRef);
+
+  if (!result.success) {
+    return result;
+  }
+
+  await cleanupWorktree(wt.repoRoot, wt.path, wt.branch);
+
+  await mutateSessionMeta(sessionId, (draft) => {
+    draft.folder = wt.repoRoot;
+    if (draft.worktree) {
+      draft.worktree.status = 'merged';
+      draft.worktree.mergedAt = nowIso();
+      draft.worktree.mergedDiffSummary = diffSummary;
+      draft.worktree.mergedChangedFiles = changedFiles;
+      draft.worktree.mergedFileCount = changedFiles.length;
+    }
+    return true;
+  });
+
+  const updatedSession = await getSession(sessionId);
+  const coordination = updatedSession ? await buildWorktreeMergeCoordination(updatedSession) : null;
+
+  const targetMeta = coordination?.handoffTargetSessionId
+    ? await findSessionMeta(coordination.handoffTargetSessionId)
+    : null;
+  if (coordination?.allMerged && targetMeta) {
+    await appendEvent(coordination.handoffTargetSessionId, statusEvent(buildAllMergedStatusText(coordination)));
+    broadcastSessionInvalidation(coordination.handoffTargetSessionId);
+  }
+
+  await appendEvent(sessionId, statusEvent(
+    `Worktree merged: branch ${wt.branch} → ${wt.baseRef}\n${diffSummary}`
+  ));
+  broadcastSessionInvalidation(sessionId);
+
+  return {
+    success: true,
+    branch: wt.branch,
+    baseRef: wt.baseRef,
+    diffSummary,
+    changedFiles,
+    changedFileCount: changedFiles.length,
+    coordination,
+  };
+}
+
+export async function cleanupSessionWorktree(sessionId) {
+  const session = await getSession(sessionId);
+  if (!session) return { success: false, error: 'Session not found' };
+
+  const wt = session.worktree;
+  if (!wt?.enabled) {
+    return { success: false, error: 'Session does not have a worktree' };
+  }
+  if (wt.status === 'cleaned') {
+    return { success: true, alreadyCleaned: true };
+  }
+
+  await cleanupWorktree(wt.repoRoot, wt.path, wt.status !== 'merged' ? wt.branch : null);
+
+  await mutateSessionMeta(sessionId, (draft) => {
+    draft.folder = wt.repoRoot;
+    if (draft.worktree) {
+      draft.worktree.status = 'cleaned';
+      draft.worktree.cleanedAt = nowIso();
+    }
+    return true;
+  });
+
+  broadcastSessionInvalidation(sessionId);
+  return { success: true };
 }
 
 export function killAll() {

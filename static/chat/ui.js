@@ -214,14 +214,144 @@ function renderMessageInto(container, evt, { finalizeActiveThinkingBlock = false
         queueHydrateLazyNodes(div);
       }
     }
-    appendMessageTimestamp(div, evt.timestamp, "msg-assistant-time");
+    appendAssistantMessageFooter(div, content, evt.timestamp);
     container.appendChild(div);
     return div;
   }
 }
 
+function buildTemplateContextMetaLabel(evt) {
+  const templateName = typeof evt?.templateName === "string" ? evt.templateName.trim() : "";
+  const sourceName = typeof evt?.sourceSessionName === "string" ? evt.sourceSessionName.trim() : "";
+  if (templateName && sourceName) return `模板上下文 · ${templateName} · 来自 ${sourceName}`;
+  if (templateName) return `模板上下文 · ${templateName}`;
+  if (sourceName) return `模板上下文 · 来自 ${sourceName}`;
+  return "模板上下文";
+}
+
+function buildTemplateContextNotice(evt) {
+  const freshness = typeof evt?.templateFreshness === "string" ? evt.templateFreshness.trim().toLowerCase() : "";
+  if (freshness === "stale") {
+    return "> 模板上下文可能已过时：源会话在快照后又有更新，请先核对最新文件和备注。";
+  }
+  if (freshness === "source_missing") {
+    return "> 模板源会话已不可用：请先核对最新文件和备注。";
+  }
+  return "";
+}
+
+function buildTemplateContextContent(evt) {
+  const content = typeof evt?.content === "string" && evt.content.trim()
+    ? evt.content
+    : (typeof evt?.bodyPreview === "string" ? evt.bodyPreview : "");
+  const notice = buildTemplateContextNotice(evt);
+  if (notice && content) return `${notice}\n\n---\n\n${content}`;
+  return notice || content;
+}
+
+function renderTemplateContextInto(container, evt, { finalizeActiveThinkingBlock = false } = {}) {
+  if (!container) return null;
+
+  if (finalizeActiveThinkingBlock && inThinkingBlock) {
+    finalizeThinkingBlock();
+  }
+
+  if ((!evt?.content && !evt?.bodyAvailable) || !evt) return null;
+
+  const div = document.createElement("div");
+  div.className = "msg-assistant md-content workflow-handoff-card";
+
+  const meta = document.createElement("div");
+  meta.className = "workflow-handoff-meta";
+  meta.textContent = buildTemplateContextMetaLabel(evt);
+  div.appendChild(meta);
+
+  const content = document.createElement("div");
+  content.className = "msg-assistant-body";
+  const renderedContent = buildTemplateContextContent(evt);
+  if (renderedContent) {
+    const didRender = renderMarkdownIntoNode(content, renderedContent);
+    if (!didRender) return null;
+  } else if (evt.bodyAvailable) {
+    if (evt.bodyPreview) {
+      renderMarkdownIntoNode(content, evt.bodyPreview);
+    }
+  } else {
+    return null;
+  }
+  div.appendChild(content);
+
+  if (markLazyEventBodyNode(content, evt, {
+    preview: buildTemplateContextContent({ ...evt, content: evt.bodyPreview || "" }),
+    renderMode: "markdown",
+  })) {
+    if (typeof queueHydrateLazyNodes === "function") {
+      queueHydrateLazyNodes(div);
+    }
+  }
+
+  appendAssistantMessageFooter(div, content, evt.timestamp);
+  container.appendChild(div);
+  return div;
+}
+
+function updateAssistantCopyButtonState(button, copied) {
+  if (!button) return;
+  button.innerHTML = renderUiIcon("copy");
+  button.classList.toggle("copied", copied);
+  button.title = copied ? "已复制" : "复制回复";
+  button.setAttribute("aria-label", copied ? "已复制" : "复制回复");
+}
+
+function appendAssistantMessageFooter(container, content, stamp) {
+  if (!container) return;
+  const footer = document.createElement("div");
+  footer.className = "msg-assistant-footer";
+
+  const meta = document.createElement("div");
+  meta.className = "msg-assistant-meta";
+  appendMessageTimestamp(meta, stamp, "msg-assistant-time");
+  footer.appendChild(meta);
+
+  if (content) {
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "assistant-copy-btn";
+    updateAssistantCopyButtonState(copyBtn, false);
+
+    let resetTimer = null;
+    copyBtn.addEventListener("click", async () => {
+      try {
+        if (typeof hydrateLazyNodes === "function") {
+          await hydrateLazyNodes(container);
+        }
+        const text = String(content.innerText || content.textContent || "").trim();
+        if (!text) return;
+        await copyText(text);
+        updateAssistantCopyButtonState(copyBtn, true);
+        window.clearTimeout(resetTimer);
+        resetTimer = window.setTimeout(() => {
+          updateAssistantCopyButtonState(copyBtn, false);
+        }, 1600);
+      } catch (err) {
+        console.warn("[copy] Failed to copy assistant reply:", err.message);
+      }
+    });
+
+    footer.appendChild(copyBtn);
+  }
+
+  container.appendChild(footer);
+}
+
 function renderMessage(evt) {
   return renderMessageInto(messagesInner, evt, {
+    finalizeActiveThinkingBlock: true,
+  });
+}
+
+function renderTemplateContext(evt) {
+  return renderTemplateContextInto(messagesInner, evt, {
     finalizeActiveThinkingBlock: true,
   });
 }
@@ -485,6 +615,9 @@ function renderHiddenBlockEventsInto(container, events) {
       case "message":
         renderMessageInto(container, event);
         break;
+      case "template_context":
+        renderTemplateContextInto(container, event);
+        break;
       case "reasoning":
         renderReasoningInto(container, event);
         break;
@@ -693,6 +826,11 @@ function renderFileChange(evt) {
 function renderReasoning(evt) {
   const container = getThinkingBody();
   renderReasoningInto(container, evt);
+}
+
+function renderManagerContext(evt) {
+  const container = getThinkingBody();
+  renderManagerContextInto(container, evt);
 }
 
 function renderStatusInto(container, evt) {
