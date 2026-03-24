@@ -199,6 +199,66 @@ function isWorkflowMainlineSession(session) {
   return ["执行", "主交付", "功能交付"].includes(getWorkflowPanelAppName(session));
 }
 
+const WORKFLOW_STAGE_ROLE_LABELS = {
+  execute: "执行",
+  verify: "验收",
+  deliberate: "再议",
+};
+
+function getNormalizedWorkflowDefinition(session) {
+  const definition = session?.workflowDefinition;
+  if (!definition || typeof definition !== "object") return null;
+  const stages = Array.isArray(definition.stages)
+    ? definition.stages
+      .map((stage) => {
+        if (!stage || typeof stage !== "object") return null;
+        const role = typeof stage.role === "string" ? stage.role.trim().toLowerCase() : "";
+        if (!role) return null;
+        const label = typeof stage.label === "string" ? stage.label.trim() : "";
+        return {
+          role,
+          ...(label ? { label } : {}),
+        };
+      })
+      .filter(Boolean)
+    : [];
+  if (stages.length === 0) return null;
+  const currentStageIndex = Number.isInteger(definition.currentStageIndex) && definition.currentStageIndex >= 0
+    ? Math.min(definition.currentStageIndex, stages.length - 1)
+    : 0;
+  return {
+    stages,
+    currentStageIndex,
+  };
+}
+
+function isWorkflowSessionActive(session) {
+  return !!getNormalizedWorkflowDefinition(session)
+    && String(session?.workflowState || "").trim() !== "done";
+}
+
+function getWorkflowStageBaseLabel(stage, index) {
+  const explicit = typeof stage?.label === "string" ? stage.label.trim() : "";
+  if (explicit) return explicit;
+  const role = typeof stage?.role === "string" ? stage.role.trim().toLowerCase() : "";
+  return WORKFLOW_STAGE_ROLE_LABELS[role] || `阶段 ${index + 1}`;
+}
+
+function getCurrentWorkflowStageLabel(session) {
+  const definition = getNormalizedWorkflowDefinition(session);
+  if (!definition || !isWorkflowSessionActive(session)) return "";
+  const stage = definition.stages[definition.currentStageIndex] || null;
+  if (!stage) return "";
+  const baseLabel = getWorkflowStageBaseLabel(stage, definition.currentStageIndex);
+  return /中$/u.test(baseLabel) ? baseLabel : `${baseLabel}中`;
+}
+
+function renderCurrentWorkflowStageHtml(session) {
+  const label = getCurrentWorkflowStageLabel(session);
+  if (!label) return "";
+  return `<span class="session-workflow-stage-pill" title="当前 workflow 阶段">${esc(label)}</span>`;
+}
+
 function normalizeWorkflowConclusionStatusLabel(status) {
   if (status === "needs_decision") return "待决策";
   if (status === "accepted") return "已吸收";
@@ -247,6 +307,7 @@ function getActiveWorkflowSuggestion(session) {
 
 function getWorkflowSuggestionTitle(suggestion) {
   if (suggestion?.type === "suggest_verification") return "建议开启验收";
+  if (suggestion?.type === "suggest_decision") return "建议开启再议";
   return "建议下一步";
 }
 
@@ -256,6 +317,12 @@ function getWorkflowSuggestionBody(session, suggestion) {
     return task
       ? `“${task}”这轮实现已经完成，建议现在开启独立验收，单独核对测试、交互和边界。`
       : "这轮实现已经完成，建议现在开启独立验收，单独核对测试、交互和边界。";
+  }
+  if (suggestion?.type === "suggest_decision") {
+    const task = getWorkflowPanelCurrentTask(session);
+    return task
+      ? `“${task}”当前进入再议阶段，建议现在开启独立再议，先收敛方案判断、tradeoff 和下一步方向。`
+      : "当前进入再议阶段，建议现在开启独立再议，先收敛方案判断、tradeoff 和下一步方向。";
   }
   return "系统建议你进入下一步工作流。";
 }
@@ -429,6 +496,8 @@ function isSessionCompleteAndReviewed(session) {
 
 function buildSessionMetaParts(session) {
   const parts = [];
+  const workflowStageHtml = renderCurrentWorkflowStageHtml(session);
+  if (workflowStageHtml) parts.push(workflowStageHtml);
   const reviewHtml = renderSessionStatusHtml(getSessionReviewStatusInfo(session));
   if (reviewHtml) parts.push(reviewHtml);
   const liveStatus = getSessionStatusSummary(session).primary;

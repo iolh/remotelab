@@ -84,6 +84,9 @@ function renderEvent(evt, autoScroll) {
       rendered = true;
       renderMessage(evt);
       break;
+    case "workflow_metric":
+      rendered = false;
+      break;
     case "template_context":
       rendered = true;
       renderTemplateContext(evt);
@@ -117,6 +120,8 @@ function renderEvent(evt, autoScroll) {
       renderManagerContext(evt);
       break;
     case "status":
+    case "workflow_auto_advance":
+    case "workflow_auto_absorb":
       rendered = true;
       renderStatusMsg(evt);
       break;

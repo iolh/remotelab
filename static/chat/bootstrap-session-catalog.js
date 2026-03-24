@@ -707,6 +707,19 @@ function applyNavigationState(rawState) {
     if (target) {
       attachSession(target.id, target);
       pendingNavigationState = null;
+    } else if (typeof ensureSessionAvailableForRestore === "function") {
+      Promise.resolve(ensureSessionAvailableForRestore(next.sessionId))
+        .then((resolved) => {
+          if (resolved?.id) {
+            attachSession(resolved.id, resolved);
+            pendingNavigationState = null;
+          } else {
+            dispatchAction({ action: "list" });
+          }
+        })
+        .catch(() => {
+          dispatchAction({ action: "list" });
+        });
     } else {
       dispatchAction({ action: "list" });
     }

@@ -177,11 +177,15 @@
 
 复杂新需求、跨模块重构、重大取舍：
 
-`深度裁决 -> 主交付 -> 执行验收`
+`深度裁决 -> 主交付 -> 深度裁决 -> 主交付 -> 执行验收`
 
-必要时合并前再开一次：
+适用节奏：
 
-`深度裁决`
+- 先用第一轮 `深度裁决` 收敛方向与取舍
+- 第一轮 `主交付` 先把可落地部分做出来
+- 第二轮 `深度裁决` 复盘残余风险、补做项和是否值得继续扩改
+- 最后一轮 `主交付` 按复盘结果收口
+- 最后进入独立 `执行验收`
 
 ---
 
@@ -343,6 +347,22 @@ MVP 的自动覆盖规则只针对：
   "recommendation": "ok | needs_fix | needs_more_validation"
 }
 ```
+
+### 5.5.1 产品契约
+
+后端在接收 `verification_result` 时强制校验以下字段：
+
+- `summary`：不能为空
+- `recommendation`：必须是 `ok` / `needs_fix` / `needs_more_validation` 之一
+- `confidence`：必须是 `high` / `medium` / `low` 之一
+
+**缺失时的行为**：
+
+1. 如果验收 run 完成后未产出合格的 `<verification_result>` 块，系统会自动发送一条 follow-up 消息要求模型补充（仅重试一次）
+2. 重试后仍不合格：
+   - 如果能从 assistant message 中提取 summary，执行回灌但强制设为 `needs_decision`
+   - 如果连 summary 都无法提取，不执行回灌，回退到 `waiting_user`
+3. 合格的 `<verification_result>` 是自动回灌和自动吸收的前置条件，不是可选的提示词建议
 
 ### 5.6 decision_result.payload
 

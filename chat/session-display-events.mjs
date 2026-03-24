@@ -1,4 +1,5 @@
 const HIDDEN_EVENT_TYPES = new Set(['reasoning', 'manager_context', 'tool_use', 'tool_result', 'file_change']);
+const STATUS_LIKE_EVENT_TYPES = new Set(['status', 'workflow_auto_advance', 'workflow_auto_absorb']);
 
 function cloneJson(value) {
   if (value === null || value === undefined) return value;
@@ -6,7 +7,7 @@ function cloneJson(value) {
 }
 
 function isIgnoredStatusEvent(event) {
-  if (event?.type !== 'status') return false;
+  if (!STATUS_LIKE_EVENT_TYPES.has(event?.type)) return false;
   const content = typeof event.content === 'string' ? event.content.trim().toLowerCase() : '';
   return content === 'thinking' || content === 'completed';
 }
@@ -19,7 +20,9 @@ function isVisibleEvent(event) {
   if (!event || typeof event !== 'object') return false;
   if (event.type === 'message') return true;
   if (event.type === 'context_barrier' || event.type === 'usage') return true;
-  if (event.type === 'status') return !isIgnoredStatusEvent(event) && !!String(event.content || '').trim();
+  if (STATUS_LIKE_EVENT_TYPES.has(event.type)) {
+    return !isIgnoredStatusEvent(event) && !!String(event.content || '').trim();
+  }
   return false;
 }
 

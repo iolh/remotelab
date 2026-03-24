@@ -1,6 +1,44 @@
 // ---- Session list ----
+function getSafeSessionDisplayName(session) {
+  if (typeof getSessionDisplayName === "function") {
+    return getSessionDisplayName(session);
+  }
+  return session?.name || session?.description || session?.tool || "会话";
+}
+
+function getSafeSessionGroupInfo(session) {
+  if (typeof getSessionGroupInfo === "function") {
+    return getSessionGroupInfo(session);
+  }
+  const group = typeof session?.group === "string" ? session.group.trim() : "";
+  const folder = typeof session?.folder === "string" ? session.folder.trim() : "";
+  const label = group || folder.split("/").filter(Boolean).pop() || "未分组";
+  return {
+    key: `group:${label}`,
+    label,
+    title: label,
+  };
+}
+
+function getSafeFilteredSessionEmptyText(options = {}) {
+  if (typeof getFilteredSessionEmptyText === "function") {
+    return getFilteredSessionEmptyText(options);
+  }
+  return options?.archived ? "No archived sessions" : "No open sessions";
+}
+
+function getSafeShortFolder(folder) {
+  if (typeof getShortFolder === "function") {
+    return getShortFolder(folder || "");
+  }
+  const normalized = typeof folder === "string" ? folder.trim() : "";
+  return normalized.split("/").filter(Boolean).pop() || "";
+}
+
 function renderSessionList() {
-  renderSessionBoard();
+  if (typeof renderSessionBoard === "function") {
+    renderSessionBoard();
+  }
   sessionList.innerHTML = "";
   const pinnedSessions = getVisiblePinnedSessions();
   const visibleSessions = getVisibleActiveSessions();
@@ -26,7 +64,7 @@ function renderSessionList() {
 
   const groups = new Map();
   for (const s of visibleSessions) {
-    const groupInfo = getSessionGroupInfo(s);
+    const groupInfo = getSafeSessionGroupInfo(s);
     if (!groups.has(groupInfo.key)) {
       groups.set(groupInfo.key, { ...groupInfo, sessions: [] });
     }
@@ -69,7 +107,7 @@ function renderSessionList() {
   if (pinnedSessions.length === 0 && visibleSessions.length === 0) {
     const empty = document.createElement("div");
     empty.className = "session-filter-empty";
-    empty.textContent = getFilteredSessionEmptyText();
+    empty.textContent = getSafeFilteredSessionEmptyText();
     sessionList.appendChild(empty);
   }
 
@@ -119,16 +157,16 @@ function renderArchivedSection() {
   } else if (archivedSessions.length === 0) {
     const empty = document.createElement("div");
     empty.className = "archived-empty";
-    empty.textContent = getFilteredSessionEmptyText({ archived: true });
+    empty.textContent = getSafeFilteredSessionEmptyText({ archived: true });
     items.appendChild(empty);
   } else {
     for (const s of archivedSessions) {
       const div = document.createElement("div");
       div.className =
         "session-item archived-item" + (s.id === currentSessionId ? " active" : "");
-      const displayName = getSessionDisplayName(s);
-      const groupInfo = getSessionGroupInfo(s);
-      const shortFolder = getShortFolder(s.folder || "");
+      const displayName = getSafeSessionDisplayName(s);
+      const groupInfo = getSafeSessionGroupInfo(s);
+      const shortFolder = getSafeShortFolder(s.folder || "");
       const date = s.archivedAt ? new Date(s.archivedAt).toLocaleDateString() : "";
       div.innerHTML = `
         <div class="session-item-info">

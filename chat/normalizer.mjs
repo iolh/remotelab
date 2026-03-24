@@ -10,6 +10,10 @@ function createEvent(type, fields = {}) {
   };
 }
 
+export function systemEvent(type, content, extra = {}) {
+  return createEvent(type, { role: 'system', content, ...extra });
+}
+
 export function messageEvent(role, content, images, extra = {}) {
   const fields = { role, content, ...extra };
   if (images && images.length > 0) fields.images = images;
@@ -37,7 +41,7 @@ export function managerContextEvent(content, extra = {}) {
 }
 
 export function statusEvent(content) {
-  return createEvent('status', { role: 'system', content });
+  return systemEvent('status', content);
 }
 
 export function usageEvent({

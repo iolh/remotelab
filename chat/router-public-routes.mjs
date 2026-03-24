@@ -49,6 +49,13 @@ export async function handlePublicRoutes({
   writeSnapshotPage,
   writeJsonCached,
 }) {
+function buildPostAuthRedirectLocation() {
+  const params = new URLSearchParams(parsedUrl.query || {});
+  params.delete('token');
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
 // Token auth via query
 const queryToken = parsedUrl.query.token;
 if (queryToken) {
@@ -63,7 +70,7 @@ if (queryToken) {
     const sessionToken = generateToken();
     sessions.set(sessionToken, { expiry: Date.now() + SESSION_EXPIRY, role: 'owner' });
     await saveAuthSessionsAsync();
-    res.writeHead(302, { 'Location': '/', 'Set-Cookie': setCookie(sessionToken) });
+    res.writeHead(302, { 'Location': buildPostAuthRedirectLocation(), 'Set-Cookie': setCookie(sessionToken) });
     res.end();
   } else {
     recordFailedAttempt(ip);

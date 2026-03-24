@@ -259,6 +259,12 @@ async function dispatchAction(msg) {
             applyAttachedSessionState(session.id, session);
           }
         }
+        if (data?.workflowAutoTriggered?.message && typeof showAppToast === "function") {
+          showAppToast(data.workflowAutoTriggered.message, "success", {
+            position: "top-center",
+            className: "remotelab-top-notice-toast",
+          });
+        }
         try {
           await refreshCurrentSession();
         } catch {

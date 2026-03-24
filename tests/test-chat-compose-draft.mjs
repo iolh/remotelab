@@ -434,4 +434,45 @@ failedSendContext.restoreFailedSendState('session-a', 'retry this request', [], 
 assert.equal(failedSendContext.msgInput.readOnly, false, 'failed sends should restore the composer input state');
 assert.equal(failedSendContext.localStorage.getItem('draft_session-a'), 'retry this request', 'failed sends should put the draft back into durable storage for retry');
 
+const workflowLaunchContext = createContext();
+const workflowLaunchCalls = [];
+const workflowLaunchDispatches = [];
+workflowLaunchContext.window.remotelabWorkflowBridge = {
+  async launchFromText({ text }) {
+    workflowLaunchCalls.push(text);
+    return { handled: true, started: true };
+  },
+};
+workflowLaunchContext.dispatchAction = async (payload) => {
+  workflowLaunchDispatches.push(payload);
+  return true;
+};
+vm.runInNewContext(composeSource, workflowLaunchContext, { filename: 'static/chat/compose.js' });
+workflowLaunchContext.msgInput.value = '开始任务：修复移动端登录按钮';
+workflowLaunchContext.saveDraft();
+await workflowLaunchContext.sendMessage();
+assert.deepEqual(workflowLaunchCalls, ['开始任务：修复移动端登录按钮'], 'explicit workflow launch text should be routed into the workflow bridge');
+assert.equal(workflowLaunchDispatches.length, 0, 'workflow launch commands should not fall through to the normal message dispatch path');
+assert.equal(workflowLaunchContext.msgInput.value, '', 'successful workflow launches should clear the composer');
+assert.equal(workflowLaunchContext.localStorage.getItem('draft_session-a'), null, 'successful workflow launches should clear any persisted draft');
+
+const workflowOpenContext = createContext();
+const workflowOpenDispatches = [];
+workflowOpenContext.window.remotelabWorkflowBridge = {
+  async launchFromText() {
+    return { handled: true, opened: true };
+  },
+};
+workflowOpenContext.dispatchAction = async (payload) => {
+  workflowOpenDispatches.push(payload);
+  return true;
+};
+vm.runInNewContext(composeSource, workflowOpenContext, { filename: 'static/chat/compose.js' });
+workflowOpenContext.msgInput.value = '启动工作流';
+workflowOpenContext.saveDraft();
+await workflowOpenContext.sendMessage();
+assert.equal(workflowOpenDispatches.length, 0, 'workflow intake commands should not be sent as plain chat messages while opening the intake flow');
+assert.equal(workflowOpenContext.msgInput.value, '启动工作流', 'opening the workflow intake should keep the composer text in place in case the user cancels');
+assert.equal(workflowOpenContext.localStorage.getItem('draft_session-a'), '启动工作流', 'opening the workflow intake should preserve the durable draft until a task actually starts');
+
 console.log('test-chat-compose-draft: ok');

@@ -153,12 +153,41 @@ function getComposerDraftText(sessionId = currentSessionId) {
   return readStoredDraft(sessionId);
 }
 
+async function maybeLaunchWorkflowFromComposerText(text) {
+  if (visitorMode || pendingImages.length > 0) {
+    return { handled: false };
+  }
+  const launcher = window.remotelabWorkflowBridge?.launchFromText;
+  if (typeof launcher !== "function") {
+    return { handled: false };
+  }
+  try {
+    return await launcher({ text });
+  } catch (error) {
+    window.remotelabToastBridge?.show(
+      error instanceof Error ? error.message : "启动工作流失败",
+      "error",
+    );
+    return { handled: true };
+  }
+}
+
 async function sendMessage(existingRequestId) {
   if (typeof shareSnapshotMode !== "undefined" && shareSnapshotMode) return;
   const text = msgInput.value.trim();
   const currentSession = getCurrentSession();
   if (hasPendingComposerSend()) return;
   if ((!text && pendingImages.length === 0) || currentSession?.archived) return;
+
+  const workflowLaunch = await maybeLaunchWorkflowFromComposerText(text);
+  if (workflowLaunch?.handled) {
+    if (workflowLaunch.started) {
+      clearDraft(currentSessionId);
+      msgInput.value = "";
+      autoResizeInput();
+    }
+    return;
+  }
 
   if (!currentSessionId && !visitorMode) {
     const created = typeof createNewSessionShortcut === "function"

@@ -23,16 +23,29 @@ assert.ok(
   'verification mode should use the read-only sandbox',
 );
 assert.ok(
-  verificationArgs.includes('--ask-for-approval'),
-  'verification mode should pin an explicit approval policy',
+  verificationArgs.includes('--dangerously-bypass-approvals-and-sandbox'),
+  'verification mode with approvalPolicy=never should use bypass flag',
 );
 assert.ok(
-  verificationArgs.includes('never'),
-  'verification mode should use the never approval policy',
+  !verificationArgs.includes('--ask-for-approval'),
+  'verification mode should not use unsupported --ask-for-approval flag',
+);
+
+const deliberationArgs = buildCodexArgs('Evaluate the approach', {
+  approvalPolicy: 'never',
+  developerInstructions: 'deliberation only',
+});
+assert.ok(
+  deliberationArgs.includes('--dangerously-bypass-approvals-and-sandbox'),
+  'deliberation mode (no sandbox) should use bypass flag',
 );
 assert.ok(
-  !verificationArgs.includes('--dangerously-bypass-approvals-and-sandbox'),
-  'verification mode should not bypass sandboxing or approvals',
+  !deliberationArgs.includes('--ask-for-approval'),
+  'deliberation mode should not use unsupported --ask-for-approval flag',
+);
+assert.ok(
+  !deliberationArgs.includes('--sandbox'),
+  'deliberation mode without sandboxMode should not include --sandbox',
 );
 
 console.log('test-codex-verification-readonly: ok');

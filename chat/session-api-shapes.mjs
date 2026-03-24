@@ -17,9 +17,20 @@ function stripSessionShape(session, {
 }
 
 export function createSessionListItem(session) {
-  return stripSessionShape(session, { includeQueuedMessages: false });
+  const item = stripSessionShape(session, { includeQueuedMessages: false });
+  if (!item) return null;
+  item.workflowAutoTriggerDisabled = item.workflowAutoTriggerDisabled === true;
+  return item;
 }
 
 export function createSessionDetail(session) {
-  return stripSessionShape(session, { includeQueuedMessages: true });
+  const detail = stripSessionShape(session, { includeQueuedMessages: true });
+  if (!detail) return null;
+  detail.workflowDefinition = detail.workflowDefinition || null;
+  detail.workflowTaskContract = detail.workflowTaskContract || null;
+  detail.workflowAutoRoute = detail.workflowAutoRoute || null;
+  detail.workflowTaskTrace = detail.workflowTaskTrace || null;
+  detail.workflowTraceBridge = detail.workflowTraceBridge || null;
+  detail.workflowAutoTriggerDisabled = detail.workflowAutoTriggerDisabled === true;
+  return detail;
 }

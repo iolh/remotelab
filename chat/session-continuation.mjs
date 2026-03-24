@@ -148,6 +148,8 @@ function formatContinuationEvent(evt) {
     case 'file_change':
       return formatFileChange(evt);
     case 'status':
+    case 'workflow_auto_advance':
+    case 'workflow_auto_absorb':
       return formatStatus(evt);
     default:
       return '';

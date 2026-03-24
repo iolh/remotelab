@@ -32,6 +32,40 @@ for (const filePath of filesToParse) {
   );
 }
 
+function extractFunctionSource(source, functionName) {
+  const marker = `function ${functionName}`;
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, `${functionName} should exist`);
+  const paramsStart = source.indexOf('(', start);
+  assert.notEqual(paramsStart, -1, `${functionName} should have parameters`);
+  let paramsDepth = 0;
+  let braceStart = -1;
+  for (let index = paramsStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '(') paramsDepth += 1;
+    if (char === ')') {
+      paramsDepth -= 1;
+      if (paramsDepth === 0) {
+        braceStart = source.indexOf('{', index);
+        break;
+      }
+    }
+  }
+  assert.notEqual(braceStart, -1, `${functionName} should have a body`);
+  let depth = 0;
+  for (let index = braceStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '{') depth += 1;
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(start, index + 1);
+      }
+    }
+  }
+  throw new Error(`Unable to extract ${functionName}`);
+}
+
 function createClassList() {
   const classes = new Set();
   return {
@@ -344,6 +378,56 @@ assert.equal(typeof context.readNavigationStateFromLocation, 'function');
 assert.equal(typeof context.createNewSessionShortcut, 'function');
 assert.equal(typeof context.createNewAppShortcut, 'function');
 assert.equal(typeof context.switchTab, 'function');
+
+const sessionSurfaceUiSource = readFileSync(join(repoRoot, 'static', 'chat', 'session-surface-ui.js'), 'utf8');
+const workflowMetaContext = {
+  console,
+  esc(value) {
+    return String(value);
+  },
+  getSessionReviewStatusInfo() {
+    return null;
+  },
+  getSessionStatusSummary() {
+    return { primary: { key: 'idle', label: 'idle' } };
+  },
+  renderSessionStatusHtml() {
+    return '';
+  },
+  renderSessionWorktreeMetaHtml() {
+    return '';
+  },
+  renderSessionMessageCount() {
+    return '';
+  },
+};
+workflowMetaContext.globalThis = workflowMetaContext;
+vm.runInNewContext(
+  [
+    'const WORKFLOW_STAGE_ROLE_LABELS = { execute: "执行", verify: "验收", deliberate: "再议" };',
+    extractFunctionSource(sessionSurfaceUiSource, 'getNormalizedWorkflowDefinition'),
+    extractFunctionSource(sessionSurfaceUiSource, 'isWorkflowSessionActive'),
+    extractFunctionSource(sessionSurfaceUiSource, 'getWorkflowStageBaseLabel'),
+    extractFunctionSource(sessionSurfaceUiSource, 'getCurrentWorkflowStageLabel'),
+    extractFunctionSource(sessionSurfaceUiSource, 'renderCurrentWorkflowStageHtml'),
+    extractFunctionSource(sessionSurfaceUiSource, 'buildSessionMetaParts'),
+    'globalThis.buildSessionMetaParts = buildSessionMetaParts;',
+  ].join('\n'),
+  workflowMetaContext,
+  { filename: 'static/chat/session-surface-ui.js' },
+);
+
+const workflowMetaParts = workflowMetaContext.buildSessionMetaParts({
+  workflowDefinition: {
+    stages: [{ role: 'deliberate' }, { role: 'execute' }, { role: 'verify' }],
+    currentStageIndex: 1,
+  },
+});
+assert.match(
+  workflowMetaParts[0] || '',
+  /session-workflow-stage-pill[\s\S]*执行中/,
+  'session metadata rendering should tolerate workflowDefinition and expose the current stage label',
+);
 
 console.log('test-chat-split-frontend-smoke: ok');
 process.exit(0);

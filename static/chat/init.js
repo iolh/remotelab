@@ -101,7 +101,7 @@ async function initApp() {
   });
 
   await Promise.all([toolsPromise, sessionsPromise]);
-  restoreOwnerSessionSelection();
+  await restoreOwnerSessionSelection();
   connect();
   void loadModelsForCurrentTool();
   void appsPromise;

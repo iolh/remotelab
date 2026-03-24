@@ -178,8 +178,7 @@ async function main() {
     const page = await request(port, 'GET', '/');
     assert.equal(page.status, 200, 'chat page should render for owner session');
     assert.match(page.text, /<meta name="color-scheme" content="light dark">/);
-    assert.match(page.text, /<meta name="theme-color" content="#ffffff" media="\(prefers-color-scheme: light\)">/);
-    assert.match(page.text, /<meta name="theme-color" content="#1e1e1e" media="\(prefers-color-scheme: dark\)">/);
+    assert.match(page.text, /<meta name="theme-color" content="#ffffff" data-remotelab-theme-color>/);
     assert.match(page.text, /window\.__REMOTELAB_BOOTSTRAP__ = \{"auth":\{"role":"owner"\}\};/);
     assert.match(page.text, /<script src="\/chat\/bootstrap\.js(?:\?v=[^"]*)?"/);
     assert.match(page.text, /<script src="\/chat\/bootstrap-session-catalog\.js(?:\?v=[^"]*)?"/);
@@ -393,6 +392,7 @@ async function main() {
     const chatIslandAsset = await request(port, 'GET', '/chat-island/chat-chrome.js');
     assert.equal(chatIslandAsset.status, 200, 'chat chrome island asset should load');
     assert.match(chatIslandAsset.text, /remotelab:workflow-intake-open/);
+    assert.match(chatIslandAsset.text, /launchFromText/);
     const chatIslandStylesheet = await request(port, 'GET', '/chat-island/chat-chrome.css');
     assert.equal(chatIslandStylesheet.status, 200, 'chat chrome island stylesheet should load');
     assert.match(chatIslandStylesheet.text, /workflowTaskEntryRoot/);

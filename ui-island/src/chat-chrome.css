@@ -374,6 +374,28 @@
   position: relative;
 }
 
+.chrome-auto-trigger-toggle {
+  height: calc(var(--chrome-button-size) - 4px);
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.chrome-auto-trigger-toggle.is-enabled {
+  color: color-mix(in srgb, var(--success) 78%, var(--text) 22%);
+  background: color-mix(in srgb, var(--success) 12%, var(--bg) 88%);
+}
+
+.chrome-auto-trigger-toggle.is-enabled:hover {
+  color: color-mix(in srgb, var(--success) 86%, var(--text) 14%);
+  background: color-mix(in srgb, var(--success) 18%, var(--bg) 82%);
+}
+
+.chrome-auto-trigger-toggle.is-disabled {
+  color: var(--text-muted);
+}
+
 .chrome-action-button-notice {
   color: #07c160;
 }
@@ -391,6 +413,61 @@
   border-radius: 999px;
   background: #07c160;
   box-shadow: 0 0 0 2px var(--bg);
+}
+
+.chrome-stage-timeline {
+  min-width: 0;
+  max-width: min(44vw, 360px);
+}
+
+.chrome-stage-timeline-scroll {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  white-space: nowrap;
+}
+
+.chrome-stage-timeline-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.chrome-stage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text-muted);
+}
+
+.chrome-stage-chip-completed {
+  color: color-mix(in srgb, var(--success) 76%, var(--text-secondary) 24%);
+}
+
+.chrome-stage-chip-current {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.chrome-stage-chip-upcoming {
+  color: var(--text-muted);
+}
+
+.chrome-stage-chip-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.chrome-stage-connector {
+  flex: 0 0 auto;
+  margin: 0 6px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1;
 }
 
 .chrome-status-scroll {
@@ -450,6 +527,130 @@
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.chrome-status-timeline {
+  display: grid;
+  gap: 10px;
+}
+
+.chrome-status-timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.chrome-status-timeline-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--text-tertiary);
+}
+
+.chrome-status-timeline-dot-neutral {
+  background: var(--text-tertiary);
+}
+
+.chrome-status-timeline-dot-notice {
+  background: var(--accent);
+}
+
+.chrome-status-timeline-dot-success {
+  background: var(--success);
+}
+
+.chrome-status-timeline-dot-warning {
+  background: var(--warning);
+}
+
+.chrome-status-timeline-dot-error {
+  background: var(--error);
+}
+
+.chrome-status-timeline-dot-muted {
+  background: color-mix(in srgb, var(--text-secondary) 70%, var(--bg) 30%);
+}
+
+.chrome-status-timeline-body {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 5px;
+}
+
+.chrome-status-timeline-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chrome-status-timeline-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chrome-status-timeline-title {
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.chrome-status-timeline-time {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.chrome-status-timeline-detail {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.chrome-status-timeline-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chrome-status-timeline-status {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.chrome-status-timeline-status-neutral {
+  color: var(--text-secondary);
+}
+
+.chrome-status-timeline-status-notice {
+  color: var(--accent);
+}
+
+.chrome-status-timeline-status-success {
+  color: var(--success);
+}
+
+.chrome-status-timeline-status-warning {
+  color: var(--warning);
+}
+
+.chrome-status-timeline-status-error {
+  color: var(--error);
+}
+
+.chrome-status-timeline-status-muted {
+  color: var(--text-muted);
 }
 
 .chrome-status-card {
@@ -584,6 +785,19 @@
 }
 
 @media (max-width: 640px) {
+  .chrome-stage-timeline {
+    max-width: min(48vw, 220px);
+  }
+
+  .chrome-stage-chip {
+    font-size: 10px;
+  }
+
+  .chrome-stage-chip-icon,
+  .chrome-stage-connector {
+    font-size: 10px;
+  }
+
   .chrome-status-popover {
     width: min(calc(100vw - 16px), 360px);
     border-radius: 14px;
@@ -607,6 +821,19 @@
 
   .chrome-status-task {
     font-size: 12px;
+  }
+
+  .chrome-status-timeline-item {
+    gap: 8px;
+  }
+
+  .chrome-status-timeline-header {
+    gap: 8px;
+  }
+
+  .chrome-status-timeline-title,
+  .chrome-status-timeline-detail {
+    font-size: 11px;
   }
 
   .chrome-status-card {

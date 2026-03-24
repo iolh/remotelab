@@ -228,12 +228,10 @@ export function buildCodexArgs(prompt, options = {}) {
   const approvalPolicy = typeof options.approvalPolicy === 'string' ? options.approvalPolicy.trim() : '';
 
   args.push('--json');
-  if (sandboxMode || approvalPolicy) {
-    if (sandboxMode) {
-      args.push('--sandbox', sandboxMode);
-    }
-    if (approvalPolicy) {
-      args.push('--ask-for-approval', approvalPolicy);
+  if (sandboxMode) {
+    args.push('--sandbox', sandboxMode);
+    if (approvalPolicy === 'never') {
+      args.push('--dangerously-bypass-approvals-and-sandbox');
     }
   } else {
     args.push('--dangerously-bypass-approvals-and-sandbox');

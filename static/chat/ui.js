@@ -615,6 +615,8 @@ function renderHiddenBlockEventsInto(container, events) {
       case "message":
         renderMessageInto(container, event);
         break;
+      case "workflow_metric":
+        break;
       case "template_context":
         renderTemplateContextInto(container, event);
         break;
@@ -634,6 +636,8 @@ function renderHiddenBlockEventsInto(container, events) {
         renderFileChangeInto(container, event);
         break;
       case "status":
+      case "workflow_auto_advance":
+      case "workflow_auto_absorb":
         renderStatusInto(container, event);
         break;
       case "context_barrier":

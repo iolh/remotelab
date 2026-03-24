@@ -554,6 +554,8 @@
         renderShareReasoningInto(container, event);
         break;
       case "status":
+      case "workflow_auto_advance":
+      case "workflow_auto_absorb":
         renderStatusInto(container, event);
         break;
       case "context_barrier":
@@ -622,6 +624,8 @@
         renderReasoning(event);
         break;
       case "status":
+      case "workflow_auto_advance":
+      case "workflow_auto_absorb":
         renderStatus(event);
         break;
       case "context_barrier":

@@ -263,6 +263,6 @@ assert.equal(toolFallbackStatus.primary.label, 'codex');
 
 const idleStatus = model.getSessionStatusSummary(makeSession());
 assert.equal(idleStatus.primary.key, 'idle');
-assert.equal(idleStatus.primary.label, 'idle');
+assert.equal(idleStatus.primary.label, '空闲');
 
 console.log('test-chat-session-state-model: ok');

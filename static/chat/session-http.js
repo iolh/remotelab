@@ -1,9 +1,32 @@
-function restoreOwnerSessionSelection() {
+async function ensureSessionAvailableForRestore(sessionId) {
+  if (!sessionId || visitorMode) return null;
+  const existing = sessions.find((session) => session?.id === sessionId) || null;
+  if (existing) return existing;
+  try {
+    return await fetchSessionState(sessionId);
+  } catch (error) {
+    if (error?.message === "Session not found") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function restoreOwnerSessionSelection() {
   if (visitorMode) return;
 
   const requestedTab = pendingNavigationState?.tab || activeTab;
   if (requestedTab !== activeTab) {
     switchTab(requestedTab, { syncState: false });
+  }
+
+  const requestedSessionId = pendingNavigationState?.sessionId || currentSessionId;
+  if (requestedSessionId && !sessions.some((session) => session.id === requestedSessionId)) {
+    try {
+      await ensureSessionAvailableForRestore(requestedSessionId);
+    } catch (error) {
+      console.warn("[sessions] Failed to restore requested session:", error?.message || error);
+    }
   }
 
   const targetSession = resolveRestoreTargetSession();
@@ -453,7 +476,9 @@ function applyAttachedSessionState(id, session) {
   compactBtn.style.display = "none";
   dropToolsBtn.style.display = "none";
 
-  const displayName = getSessionDisplayName(session);
+  const displayName = typeof getSessionDisplayName === "function"
+    ? getSessionDisplayName(session)
+    : (session?.name || session?.description || session?.tool || "RemoteLab");
   headerTitle.textContent = displayName;
   if (typeof shareSnapshotMode !== "undefined" && shareSnapshotMode) {
     const titleSuffix = getShareSnapshotViewValue("titleSuffix", "共享快照");
@@ -726,7 +751,7 @@ async function bootstrapViaHttp({ deferOwnerRestore = false } = {}) {
   }
   await fetchSessionsList();
   if (!deferOwnerRestore) {
-    restoreOwnerSessionSelection();
+    await restoreOwnerSessionSelection();
   }
 }
 

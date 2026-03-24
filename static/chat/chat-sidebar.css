@@ -642,6 +642,22 @@
 .board-card-meta .status-done { color: var(--success); }
 .board-card-meta .status-parked { color: var(--text-muted); }
 .session-item-meta .status-archived { color: var(--text-muted); }
+.session-workflow-stage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  vertical-align: middle;
+}
 .session-worktree-pill {
   display: inline-flex;
   align-items: center;

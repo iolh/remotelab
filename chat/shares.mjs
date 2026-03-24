@@ -152,6 +152,8 @@ async function sanitizeEvent(event, shareId) {
       };
     case 'reasoning':
     case 'status':
+    case 'workflow_auto_advance':
+    case 'workflow_auto_absorb':
     case 'context_barrier':
       return {
         type: event.type,

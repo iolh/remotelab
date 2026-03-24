@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
   ChevronDown,
@@ -67,15 +67,43 @@ type WorkflowSuggestion = {
   body?: string;
 } | null;
 
+type WorkflowStage = {
+  label: string;
+  state: "completed" | "current" | "upcoming";
+};
+
+type WorkflowTimelineEntry = {
+  id: string;
+  kind: "stage" | "decision" | "reconcile" | "event";
+  title: string;
+  detail?: string;
+  statusLabel?: string;
+  tone?: "neutral" | "notice" | "success" | "warning" | "error" | "muted";
+  at?: string;
+};
+
 type ChromeState = {
   title?: string;
   statusLabel?: string;
   currentSessionId?: string;
   visitorMode?: boolean;
+  workflowAutoTrigger?: {
+    visible?: boolean;
+    disabled?: boolean;
+    activeWorkflow?: boolean;
+  } | null;
   summary?: {
     currentTask?: string;
     suggestion?: WorkflowSuggestion;
     workflowStatus?: string;
+    workflowStages?: WorkflowStage[];
+    workflowTimeline?: WorkflowTimelineEntry[];
+    activeVerification?: {
+      id: string;
+      name: string;
+      kind?: string;
+      runState: string;
+    } | null;
     pending?: Conclusion[];
     decisions?: Conclusion[];
     handled?: Conclusion[];
@@ -113,7 +141,28 @@ type WorkflowModeConfig = {
   appRole: "execute" | "deliberate";
 };
 
-type WorkflowOpenDetail = null;
+type WorkflowRoutePreview = {
+  label: string;
+  title: string;
+  flow: string[];
+  plan: string[];
+};
+
+type WorkflowClassificationResult = {
+  mode?: WorkflowModeKey;
+  confidence?: string;
+  reason?: string;
+} | null;
+
+type WorkflowOpenDetail = {
+  input?: Partial<WorkflowTaskInput>;
+  preferredMode?: WorkflowModeKey | null;
+} | null;
+type WorkflowLaunchResult = {
+  handled: boolean;
+  opened?: boolean;
+  started?: boolean;
+};
 type ResolvedTheme = "light" | "dark";
 
 declare global {
@@ -125,6 +174,7 @@ declare global {
         fork: () => Promise<void> | void;
         share: () => Promise<void> | void;
         handoff: () => Promise<void> | void;
+        setWorkflowAutoTriggerDisabled?: (disabled: boolean) => Promise<void> | void;
         workflowConclusionStatus?: (conclusionId: string, status: string) => Promise<void> | void;
         acceptWorkflowSuggestion?: () => Promise<void> | void;
         dismissWorkflowSuggestion?: () => Promise<void> | void;
@@ -152,23 +202,27 @@ declare global {
         verify?: string[];
         deliberate?: string[];
       };
+      classifyTask?: (options: { text: string; folder?: string }) => Promise<WorkflowClassificationResult>;
+      launchFromText?: (options: { text: string }) => Promise<WorkflowLaunchResult>;
       startTask?: (options: {
         appNames: string[];
         input: WorkflowTaskInput;
         kickoffMessage: string;
         successToast: string;
         workflowMode?: WorkflowModeKey;
+        gatePolicy?: string;
       }) => Promise<unknown>;
     };
     RemoteLabTheme?: {
       getTheme?: () => string;
       subscribe?: (listener: (detail: { preference?: string; theme?: string }) => void) => () => void;
     };
-    openWorkflowTaskIntakeModal?: () => boolean;
+    openWorkflowTaskIntakeModal?: (detail?: WorkflowOpenDetail) => boolean;
   }
 }
 
 const WORKFLOW_OPEN_EVENT = "remotelab:workflow-intake-open";
+const WORKFLOW_START_SUCCESS_TOAST = "任务已开始";
 const EMPTY_WORKFLOW_INPUT: WorkflowTaskInput = {
   goal: "",
   project: "",
@@ -216,13 +270,14 @@ const WORKFLOW_MODES: Record<WorkflowModeKey, WorkflowModeConfig> = {
   careful_deliberation: {
     key: "careful_deliberation",
     label: "审慎模式",
-    title: "先创建再议主线，把方向和取舍判清，再进入执行。",
-    reason: "这次任务存在明显的不确定性或代价较高的判断，先把方向收敛会更稳。",
-    flow: ["再议", "执行", "验收"],
+    title: "先再议定方向，执行一轮后再议关键风险，再进入最后执行和验收。",
+    reason: "这次任务不适合一把做到底，先判方向，再在首轮实现后复盘取舍，会比直接冲到验收更稳。",
+    flow: ["再议", "执行", "再议", "执行", "验收"],
     plan: [
       "先创建再议会话，自动带上当前问题、约束和倾向",
-      "由再议给出推荐路径、放弃路径和需要你拍板的点",
-      "你拍板后，再进入执行和后续验收",
+      "由首轮再议给出推荐路径、放弃路径和需要你拍板的点",
+      "首轮执行完成后，再开一轮再议，专门复盘残余风险、取舍和是否需要补做",
+      "确认后进入最后一轮执行收口，再做独立验收",
     ],
     successToast: "已按审慎模式开始",
     appRole: "deliberate",
@@ -243,8 +298,72 @@ const WORKFLOW_MODES: Record<WorkflowModeKey, WorkflowModeConfig> = {
   },
 };
 
+const WORKFLOW_ROUTE_PREVIEWS: Record<WorkflowModeKey, WorkflowRoutePreview> = {
+  quick_execute: {
+    label: "直接推进",
+    title: "系统预估这次可以先直接实现，必要时再补收口。",
+    flow: ["直接实现"],
+    plan: [
+      "优先按当前目标直接推进改动",
+      "如果过程中出现范围扩张或明显风险，系统会自动暂停",
+    ],
+  },
+  standard_delivery: {
+    label: "标准链路",
+    title: "系统预估先实现，再做独立验收，最后按结果收口会更稳。",
+    flow: ["先实现", "再验收", "最后收口"],
+    plan: [
+      "先推进首轮实现",
+      "完成后触发独立验收，再决定是否需要补做",
+    ],
+  },
+  careful_deliberation: {
+    label: "先定方向",
+    title: "系统预估这次先收敛方向，再推进实现和验收会更可靠。",
+    flow: ["先定方向", "推进实现", "复盘风险", "最后验收"],
+    plan: [
+      "先判断路径、取舍和风险",
+      "再进入实现，必要时中途复盘一次",
+      "最后做独立验收",
+    ],
+  },
+  parallel_split: {
+    label: "拆分推进",
+    title: "系统预估这次适合先判断是否拆分，再决定主线和支线如何并行。",
+    flow: ["先拆分", "主线推进", "支线推进", "最后验收"],
+    plan: [
+      "先识别能否安全拆成并行子任务",
+      "冲突高的部分会保守处理，不会强行自动合流",
+    ],
+  },
+};
+
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function buildWorkflowTaskInput(
+  seed: Partial<WorkflowTaskInput> = {},
+  override: Partial<WorkflowTaskInput> = {},
+): WorkflowTaskInput {
+  return {
+    goal: normalizeText(override.goal ?? seed.goal),
+    project: normalizeText(override.project ?? seed.project),
+    constraints: normalizeText(override.constraints ?? seed.constraints),
+    progress: normalizeText(override.progress ?? seed.progress),
+    concern: normalizeText(override.concern ?? seed.concern),
+    preference: normalizeText(override.preference ?? seed.preference),
+  };
+}
+
+function resolveWorkflowModeKeyFromText(value: string): WorkflowModeKey | null {
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+  if (/快速执行/u.test(normalized)) return "quick_execute";
+  if (/标准交付/u.test(normalized)) return "standard_delivery";
+  if (/审慎模式/u.test(normalized)) return "careful_deliberation";
+  if (/并行推进/u.test(normalized)) return "parallel_split";
+  return null;
 }
 
 function getAppAliases(role: keyof typeof APP_ALIAS_FALLBACK) {
@@ -265,32 +384,11 @@ function buildTaskSignalText(input: WorkflowTaskInput) {
     .join(" ");
 }
 
-function recommendWorkflowMode(input: WorkflowTaskInput) {
-  const joined = buildTaskSignalText(input);
-  const hasConcern = !!input.concern;
-  const hasPreference = !!input.preference;
-  const hasProgress = !!input.progress;
-  const deliberationHint = /(重构|迁移|架构|方案|冲突|取舍|跨模块|不确定|心里没底|争议|兼容|风险|评审|裁决)/iu.test(joined);
-  const parallelHint = /(并行|拆分|支线|分支|worktree|多模块|多页面|同时推进|分两块|AB|A\/B)/iu.test(joined);
-  const quickCandidate =
-    !hasConcern &&
-    !hasPreference &&
-    !hasProgress &&
-    !deliberationHint &&
-    input.goal.length > 0 &&
-    input.goal.length <= 24 &&
-    input.constraints.length <= 18;
-
-  if (parallelHint && (hasConcern || hasPreference || !!input.constraints || input.goal.length > 18)) {
-    return WORKFLOW_MODES.parallel_split;
+function normalizeWorkflowModeKey(value: string | null | undefined): WorkflowModeKey | null {
+  if (value === "quick_execute" || value === "standard_delivery" || value === "careful_deliberation" || value === "parallel_split") {
+    return value;
   }
-  if (hasConcern || hasPreference || deliberationHint) {
-    return WORKFLOW_MODES.careful_deliberation;
-  }
-  if (quickCandidate) {
-    return WORKFLOW_MODES.quick_execute;
-  }
-  return WORKFLOW_MODES.standard_delivery;
+  return null;
 }
 
 function buildExecuteKickoffMessage(input: WorkflowTaskInput, mode: WorkflowModeConfig) {
@@ -352,12 +450,131 @@ function buildKickoffMessage(
   return buildDeliberationKickoffMessage(input, mode);
 }
 
+function buildWorkflowKickoffMessage(input: WorkflowTaskInput) {
+  const sections = [
+    `目标：${input.goal}`,
+    input.project ? `项目/仓库：${input.project}` : "",
+    input.constraints ? `边界 / 不能动：${input.constraints}` : "",
+    input.progress ? `当前进展：${input.progress}` : "",
+    input.concern ? `我最担心：${input.concern}` : "",
+    input.preference ? `我当前倾向：${input.preference}` : "",
+    "请先判断最合适的推进方式：任务边界清晰就直接推进；如果存在方向取舍、拆分必要性或明显风险，请先收敛再继续。",
+  ].filter(Boolean);
+  return sections.join("\n");
+}
+
+function getWorkflowRoutePreview(mode: WorkflowModeConfig): WorkflowRoutePreview {
+  return WORKFLOW_ROUTE_PREVIEWS[mode.key];
+}
+
+const WORKFLOW_LAUNCH_PREFIX_PATTERN = /^(?:请|帮我|麻烦|想|要|我要|我想|用|按|直接|继续|现在|先|给我|替我|让我|就)?(?:(?:按)?(?:快速执行|标准交付|审慎模式|并行推进))?(?:模式)?(?:来|继续|直接)?(?:启动|开始|开启|进入|走)(?:一下|吧)?(?:(?:我的?|这个)?(?:工作流|任务))?(?<rest>.*)$/u;
+const WORKFLOW_INPUT_FIELD_MATCHERS: Array<{ key: keyof WorkflowTaskInput; pattern: RegExp }> = [
+  { key: "goal", pattern: /^(?:目标|任务|需求|goal)\s*[：:]\s*(.+)$/iu },
+  { key: "project", pattern: /^(?:项目(?:\/仓库)?|项目\/仓库|仓库|repo|project)\s*[：:]\s*(.+)$/iu },
+  { key: "constraints", pattern: /^(?:边界|约束|限制|不能动|不做|constraints?)\s*[：:]\s*(.+)$/iu },
+  { key: "progress", pattern: /^(?:进展|当前进展|现状|progress)\s*[：:]\s*(.+)$/iu },
+  { key: "concern", pattern: /^(?:我最担心|担心|风险|concern)\s*[：:]\s*(.+)$/iu },
+  { key: "preference", pattern: /^(?:我当前倾向|倾向|偏好|方案倾向|preference)\s*[：:]\s*(.+)$/iu },
+];
+
+function parseWorkflowInputBody(text: string): Partial<WorkflowTaskInput> {
+  const result: Partial<WorkflowTaskInput> = {};
+  const remainingLines: string[] = [];
+
+  for (const rawLine of text.split(/\n+/u)) {
+    const line = normalizeText(rawLine);
+    if (!line) continue;
+    let matched = false;
+    for (const { key, pattern } of WORKFLOW_INPUT_FIELD_MATCHERS) {
+      const match = line.match(pattern);
+      if (!match) continue;
+      const value = normalizeText(match[1]);
+      if (value && !result[key]) {
+        result[key] = value;
+      }
+      matched = true;
+      break;
+    }
+    if (!matched) {
+      remainingLines.push(line);
+    }
+  }
+
+  if (remainingLines.length > 0 && !result.goal) {
+    result.goal = remainingLines.join("\n");
+  }
+
+  return result;
+}
+
+function parseWorkflowLaunchText(rawText: string) {
+  const trimmed = normalizeText(rawText);
+  if (!trimmed) return null;
+  const lines = trimmed.split(/\n/u);
+  const firstLine = normalizeText(lines[0]);
+  const match = firstLine.match(WORKFLOW_LAUNCH_PREFIX_PATTERN);
+  if (!match) return null;
+
+  const preferredMode = resolveWorkflowModeKeyFromText(firstLine);
+  const firstLineRemainder = normalizeText((match.groups?.rest || "").replace(/^[\s:：-]+/u, ""));
+  const body = [firstLineRemainder, ...lines.slice(1)]
+    .map((line) => normalizeText(line))
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    preferredMode,
+    input: body ? parseWorkflowInputBody(body) : {},
+  };
+}
+
+async function launchWorkflowFromText(text: string): Promise<WorkflowLaunchResult> {
+  const parsed = parseWorkflowLaunchText(text);
+  if (!parsed) {
+    return { handled: false };
+  }
+
+  const seedInput = window.remotelabWorkflowBridge?.getSeedInput?.() || {};
+  const input = buildWorkflowTaskInput(seedInput, parsed.input);
+  const explicitGoal = normalizeText(parsed.input.goal);
+
+  if (!explicitGoal) {
+    emitWorkflowTaskOpen({
+      input,
+      preferredMode: parsed.preferredMode,
+    });
+    return { handled: true, opened: true };
+  }
+
+  const kickoffMessage = buildWorkflowKickoffMessage(input);
+  const starter = window.remotelabWorkflowBridge?.startTask;
+
+  if (!starter) {
+    emitWorkflowTaskOpen({
+      input,
+      preferredMode: parsed.preferredMode,
+    });
+    return { handled: true, opened: true };
+  }
+
+  await starter({
+    input,
+    kickoffMessage,
+    successToast: WORKFLOW_START_SUCCESS_TOAST,
+  });
+  return { handled: true, started: true };
+}
+
 function emitWorkflowTaskOpen(detail: WorkflowOpenDetail = null) {
   window.dispatchEvent(new CustomEvent(WORKFLOW_OPEN_EVENT, { detail }));
 }
 
-window.openWorkflowTaskIntakeModal = () => {
-  emitWorkflowTaskOpen(null);
+const workflowBridge = window.remotelabWorkflowBridge || {};
+workflowBridge.launchFromText = async ({ text }) => launchWorkflowFromText(text);
+window.remotelabWorkflowBridge = workflowBridge;
+
+window.openWorkflowTaskIntakeModal = (detail = null) => {
+  emitWorkflowTaskOpen(detail);
   return true;
 };
 
@@ -401,8 +618,129 @@ function getStatusButtonDescription(summary: ChromeState["summary"]) {
   return detail;
 }
 
+const workflowTimelineTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "numeric",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function WorkflowStageTimeline({ summary }: { summary: ChromeState["summary"] }) {
+  const stages = Array.isArray(summary?.workflowStages)
+    ? summary.workflowStages.filter((stage) => stage && typeof stage.label === "string")
+    : [];
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stageKey = stages.map((stage) => `${stage.state}:${stage.label}`).join("|");
+
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    const current = scroller?.querySelector<HTMLElement>("[data-current-stage='true']");
+    if (!scroller || !current) return;
+    const targetLeft = Math.max(0, current.offsetLeft - ((scroller.clientWidth - current.offsetWidth) / 2));
+    scroller.scrollTo({ left: targetLeft });
+  }, [stageKey]);
+
+  if (stages.length === 0) return null;
+
+  return (
+    <div className="chrome-stage-timeline" aria-label="当前 workflow 阶段">
+      <div ref={scrollRef} className="chrome-stage-timeline-scroll">
+        {stages.map((stage, index) => (
+          <Fragment key={`${stage.state}:${stage.label}:${index}`}>
+            {index > 0 ? <span className="chrome-stage-connector" aria-hidden="true">→</span> : null}
+            <span
+              className={`chrome-stage-chip chrome-stage-chip-${stage.state}`}
+              data-current-stage={stage.state === "current" ? "true" : undefined}
+            >
+              <span className="chrome-stage-chip-icon" aria-hidden="true">
+                {stage.state === "completed" ? "✓" : (stage.state === "current" ? "●" : "○")}
+              </span>
+              <span className="chrome-stage-chip-label">{stage.label}</span>
+            </span>
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function getConclusionLabel(conclusion: Conclusion) {
   return normalizeText(conclusion.label) || "结果转交";
+}
+
+function getWorkflowTimelineKindLabel(kind: WorkflowTimelineEntry["kind"]) {
+  if (kind === "stage") return "阶段";
+  if (kind === "decision") return "决策";
+  if (kind === "event") return "反馈";
+  return "回流";
+}
+
+function getWorkflowTimelineTone(tone?: WorkflowTimelineEntry["tone"]) {
+  if (tone === "success" || tone === "notice" || tone === "warning" || tone === "error" || tone === "muted") {
+    return tone;
+  }
+  return "neutral";
+}
+
+function formatWorkflowTimelineTime(stamp?: string) {
+  const parsed = new Date(stamp || "").getTime();
+  if (!Number.isFinite(parsed)) return "";
+  return workflowTimelineTimeFormatter.format(parsed);
+}
+
+function WorkflowTimelineSummary({ summary }: { summary: ChromeState["summary"] }) {
+  const timeline = Array.isArray(summary?.workflowTimeline)
+    ? summary.workflowTimeline.filter((entry): entry is WorkflowTimelineEntry => !!entry && typeof entry.id === "string")
+    : [];
+
+  if (timeline.length === 0) return null;
+
+  return (
+    <section className="chrome-status-zone">
+      <div className="chrome-status-zone-title">阶段时间线</div>
+      <div className="chrome-status-timeline">
+        {timeline.map((entry) => {
+          const tone = getWorkflowTimelineTone(entry.tone);
+          const timestamp = formatWorkflowTimelineTime(entry.at);
+          const detail = normalizeText(entry.detail);
+          const statusLabel = normalizeText(entry.statusLabel);
+          return (
+            <div key={entry.id} className="chrome-status-timeline-item">
+              <span
+                className={`chrome-status-timeline-dot chrome-status-timeline-dot-${tone}`}
+                aria-hidden="true"
+              />
+              <div className="chrome-status-timeline-body">
+                <div className="chrome-status-timeline-header">
+                  <div className="chrome-status-timeline-title-row">
+                    <Badge variant="outline" className={`chrome-status-badge chrome-status-badge-${tone}`}>
+                      {getWorkflowTimelineKindLabel(entry.kind)}
+                    </Badge>
+                    <div className="chrome-status-timeline-title">
+                      {normalizeText(entry.title) || "阶段事件"}
+                    </div>
+                  </div>
+                  {timestamp ? (
+                    <div className="chrome-status-timeline-time">{timestamp}</div>
+                  ) : null}
+                </div>
+                {detail ? (
+                  <div className="chrome-status-timeline-detail">{detail}</div>
+                ) : null}
+                {statusLabel ? (
+                  <div className="chrome-status-timeline-meta">
+                    <span className={`chrome-status-timeline-status chrome-status-timeline-status-${tone}`}>
+                      {statusLabel}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function getConclusionSource(conclusion: Conclusion) {
@@ -439,6 +777,9 @@ function getRecommendationBadge(conclusion: Conclusion): { text: string; classNa
   const rec = conclusion?.payload?.recommendation;
   if (!rec || typeof rec !== "string") return null;
   const normalized = rec.trim().toLowerCase();
+  if (normalized === "ok") return { text: "验收通过", className: "chrome-status-badge-success" };
+  if (normalized === "needs_fix") return { text: "需要修复", className: "chrome-status-badge-warning" };
+  if (normalized === "needs_more_validation") return { text: "需要补充验证", className: "chrome-status-badge-error" };
   if (normalized === "accept") return { text: "验收通过", className: "chrome-status-badge-success" };
   if (normalized === "revise") return { text: "需要修复", className: "chrome-status-badge-warning" };
   if (normalized === "reject") return { text: "验收未通过", className: "chrome-status-badge-error" };
@@ -531,6 +872,35 @@ function WorkflowStatusButton({ summary }: { summary: ChromeState["summary"] }) 
             ) : null}
           </section>
 
+          {summary?.activeVerification ? (
+            <section className="chrome-status-zone">
+              <div className="chrome-status-zone-title">
+                {summary.activeVerification.kind === "deliberation" ? "再议进度" : "验收进度"}
+              </div>
+              <div className="chrome-status-task-row">
+                <div className="chrome-status-task">
+                  {summary.activeVerification.name}
+                  {" · "}
+                  <span className={
+                    summary.activeVerification.runState === "running"
+                      ? "chrome-status-badge-success"
+                      : "chrome-status-badge-neutral"
+                  }>
+                    {summary.activeVerification.runState === "running"
+                      ? "运行中"
+                      : summary.activeVerification.runState === "completed"
+                        ? "已完成"
+                        : summary.activeVerification.runState === "failed"
+                          ? "失败"
+                          : "等待中"}
+                  </span>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          <WorkflowTimelineSummary summary={summary} />
+
           {(suggestion || decisions.length > 0 || pending.length > 0) ? (
             <section className="chrome-status-zone">
               <div className="chrome-status-zone-title">需要你处理</div>
@@ -551,7 +921,7 @@ function WorkflowStatusButton({ summary }: { summary: ChromeState["summary"] }) 
                       disabled={busyKey !== null}
                       onClick={() => void handleSuggestionAction("accept")}
                     >
-                      开启验收（自动开始）
+                      {suggestion.type === "suggest_decision" ? "开启再议（自动开始）" : "开启验收（自动开始）"}
                     </Button>
                     <Button
                       size="sm"
@@ -690,6 +1060,47 @@ function resolveCurrentTheme(): ResolvedTheme {
   return theme === "dark" ? "dark" : "light";
 }
 
+function WorkflowAutoTriggerToggle({ state }: { state: ChromeState }) {
+  const workflowAutoTrigger = state.workflowAutoTrigger || null;
+  const [busy, setBusy] = useState(false);
+
+  if (!workflowAutoTrigger?.visible) {
+    return null;
+  }
+
+  const disabled = workflowAutoTrigger.disabled === true;
+  const title = workflowAutoTrigger.activeWorkflow
+    ? "当前会话已在工作流中；这个开关影响后续普通消息是否会自动提升。"
+    : (disabled
+      ? "当前会话已关闭复杂任务自动提升为工作流。"
+      : "当前会话会在高置信复杂任务时自动提升为工作流。");
+
+  async function handleToggle() {
+    const run = window.remotelabChromeBridge?.actions?.setWorkflowAutoTriggerDisabled;
+    if (!run || busy) return;
+    try {
+      setBusy(true);
+      await run(!disabled);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={`chrome-auto-trigger-toggle ${disabled ? "is-disabled" : "is-enabled"}`}
+      title={title}
+      aria-label={title}
+      disabled={busy}
+      onClick={() => void handleToggle()}
+    >
+      {busy ? "切换中…" : (disabled ? "自动提升关" : "自动提升开")}
+    </Button>
+  );
+}
+
 function HeaderActions() {
   const state = useChromeState();
   const [busy, setBusy] = useState<null | "fork" | "share" | "handoff">(null);
@@ -737,7 +1148,9 @@ function HeaderActions() {
   }
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex min-w-0 items-center gap-1">
+      <WorkflowAutoTriggerToggle state={state} />
+      {summary ? <WorkflowStageTimeline summary={summary} /> : null}
       {summary ? <WorkflowStatusButton summary={summary} /> : null}
       {actionDefs
         .filter((entry) => entry.visible)
@@ -886,13 +1299,21 @@ function WorkflowTaskDialog() {
   const [showRecommendationDetails, setShowRecommendationDetails] = useState(false);
   const [starting, setStarting] = useState(false);
   const [input, setInput] = useState<WorkflowTaskInput>(EMPTY_WORKFLOW_INPUT);
+  const [preferredMode, setPreferredMode] = useState<WorkflowModeKey | null>(null);
+  const [classifiedRoute, setClassifiedRoute] = useState<WorkflowClassificationResult>(null);
+  const [classifying, setClassifying] = useState(false);
 
   useEffect(() => {
-    function handleOpen(_event: Event) {
-      setInput(EMPTY_WORKFLOW_INPUT);
+    function handleOpen(event: Event) {
+      const detail = (event as CustomEvent<WorkflowOpenDetail>).detail || null;
+      const seedInput = window.remotelabWorkflowBridge?.getSeedInput?.() || {};
+      setInput(buildWorkflowTaskInput(seedInput, detail?.input || {}));
+      setPreferredMode(detail?.preferredMode || null);
       setShowOptionalFields(false);
       setShowRecommendationDetails(false);
       setStarting(false);
+      setClassifiedRoute(null);
+      setClassifying(false);
       setOpen(true);
       void window.remotelabWorkflowBridge?.ensureAppsLoaded?.();
     }
@@ -903,7 +1324,77 @@ function WorkflowTaskDialog() {
     };
   }, []);
 
-  const recommendedMode = useMemo(() => recommendWorkflowMode(input), [input]);
+  useEffect(() => {
+    if (!open) return;
+    if (preferredMode) {
+      setClassifiedRoute({
+        mode: preferredMode,
+        confidence: "high",
+        reason: "",
+      });
+      setClassifying(false);
+      return;
+    }
+
+    const classifier = window.remotelabWorkflowBridge?.classifyTask;
+    const signalText = buildTaskSignalText(input);
+    if (!classifier || !normalizeText(signalText)) {
+      setClassifiedRoute(null);
+      setClassifying(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setClassifying(true);
+      void classifier({
+        text: signalText,
+        folder: normalizeText(input.project),
+      }).then((result) => {
+        if (cancelled) return;
+        const mode = normalizeWorkflowModeKey(result?.mode);
+        setClassifiedRoute(mode
+          ? {
+              mode,
+              confidence: normalizeText(result?.confidence),
+              reason: normalizeText(result?.reason),
+            }
+          : null);
+      }).catch(() => {
+        if (cancelled) return;
+        setClassifiedRoute(null);
+      }).finally(() => {
+        if (cancelled) return;
+        setClassifying(false);
+      });
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [input, open, preferredMode]);
+
+  const recommendedMode = useMemo(() => {
+    const modeKey = preferredMode || normalizeWorkflowModeKey(classifiedRoute?.mode) || "standard_delivery";
+    return WORKFLOW_MODES[modeKey];
+  }, [classifiedRoute, preferredMode]);
+  const routePreview = useMemo(
+    () => getWorkflowRoutePreview(recommendedMode),
+    [recommendedMode],
+  );
+  const routeReason = useMemo(() => {
+    if (preferredMode) {
+      return WORKFLOW_MODES[preferredMode].reason;
+    }
+    if (normalizeText(classifiedRoute?.reason)) {
+      return normalizeText(classifiedRoute?.reason);
+    }
+    if (classifying) {
+      return "正在根据任务描述向服务端估计最合适的工作流路径。";
+    }
+    return routePreview.title;
+  }, [classifiedRoute, classifying, preferredMode, routePreview.title]);
 
   function updateField(key: keyof WorkflowTaskInput, value: string) {
     setInput((current) => ({
@@ -912,17 +1403,11 @@ function WorkflowTaskDialog() {
     }));
   }
 
-  async function handleStart(
-    mode: WorkflowModeConfig,
-    roleOverride?: "execute" | "verify" | "deliberate",
-    successToastOverride?: string,
-  ) {
-    if (!normalizeText(input.goal) && roleOverride !== "verify") {
+  async function handleStart() {
+    if (!normalizeText(input.goal)) {
       return;
     }
-    const role = roleOverride || mode.appRole;
-    const kickoffMessage = buildKickoffMessage(input, mode, role);
-    const appNames = getAppAliases(role);
+    const kickoffMessage = buildWorkflowKickoffMessage(input);
     if (!window.remotelabWorkflowBridge?.startTask) {
       window.remotelabToastBridge?.show("任务入口尚未就绪", "error");
       return;
@@ -930,16 +1415,16 @@ function WorkflowTaskDialog() {
     try {
       setStarting(true);
       await window.remotelabWorkflowBridge.startTask({
-        appNames,
         input,
         kickoffMessage,
-        successToast: successToastOverride || mode.successToast,
-        workflowMode: mode.key,
+        successToast: WORKFLOW_START_SUCCESS_TOAST,
       });
       setOpen(false);
       setShowOptionalFields(false);
       setShowRecommendationDetails(false);
       setInput(EMPTY_WORKFLOW_INPUT);
+      setPreferredMode(null);
+      setClassifiedRoute(null);
     } catch (error) {
       window.remotelabToastBridge?.show(
         error instanceof Error ? error.message : "开始任务失败",
@@ -1042,6 +1527,12 @@ function WorkflowTaskDialog() {
                         </div>
                       </CollapsibleContent>
                     </Collapsible>
+                    <div className="workflow-task-field">
+                      <Label className="workflow-task-label">系统默认行为</Label>
+                      <div className="rounded-md border border-[color:var(--border)] bg-[color:var(--accent)] px-3 py-2 text-sm text-[color:var(--text-secondary)]">
+                        系统会自动推进确定性高的步骤；遇到关键取舍、范围扩张或低置信度结果时，才会停下来让你拍板。
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -1051,12 +1542,14 @@ function WorkflowTaskDialog() {
               <Card className="workflow-task-surface workflow-task-recommendation-surface">
                 <CardHeader className="workflow-task-card-header">
                   <div className="flex items-start justify-between gap-3">
-                    <CardTitle>推荐工作流</CardTitle>
-                    <Badge className="workflow-task-recommendation-badge" variant="secondary">{recommendedMode.label}</Badge>
+                    <CardTitle>系统预估路径</CardTitle>
+                    <Badge className="workflow-task-recommendation-badge" variant="secondary">
+                      {classifying && !preferredMode ? "分析中…" : routePreview.label}
+                    </Badge>
                   </div>
                 </CardHeader>
                 <CardContent className="workflow-task-card-content">
-                  <p className="workflow-task-recommendation-reason">{recommendedMode.title}</p>
+                  <p className="workflow-task-recommendation-reason">{routeReason}</p>
                   <Collapsible
                     open={showRecommendationDetails}
                     onOpenChange={setShowRecommendationDetails}
@@ -1064,7 +1557,7 @@ function WorkflowTaskDialog() {
                   >
                     <CollapsibleTrigger asChild>
                       <Button type="button" variant="ghost" size="sm" className="workflow-task-collapsible-trigger">
-                        <span>{showRecommendationDetails ? "收起依据" : "查看依据"}</span>
+                        <span>{showRecommendationDetails ? "收起说明" : "查看说明"}</span>
                         <ChevronDown
                           className={`workflow-task-collapsible-icon${showRecommendationDetails ? " is-open" : ""}`}
                           strokeWidth={1.8}
@@ -1073,9 +1566,9 @@ function WorkflowTaskDialog() {
                     </CollapsibleTrigger>
                     <CollapsibleContent className="workflow-task-collapsible-content">
                       <div className="workflow-task-recommendation-details">
-                        <ModeFlow steps={recommendedMode.flow} />
+                        <ModeFlow steps={routePreview.flow} />
                         <ul className="workflow-task-recommendation-list">
-                          {recommendedMode.plan.map((item) => (
+                          {routePreview.plan.map((item) => (
                             <li key={item} className="flex gap-2">
                               <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-[color:var(--text-tertiary)]" />
                               <span>{item}</span>
@@ -1096,10 +1589,10 @@ function WorkflowTaskDialog() {
           </Button>
           <Button
             variant="default"
-            onClick={() => void handleStart(recommendedMode)}
+            onClick={() => void handleStart()}
             disabled={starting || !normalizeText(input.goal)}
           >
-            {starting ? "正在开始…" : "按推荐模式开始"}
+            {starting ? "正在开始…" : "开始任务"}
           </Button>
         </DialogFooter>
       </DialogContent>

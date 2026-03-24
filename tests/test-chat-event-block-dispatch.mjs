@@ -80,6 +80,10 @@ const context = {
     calls.push(`context_barrier:${event.content}`);
     return { container, event };
   },
+  renderTemplateContextInto(container, event) {
+    calls.push(`template_context:${event.content}`);
+    return { container, event };
+  },
   renderUsageInto(container, event) {
     calls.push(`usage:${event.outputTokens || 0}`);
     return { container, event };
@@ -123,7 +127,7 @@ assert.deepEqual(calls, [
   'file_change:src/app.js',
   'usage:42',
   'context_barrier:Older messages above this marker are no longer in live context.',
-  'unknown:template_context',
-], 'expanded folded blocks should render all folded event kinds and fall back safely for unknown ones');
+  'template_context:internal note',
+], 'expanded folded blocks should render all folded event kinds, including explicit template context blocks');
 
 console.log('test-chat-event-block-dispatch: ok');

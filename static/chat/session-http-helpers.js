@@ -361,6 +361,7 @@ function resetRenderedEventState(sessionId = null) {
   renderedEventState.eventCount = 0;
   renderedEventState.eventBaseKeys = [];
   renderedEventState.eventKeys = [];
+  renderedEventState.displayEvents = [];
   renderedEventState.runState = "idle";
   renderedEventState.runningBlockExpanded = false;
 }
@@ -436,6 +437,9 @@ function updateRenderedEventState(sessionId, events, { runState = "idle" } = {})
     : [];
   renderedEventState.eventKeys = Array.isArray(events)
     ? events.map((event) => getEventRenderKey(event))
+    : [];
+  renderedEventState.displayEvents = Array.isArray(events)
+    ? events.map((event) => ({ ...event }))
     : [];
   renderedEventState.runState = runState === "running" ? "running" : "idle";
   if (renderedEventState.runState !== "running") {
