@@ -2,6 +2,14 @@ export const WORKFLOW_STAGE_ROLES = Object.freeze(['execute', 'verify', 'deliber
 
 export const GATE_POLICIES = Object.freeze(['always_manual', 'low_confidence_only', 'final_confirm_only']);
 
+export const RUNTIME_TIERS = Object.freeze(['strong', 'balanced', 'efficient']);
+
+export const DEFAULT_ROLE_RUNTIME_HINTS = Object.freeze({
+  execute: { tier: 'strong' },
+  verify: { tier: 'efficient' },
+  deliberate: { tier: 'strong' },
+});
+
 export const WORKFLOW_RISK_SIGNAL_KEYWORDS = Object.freeze([
   '不确定',
   '需要确认',
@@ -56,17 +64,33 @@ export function normalizeGatePolicy(value) {
   return 'low_confidence_only';
 }
 
+function normalizeRuntimeHint(hint) {
+  if (!hint || typeof hint !== 'object') return null;
+  const tier = typeof hint.tier === 'string' ? hint.tier.trim().toLowerCase() : '';
+  if (!RUNTIME_TIERS.includes(tier)) return null;
+  return { tier };
+}
+
+export function getStageRuntimeHint(stage) {
+  if (!stage) return null;
+  const explicit = normalizeRuntimeHint(stage.runtimeHint);
+  if (explicit) return explicit;
+  return DEFAULT_ROLE_RUNTIME_HINTS[stage.role] || null;
+}
+
 function normalizeStage(stage) {
   if (!isValidStage(stage)) return null;
   const appNames = stage.appNames
     .map((name) => (typeof name === 'string' ? name.trim() : ''))
     .filter(Boolean);
   if (appNames.length === 0) return null;
+  const runtimeHint = normalizeRuntimeHint(stage.runtimeHint);
   return {
     role: stage.role,
     appNames,
     ...(typeof stage.label === 'string' && stage.label.trim() ? { label: stage.label.trim() } : {}),
     ...(stage.terminal === true ? { terminal: true } : {}),
+    ...(runtimeHint ? { runtimeHint } : {}),
   };
 }
 

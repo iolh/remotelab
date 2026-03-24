@@ -235,3 +235,56 @@ async function getCursorModels() {
     return cursorModelsCache;
   }
 }
+
+const CURSOR_TIER_PATTERNS = {
+  strong: [/opus.*thinking/i, /opus/i],
+  balanced: [/sonnet.*thinking/i, /sonnet/i],
+  efficient: [/haiku/i, /sonnet(?!.*thinking)/i, /sonnet/i],
+};
+
+function pickCursorModelForTier(tier) {
+  const patterns = CURSOR_TIER_PATTERNS[tier];
+  if (!patterns) return null;
+  const candidates = (cursorModelsCache?.models || CURSOR_FALLBACK_MODELS)
+    .map((m) => m.id)
+    .filter((id) => id !== 'auto');
+  for (const pattern of patterns) {
+    const match = candidates.find((id) => pattern.test(id));
+    if (match) return match;
+  }
+  return null;
+}
+
+/**
+ * Given a runtime tier ('strong' | 'balanced' | 'efficient') and a tool ID,
+ * returns an override object { model?, effort?, thinking? } to apply on top of
+ * the parent session defaults. Returns null if no override can be determined.
+ */
+export function resolveRuntimeOverrideForTier(tier, toolId) {
+  const normalizedTier = typeof tier === 'string' ? tier.trim().toLowerCase() : '';
+  const normalizedTool = typeof toolId === 'string' ? toolId.trim().toLowerCase() : '';
+  if (!normalizedTier || !normalizedTool) return null;
+
+  if (normalizedTool === 'claude') {
+    if (normalizedTier === 'strong') return { model: 'opus', thinking: true };
+    if (normalizedTier === 'balanced') return { model: 'sonnet', thinking: true };
+    if (normalizedTier === 'efficient') return { model: 'haiku' };
+    return null;
+  }
+
+  if (normalizedTool === 'cursor') {
+    const model = pickCursorModelForTier(normalizedTier);
+    return model ? { model } : null;
+  }
+
+  if (normalizedTool === 'codex') {
+    if (normalizedTier === 'strong') return { effort: 'high' };
+    if (normalizedTier === 'balanced') return { effort: 'medium' };
+    if (normalizedTier === 'efficient') return { effort: 'low' };
+    return null;
+  }
+
+  if (normalizedTier === 'strong') return { effort: 'high' };
+  if (normalizedTier === 'efficient') return { effort: 'low' };
+  return null;
+}

@@ -353,6 +353,12 @@ function renderWorkflowSummaryPanel(session) {
     if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
     return;
   }
+  if (session.pendingIntake === true) {
+    workflowSummaryBtn.hidden = true;
+    workflowSummaryBtn.classList.remove("has-notice");
+    if (typeof emitChromeBridgeState === "function") emitChromeBridgeState();
+    return;
+  }
 
   const pendingConclusions = getWorkflowConclusionsByStatus(session, ["pending"]);
   const decisionConclusions = getWorkflowConclusionsByStatus(session, ["needs_decision"]);

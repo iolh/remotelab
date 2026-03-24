@@ -470,7 +470,7 @@ function getChromeWorkflowAutomationTone(type = "", content = "") {
   if (/失败|回退|error/u.test(normalizedContent)) return "error";
   if (/暂停|待确认|风险/u.test(normalizedContent)) return "warning";
   if (normalizedType === "workflow_auto_absorb") return "success";
-  if (/已自动启用工作流|已自动启动|已自动推进|已自动吸收/u.test(content)) return "success";
+  if (/系统已接管此任务|已接管|已自动启动|已自动推进|已自动吸收/u.test(content)) return "success";
   if (normalizedType === "workflow_auto_advance") return "notice";
   return "neutral";
 }
@@ -550,8 +550,8 @@ function buildChromeWorkflowAutomationTimelineEntry(event) {
     title = "自动推进";
   } else if (type === "workflow_auto_absorb") {
     title = "自动吸收";
-  } else if (type === "status" && /^已自动启用工作流/u.test(content)) {
-    title = "自动启用工作流";
+  } else if (type === "status" && /^系统已接管此任务/u.test(content)) {
+    title = "系统接管";
   } else if (type === "status" && /^工作流已自动推进/u.test(content)) {
     title = "阶段自动流转";
   } else {
@@ -612,10 +612,11 @@ function buildChromeWorkflowTimeline(session) {
 
 function buildChromeWorkflowAutoTriggerState(session) {
   if (!session || session.visitorId || session.archived) return null;
+  const activeWorkflow = !!getNormalizedWorkflowDefinitionForChrome(session);
   return {
-    visible: true,
+    visible: !activeWorkflow,
     disabled: session.workflowAutoTriggerDisabled === true,
-    activeWorkflow: !!getNormalizedWorkflowDefinitionForChrome(session),
+    activeWorkflow,
   };
 }
 
@@ -854,6 +855,7 @@ function buildChromeBridgeState() {
     statusLabel: statusText?.textContent || "",
     currentSessionId: typeof currentSessionId === "string" ? currentSessionId : "",
     visitorMode: visitorMode === true,
+    pendingIntake: session?.pendingIntake === true,
     summary: buildChromeBridgeSummary(session),
     workflowAutoTrigger: buildChromeWorkflowAutoTriggerState(session),
     actions: {
@@ -1036,14 +1038,191 @@ async function classifyWorkflowTask({ text = "", folder = "" } = {}) {
   return fetchJsonOrRedirect(`${url.pathname}${url.search}`);
 }
 
+function normalizeWorkflowTaskInput(input = {}) {
+  return {
+    goal: normalizeWorkflowTaskText(input?.goal),
+    project: normalizeWorkflowTaskText(input?.project),
+    constraints: normalizeWorkflowTaskText(input?.constraints),
+    progress: normalizeWorkflowTaskText(input?.progress),
+    concern: normalizeWorkflowTaskText(input?.concern),
+    preference: normalizeWorkflowTaskText(input?.preference),
+  };
+}
+
+function buildWorkflowAssessmentSignal(input = {}) {
+  const normalizedInput = normalizeWorkflowTaskInput(input);
+  return [
+    normalizedInput.goal,
+    normalizedInput.constraints,
+    normalizedInput.progress,
+    normalizedInput.concern,
+    normalizedInput.preference,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function normalizeWorkflowModeKey(value) {
+  const normalized = normalizeWorkflowTaskText(value);
+  if (
+    normalized === "quick_execute"
+    || normalized === "standard_delivery"
+    || normalized === "careful_deliberation"
+    || normalized === "parallel_split"
+  ) {
+    return normalized;
+  }
+  return "";
+}
+
+function mapWorkflowModeToComplexityLevel(mode, confidence = "") {
+  const normalizedMode = normalizeWorkflowModeKey(mode);
+  const normalizedConfidence = normalizeWorkflowTaskText(confidence).toLowerCase();
+  if (!normalizedMode) {
+    return "unknown";
+  }
+  if (normalizedMode === "careful_deliberation" || normalizedMode === "parallel_split") {
+    return "high";
+  }
+  if (normalizedMode === "quick_execute") {
+    return "low";
+  }
+  if (normalizedMode === "standard_delivery" && normalizedConfidence === "high") {
+    return "medium";
+  }
+  return normalizedMode ? "medium" : "low";
+}
+
+function shouldWorkflowAutoConfirmSimpleTask() {
+  try {
+    const stored = window.localStorage?.getItem("remotelab.workflowAutoConfirmSimpleTask");
+    if (stored == null || stored === "") return true;
+    const normalized = String(stored).trim().toLowerCase();
+    return !(normalized === "false" || normalized === "0" || normalized === "off");
+  } catch {
+    return true;
+  }
+}
+
+function buildWorkflowIntakeQuestion(missingFields = [], complexityLevel = "medium", reason = "") {
+  if (!Array.isArray(missingFields) || missingFields.length === 0) return "";
+  const [firstMissing] = missingFields;
+  if (firstMissing === "goal") {
+    return "你想让 workflow 具体完成什么？一句话描述目标即可。";
+  }
+  if (firstMissing === "constraints") {
+    if (reason) {
+      return `这件事看起来复杂度较高（${reason}）。开始前请补一句边界/不能动的地方；如无特殊要求可直接回复“无”。`;
+    }
+    return complexityLevel === "high"
+      ? "这件事复杂度较高。开始前请补一句边界/不能动的地方；如无特殊要求可直接回复“无”。"
+      : "开始前请补一句这次的边界或限制；如无特殊要求可直接回复“无”。";
+  }
+  return "开始前还缺一条关键信息，请补充后我再启动 workflow。";
+}
+
+async function assessWorkflowTaskCompleteness({ input = {}, preferredMode = "" } = {}) {
+  const normalizedInput = normalizeWorkflowTaskInput(input);
+  const signalText = buildWorkflowAssessmentSignal(normalizedInput);
+  const preferredModeKey = normalizeWorkflowModeKey(preferredMode);
+  let classification = preferredModeKey
+    ? {
+        mode: preferredModeKey,
+        confidence: "high",
+        reason: "",
+      }
+    : null;
+
+  if (!classification && signalText) {
+    try {
+      classification = await classifyWorkflowTask({
+        text: signalText,
+        folder: normalizedInput.project,
+      });
+    } catch {
+      classification = null;
+    }
+  }
+
+  const classifiedMode = normalizeWorkflowModeKey(classification?.mode);
+  const normalizedConfidence = normalizeWorkflowTaskText(classification?.confidence).toLowerCase();
+  if (!classifiedMode) {
+    return {
+      complete: false,
+      missingFields: [],
+      complexityLevel: "unknown",
+      reason: "",
+      classification: null,
+      autoConfirm: false,
+      suggestedQuestion: "",
+      intentConfident: false,
+    };
+  }
+  if (normalizedConfidence !== "high" && normalizedConfidence !== "medium") {
+    return {
+      complete: false,
+      missingFields: [],
+      complexityLevel: "unknown",
+      reason: "",
+      classification: {
+        mode: classifiedMode,
+        confidence: normalizeWorkflowTaskText(classification?.confidence),
+        reason: normalizeWorkflowTaskText(classification?.reason),
+      },
+      autoConfirm: false,
+      suggestedQuestion: "",
+      intentConfident: false,
+    };
+  }
+
+  const complexityLevel = mapWorkflowModeToComplexityLevel(
+    classifiedMode,
+    normalizedConfidence,
+  );
+  const missingFields = [];
+  if (!normalizedInput.goal) {
+    missingFields.push("goal");
+  }
+  if (complexityLevel === "high" && !normalizedInput.constraints) {
+    missingFields.push("constraints");
+  }
+
+  const reason = normalizeWorkflowTaskText(classification?.reason);
+  return {
+    complete: missingFields.length === 0,
+    missingFields,
+    complexityLevel,
+    reason,
+    classification: {
+      mode: classifiedMode,
+      confidence: normalizeWorkflowTaskText(classification?.confidence),
+      reason,
+    },
+    autoConfirm:
+      missingFields.length === 0
+      && shouldWorkflowAutoConfirmSimpleTask()
+      && (complexityLevel === "low" || complexityLevel === "medium"),
+    suggestedQuestion: buildWorkflowIntakeQuestion(missingFields, complexityLevel, reason),
+    intentConfident: true,
+  };
+}
+
 function canStartWorkflowOnAttachedSession(session) {
   if (!session || typeof session !== "object") return false;
   if (!session.id || session.visitorId || session.archived) return false;
+  if (session.workflowAutoTriggerDisabled === true) return false;
   const runState = normalizeWorkflowTaskText(session?.activity?.run?.state);
   if (runState && runState !== "idle" && runState !== "completed" && runState !== "failed" && runState !== "cancelled") {
     return false;
   }
   return true;
+}
+
+function canStartWorkflowFromComposerContext() {
+  if (visitorMode) return false;
+  const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
+  if (!session) return true;
+  return canStartWorkflowOnAttachedSession(session);
 }
 
 async function startWorkflowOnAttachedSession({ input = {}, kickoffMessage = "", successToast = "" }) {
@@ -1073,6 +1252,43 @@ async function startWorkflowOnAttachedSession({ input = {}, kickoffMessage = "",
   };
 }
 
+async function confirmWorkflowIntakeOnAttachedSession({ input = {} } = {}) {
+  const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
+  if (!session?.id || session.visitorId) {
+    return null;
+  }
+  const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(session.id)}/workflow/intake/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      input: normalizeWorkflowTaskInput(input),
+    }),
+  });
+  const updatedSession = upsertSession(data.session) || data.session || session;
+  renderSessionList();
+  attachSession(updatedSession.id, updatedSession);
+  return {
+    session: updatedSession,
+    run: data?.run || null,
+  };
+}
+
+async function cancelWorkflowIntakeOnAttachedSession() {
+  const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
+  if (!session?.id || session.visitorId) {
+    return null;
+  }
+  const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(session.id)}/workflow/intake/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const updatedSession = upsertSession(data.session) || data.session || session;
+  renderSessionList();
+  attachSession(updatedSession.id, updatedSession);
+  return updatedSession;
+}
+
 async function setWorkflowAutoTriggerDisabledOnCurrentSession(disabled = false) {
   const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
   if (!session?.id || session.visitorId) {
@@ -1092,7 +1308,7 @@ async function setWorkflowAutoTriggerDisabledOnCurrentSession(disabled = false) 
     applyAttachedSessionState(updatedSession.id, updatedSession);
   }
   if (typeof showAppToast === "function") {
-    showAppToast(disabled === true ? "已关闭自动提升" : "已开启自动提升", "success");
+    showAppToast(disabled === true ? "已关闭托管" : "已开启托管", "success");
   }
   return updatedSession;
 }
@@ -1116,6 +1332,26 @@ window.remotelabWorkflowBridge = {
       text: normalizeWorkflowTaskText(options?.text),
       folder: normalizeWorkflowTaskText(options?.folder),
     });
+  },
+  assessCompleteness(options = {}) {
+    return assessWorkflowTaskCompleteness({
+      input: options?.input && typeof options.input === "object" ? options.input : {},
+      preferredMode: normalizeWorkflowModeKey(options?.preferredMode),
+    });
+  },
+  canStartFromComposer() {
+    return canStartWorkflowFromComposerContext();
+  },
+  getSimpleTaskAutoConfirm() {
+    return shouldWorkflowAutoConfirmSimpleTask();
+  },
+  async confirmIntake(options = {}) {
+    return confirmWorkflowIntakeOnAttachedSession({
+      input: options?.input && typeof options.input === "object" ? options.input : {},
+    });
+  },
+  async cancelIntake() {
+    return cancelWorkflowIntakeOnAttachedSession();
   },
   async startTask(options = {}) {
     const reused = await startWorkflowOnAttachedSession({

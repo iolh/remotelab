@@ -20,6 +20,7 @@ export function createSessionListItem(session) {
   const item = stripSessionShape(session, { includeQueuedMessages: false });
   if (!item) return null;
   item.workflowAutoTriggerDisabled = item.workflowAutoTriggerDisabled === true;
+  item.pendingIntake = item.pendingIntake === true;
   return item;
 }
 
@@ -32,5 +33,6 @@ export function createSessionDetail(session) {
   detail.workflowTaskTrace = detail.workflowTaskTrace || null;
   detail.workflowTraceBridge = detail.workflowTraceBridge || null;
   detail.workflowAutoTriggerDisabled = detail.workflowAutoTriggerDisabled === true;
+  detail.pendingIntake = detail.pendingIntake === true;
   return detail;
 }

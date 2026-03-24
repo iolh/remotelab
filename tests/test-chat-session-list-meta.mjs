@@ -49,6 +49,9 @@ const buildSessionMetaPartsSource = extractFunctionSource(sessionSurfaceUiSource
 const state = { scopeCalls: 0, statusCalls: 0 };
 const context = {
   console,
+  renderCurrentWorkflowStageHtml() {
+    return '';
+  },
   renderSessionScopeContext() {
     state.scopeCalls += 1;
     return ['<span>scope</span>'];
@@ -63,6 +66,9 @@ const context = {
     if (!statusInfo?.label) return '';
     state.statusCalls += 1;
     return `<span>${statusInfo.label}</span>`;
+  },
+  renderSessionWorktreeMetaHtml() {
+    return '';
   },
 };
 context.globalThis = context;

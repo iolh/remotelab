@@ -84,7 +84,7 @@ const context = {
       {
         seq: 92,
         type: 'status',
-        content: '已自动启用工作流 · 审慎模式（原因：检测到设计稿输入）',
+        content: '系统已接管此任务，进入审慎模式流程 · 检测到设计稿输入',
         timestamp: '2026-03-24T10:10:00.000Z',
       },
     ],
@@ -209,7 +209,7 @@ assert.deepEqual(
   ['event', 'event', 'decision', 'reconcile', 'stage', 'stage', 'stage'],
   'timeline entries should be sorted by recency across automation, decision, reconcile, and stage entries',
 );
-assert.equal(summary?.workflowTimeline?.[0]?.title, '自动启用工作流', 'timeline should surface workflow auto-trigger feedback');
+assert.equal(summary?.workflowTimeline?.[0]?.title, '系统接管', 'timeline should surface workflow auto-trigger feedback');
 assert.equal(summary?.workflowTimeline?.[1]?.title, '自动推进', 'timeline should surface workflow auto-advance feedback');
 assert.equal(summary?.workflowTimeline?.[2]?.statusLabel, '待决策', 'decision entries should expose a readable status label');
 assert.equal(summary?.workflowTimeline?.[3]?.title, '验收结论回流', 'reconcile entries should expose a readable handoff title');

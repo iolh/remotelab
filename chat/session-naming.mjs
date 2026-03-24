@@ -114,13 +114,19 @@ function isChatSessionSource(context = {}) {
 
 function isConnectorStyleSession(context = {}) {
   if (isChatSessionSource(context)) return false;
+  const sourceId = normalizeContextLabel(context.sourceId || '').toLowerCase();
+  const sourceName = normalizeContextLabel(context.sourceName || '').toLowerCase();
+  if (sourceId || sourceName) return true;
+
   const externalTriggerId = typeof context.externalTriggerId === 'string'
     ? context.externalTriggerId.trim()
     : '';
-  if (externalTriggerId) return true;
-  const sourceId = normalizeContextLabel(context.sourceId || '').toLowerCase();
-  const sourceName = normalizeContextLabel(context.sourceName || '').toLowerCase();
-  return !!(sourceId || sourceName);
+  if (!externalTriggerId) return false;
+
+  const contextualKeys = collectContextualSessionLabels(context)
+    .map((label) => normalizeSessionLabelKey(label))
+    .filter(Boolean);
+  return contextualKeys.some((key) => GENERIC_SESSION_TITLE_KEYS.has(key));
 }
 
 function collectContextualSessionLabels(context = {}) {

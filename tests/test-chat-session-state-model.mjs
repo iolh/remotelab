@@ -120,6 +120,25 @@ const waitingBoardColumn = model.getSessionBoardColumn(
 );
 assert.equal(waitingBoardColumn.key, 'waiting_user');
 
+const pendingIntakeSession = makeSession({
+  pendingIntake: true,
+});
+assert.equal(
+  model.getSessionBoardColumn(pendingIntakeSession, null).key,
+  'waiting_user',
+  'pending workflow intake should surface in the waiting board column',
+);
+assert.equal(
+  model.getSessionBoardPriority(pendingIntakeSession)?.key,
+  'high',
+  'pending workflow intake should inherit high attention',
+);
+assert.equal(
+  model.getSessionStatusSummary(pendingIntakeSession).primary.key,
+  'waiting_user',
+  'pending workflow intake should expose a waiting status badge',
+);
+
 assert.equal(model.normalizeSessionWorkflowPriority('P1'), 'high');
 assert.equal(model.normalizeSessionWorkflowPriority('normal'), 'medium');
 assert.equal(model.normalizeSessionWorkflowPriority('later'), 'low');

@@ -54,10 +54,10 @@ function getSwipeGestureAction(direction) {
   if (direction === "left") {
     return {
       pillSide: "right",
-      label: "开始任务",
+      label: "描述任务",
       run: () => Promise.resolve(
-        typeof window.openWorkflowTaskIntakeModal === "function"
-          ? window.openWorkflowTaskIntakeModal()
+        typeof window.remotelabComposerBridge?.focusWorkflowEntry === "function"
+          ? window.remotelabComposerBridge.focusWorkflowEntry()
           : createNewSessionShortcut(),
       ),
     };

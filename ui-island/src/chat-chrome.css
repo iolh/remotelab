@@ -6,13 +6,11 @@
 }
 
 #chatChromeRoot,
-#workflowTaskEntryRoot,
-#workflowTaskSidebarRoot {
+#workflowIntakePanelRoot {
   width: auto;
 }
 
-#workflowTaskEntryRoot,
-#workflowTaskSidebarRoot {
+#workflowIntakePanelRoot {
   display: block;
 }
 
@@ -56,7 +54,7 @@
 
 .workflow-task-dialog-title,
 .codex-import-dialog-title {
-  font-size: 15px;
+  font-size: 18px;
   line-height: 1.35;
 }
 
@@ -85,18 +83,20 @@
 }
 
 .workflow-task-surface {
-  border-radius: 14px;
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  background: var(--bg);
 }
 
 .workflow-task-card-header {
   gap: 6px;
-  padding: 18px 18px 0;
+  padding: 16px 16px 0;
 }
 
 .workflow-task-card-content {
   display: grid;
   gap: 14px;
-  padding: 14px 18px 18px;
+  padding: 16px;
 }
 
 .workflow-task-card-header h3,
@@ -106,10 +106,10 @@
 }
 
 .workflow-task-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   line-height: 1.45;
-  color: var(--text-secondary);
+  color: var(--text);
 }
 
 .workflow-task-recommendation-surface {
@@ -145,8 +145,14 @@
 }
 
 .workflow-task-recommendation-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  color: var(--accent);
   font-size: 11px;
-  line-height: 1;
+  line-height: 1.2;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -186,10 +192,24 @@
 
 .workflow-task-field input,
 .workflow-task-field textarea {
-  border-radius: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
   padding: 8px 10px;
   font-size: 12px;
   line-height: 1.55;
+}
+
+.workflow-task-field input::placeholder,
+.workflow-task-field textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.workflow-task-field input:focus,
+.workflow-task-field textarea:focus {
+  border-color: var(--border-strong);
+  outline: none;
 }
 
 .workflow-task-field input {
@@ -205,25 +225,115 @@
   overflow-y: auto;
 }
 
-.workflow-task-entry-buttons {
+.workflow-task-system-note {
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.workflow-intake-panel-shell {
+  width: min(100%, 840px);
+  margin: 0 auto;
+  padding: 14px 16px 0;
+}
+
+.workflow-intake-card {
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--notice) 16%, var(--border));
+  background: color-mix(in srgb, var(--notice) 3%, var(--bg));
+  box-shadow: none;
+}
+
+.workflow-intake-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 16px 0;
+}
+
+.workflow-intake-card-title-wrap {
+  display: grid;
+  gap: 4px;
+}
+
+.workflow-intake-eyebrow {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.workflow-intake-title {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.workflow-intake-card-content {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.workflow-intake-prompt {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.workflow-intake-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.workflow-intake-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.workflow-intake-summary-item {
+  display: grid;
+  gap: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  padding: 10px 12px;
+}
+
+.workflow-intake-summary-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.workflow-intake-summary-value {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.workflow-intake-inline-form {
+  gap: 12px;
+}
+
+.workflow-intake-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 18px;
+  gap: 8px;
 }
 
-.workflow-task-entry-button {
-  min-width: 144px;
-  min-height: 44px;
-  border-radius: 999px;
-  padding: 0 18px;
-  font-size: 14px;
-}
-
-.workflow-task-entry-button-primary {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent);
+.workflow-intake-actions > button {
+  min-height: 36px;
+  border-radius: 10px;
 }
 
 .codex-import-dialog {
@@ -306,19 +416,6 @@
   min-width: 96px;
 }
 
-.workflow-task-sidebar-shell {
-  display: none;
-}
-
-.workflow-task-sidebar-button {
-  width: 100%;
-  min-height: 42px;
-  justify-content: center;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-}
-
 .remotelab-sonner-toast {
   border-radius: 14px !important;
   border: 1px solid var(--border) !important;
@@ -356,16 +453,16 @@
 }
 
 .remotelab-top-notice-toast {
-  border-radius: 20px !important;
+  border-radius: 14px !important;
   padding: 16px 18px !important;
   gap: 10px !important;
   pointer-events: none !important;
 }
 
 .remotelab-top-notice-toast [data-title] {
-  font-size: 14px !important;
+  font-size: 13px !important;
   font-weight: 600 !important;
-  line-height: 1.4 !important;
+  line-height: 1.35 !important;
 }
 
 .chrome-action-button {
@@ -374,34 +471,113 @@
   position: relative;
 }
 
-.chrome-auto-trigger-toggle {
-  height: calc(var(--chrome-button-size) - 4px);
-  padding: 0 10px;
+.chrome-managed-pill {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 1px 7px;
   border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--notice) 18%, var(--border));
+  background: color-mix(in srgb, var(--notice) 7%, var(--bg));
+  color: var(--notice);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.chrome-managed-pill:hover {
+  border-color: color-mix(in srgb, var(--notice) 24%, var(--border));
+  background: color-mix(in srgb, var(--notice) 10%, var(--bg));
+}
+
+.chrome-managed-pill-disabled {
+  border-color: var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  opacity: 0.7;
+  text-decoration: line-through;
+  text-decoration-color: currentColor;
+}
+
+.chrome-managed-pill-disabled:hover {
+  border-color: var(--border-strong);
+  background: var(--bg);
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+.chrome-managed-popover {
+  width: min(calc(100vw - 32px), 280px);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: var(--modal-shadow);
+}
+
+.chrome-managed-popover-body {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+
+.chrome-managed-popover-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.chrome-managed-popover-description {
+  color: var(--text-secondary);
   font-size: 12px;
+  line-height: 1.55;
+}
+
+.chrome-managed-popover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chrome-managed-popover-btn {
+  min-height: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.chrome-managed-popover-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.chrome-managed-popover-btn-ghost {
+  border-color: transparent;
+  background: transparent;
   color: var(--text-secondary);
 }
 
-.chrome-auto-trigger-toggle.is-enabled {
-  color: color-mix(in srgb, var(--success) 78%, var(--text) 22%);
-  background: color-mix(in srgb, var(--success) 12%, var(--bg) 88%);
-}
-
-.chrome-auto-trigger-toggle.is-enabled:hover {
-  color: color-mix(in srgb, var(--success) 86%, var(--text) 14%);
-  background: color-mix(in srgb, var(--success) 18%, var(--bg) 82%);
-}
-
-.chrome-auto-trigger-toggle.is-disabled {
-  color: var(--text-muted);
+.chrome-managed-popover-btn-ghost:hover {
+  background: var(--bg-secondary);
+  color: var(--text);
 }
 
 .chrome-action-button-notice {
-  color: #07c160;
+  color: var(--notice);
 }
 
 .chrome-action-button-notice:hover {
-  color: color-mix(in srgb, #07c160 82%, var(--text) 18%);
+  color: color-mix(in srgb, var(--notice) 82%, var(--text) 18%);
 }
 
 .chrome-action-dot {
@@ -411,7 +587,7 @@
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: #07c160;
+  background: var(--notice);
   box-shadow: 0 0 0 2px var(--bg);
 }
 
@@ -423,6 +599,7 @@
 .chrome-stage-timeline-scroll {
   display: flex;
   align-items: center;
+  gap: 4px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -439,17 +616,26 @@
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
   font-size: 11px;
   line-height: 1.2;
   color: var(--text-muted);
+  font-weight: 600;
 }
 
 .chrome-stage-chip-completed {
-  color: color-mix(in srgb, var(--success) 76%, var(--text-secondary) 24%);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 24%, var(--border));
+  background: color-mix(in srgb, var(--success) 12%, var(--bg));
 }
 
 .chrome-stage-chip-current {
   color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
   font-weight: 700;
 }
 
@@ -458,16 +644,15 @@
 }
 
 .chrome-stage-chip-icon {
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1;
 }
 
 .chrome-stage-connector {
   flex: 0 0 auto;
-  margin: 0 6px;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-size: 11px;
-  line-height: 1;
+  line-height: 1.2;
 }
 
 .chrome-status-scroll {
@@ -477,7 +662,7 @@
 .chrome-status-popover {
   width: min(calc(100vw - 20px), 368px);
   border-radius: 16px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  box-shadow: var(--modal-shadow);
 }
 
 .chrome-status-dialog {
@@ -510,34 +695,38 @@
   gap: 8px;
 }
 
+.chrome-status-task-row-compact {
+  align-items: center;
+}
+
 .chrome-status-zone-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text);
 }
 
 .chrome-status-task {
   color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 400;
   line-height: 1.55;
 }
 
 .chrome-status-task-meta {
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .chrome-status-timeline {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .chrome-status-timeline-item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
 }
 
 .chrome-status-timeline-dot {
@@ -546,15 +735,15 @@
   height: 8px;
   margin-top: 6px;
   border-radius: 999px;
-  background: var(--text-tertiary);
+  background: color-mix(in srgb, var(--text-muted) 72%, var(--bg));
 }
 
 .chrome-status-timeline-dot-neutral {
-  background: var(--text-tertiary);
+  background: color-mix(in srgb, var(--text-muted) 72%, var(--bg));
 }
 
 .chrome-status-timeline-dot-notice {
-  background: var(--accent);
+  background: var(--notice);
 }
 
 .chrome-status-timeline-dot-success {
@@ -570,21 +759,21 @@
 }
 
 .chrome-status-timeline-dot-muted {
-  background: color-mix(in srgb, var(--text-secondary) 70%, var(--bg) 30%);
+  background: color-mix(in srgb, var(--text-muted) 72%, var(--bg));
 }
 
 .chrome-status-timeline-body {
   min-width: 0;
   flex: 1 1 auto;
   display: grid;
-  gap: 5px;
+  gap: 4px;
 }
 
 .chrome-status-timeline-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
 .chrome-status-timeline-title-row {
@@ -605,7 +794,7 @@
 
 .chrome-status-timeline-time {
   flex: 0 0 auto;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-size: 11px;
   line-height: 1.45;
   white-space: nowrap;
@@ -634,7 +823,7 @@
 }
 
 .chrome-status-timeline-status-notice {
-  color: var(--accent);
+  color: var(--notice);
 }
 
 .chrome-status-timeline-status-success {
@@ -663,7 +852,8 @@
 }
 
 .chrome-status-suggestion {
-  background: color-mix(in srgb, var(--bg) 96%, var(--accent) 4%);
+  background: color-mix(in srgb, var(--notice) 6%, var(--bg));
+  border-color: color-mix(in srgb, var(--notice) 18%, var(--border));
 }
 
 .chrome-status-card-eyebrow {
@@ -674,7 +864,7 @@
 
 .chrome-status-card-title {
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.45;
 }
@@ -693,15 +883,15 @@
 .chrome-status-parallel-item {
   display: grid;
   gap: 4px;
-  padding: 8px 9px;
-  border-radius: 9px;
+  padding: 10px;
+  border-radius: 10px;
   background: var(--bg-secondary);
-  border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
+  border: 1px solid var(--border);
 }
 
 .chrome-status-parallel-title {
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.45;
 }
@@ -721,24 +911,35 @@
 
 .chrome-status-card-source {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .chrome-status-card-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .chrome-status-card-btn {
-  min-height: 32px;
-  padding: 0 12px;
+  min-height: 0;
+  padding: 7px 10px;
   border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  box-shadow: none;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.chrome-status-card-btn:hover {
+  background: var(--bg-tertiary);
 }
 
 .chrome-status-primary-btn {
+  border-color: var(--text);
   background: var(--text);
   color: var(--bg);
 }
@@ -748,8 +949,13 @@
 }
 
 .chrome-status-badge {
+  padding: 1px 7px;
   border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
   font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .chrome-status-badge-neutral {
@@ -757,26 +963,26 @@
 }
 
 .chrome-status-badge-notice {
-  color: var(--accent);
-  border-color: rgba(10, 132, 255, 0.22);
-  background: rgba(10, 132, 255, 0.08);
+  color: var(--notice);
+  border-color: color-mix(in srgb, var(--notice) 24%, var(--border));
+  background: color-mix(in srgb, var(--notice) 10%, var(--bg));
 }
 
 .chrome-status-badge-success {
   color: var(--success);
-  border-color: color-mix(in srgb, var(--success) 24%, transparent);
+  border-color: color-mix(in srgb, var(--success) 24%, var(--border));
   background: color-mix(in srgb, var(--success) 10%, var(--bg));
 }
 
 .chrome-status-badge-warning {
   color: var(--warning);
-  border-color: color-mix(in srgb, var(--warning) 24%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 24%, var(--border));
   background: color-mix(in srgb, var(--warning) 10%, var(--bg));
 }
 
 .chrome-status-badge-error {
   color: var(--error);
-  border-color: color-mix(in srgb, var(--error) 22%, transparent);
+  border-color: color-mix(in srgb, var(--error) 22%, var(--border));
   background: color-mix(in srgb, var(--error) 8%, var(--bg));
 }
 
@@ -800,13 +1006,13 @@
 
   .chrome-status-popover {
     width: min(calc(100vw - 16px), 360px);
-    border-radius: 14px;
+    border-radius: 16px;
   }
 
   .chrome-status-dialog {
     width: min(calc(100vw - 12px), 356px);
     max-width: min(calc(100vw - 12px), 356px);
-    border-radius: 14px;
+    border-radius: 16px;
   }
 
   .chrome-status-dialog > button[aria-label="关闭"] {
@@ -815,12 +1021,8 @@
   }
 
   .chrome-status-zone {
-    gap: 9px;
+    gap: 8px;
     padding: 14px;
-  }
-
-  .chrome-status-task {
-    font-size: 12px;
   }
 
   .chrome-status-timeline-item {
@@ -831,29 +1033,16 @@
     gap: 8px;
   }
 
-  .chrome-status-timeline-title,
-  .chrome-status-timeline-detail {
-    font-size: 11px;
-  }
-
   .chrome-status-card {
     padding: 10px;
-  }
-
-  .chrome-status-card-actions {
-    gap: 5px;
-  }
-
-  .chrome-status-card-btn {
-    min-height: 30px;
-    padding: 0 10px;
-    font-size: 11px;
   }
 }
 
 .workflow-task-textarea-main {
   height: var(--settings-textarea-height);
   min-height: var(--settings-textarea-height);
+  font-size: 15px;
+  line-height: 1.55;
 }
 
 .workflow-task-textarea-compact {
@@ -884,7 +1073,7 @@
   .workflow-task-dialog {
     width: calc(100vw - 20px);
     max-width: none;
-    border-radius: 18px;
+    border-radius: 24px;
   }
 
   .workflow-task-dialog-body {
@@ -914,21 +1103,12 @@
 
   .workflow-task-card-header {
     gap: 6px;
-    padding: 14px 14px 0;
+    padding: 16px 16px 0;
   }
 
   .workflow-task-card-content {
     gap: 12px;
-    padding: 12px 14px 14px;
-  }
-
-  .workflow-task-label {
-    font-size: 12px;
-  }
-
-  .workflow-task-recommendation-reason,
-  .workflow-task-recommendation-list {
-    font-size: 12px;
+    padding: 16px;
   }
 
   .codex-import-dialog-header {
@@ -949,7 +1129,7 @@
   .codex-import-dialog {
     width: calc(100vw - 20px);
     max-width: none;
-    border-radius: 18px;
+    border-radius: 24px;
   }
 
   .codex-import-dialog-footer > button {
@@ -964,13 +1144,22 @@
     flex: 1 1 auto;
   }
 
-  .workflow-task-entry-buttons {
-    flex-direction: column;
-    align-items: stretch;
+  .workflow-intake-panel-shell {
+    padding: 12px 12px 0;
   }
 
-  .workflow-task-entry-button {
-    width: min(100%, 280px);
-    justify-content: center;
+  .workflow-intake-card {
+    border-radius: 16px;
   }
+
+  .workflow-intake-card-header,
+  .workflow-intake-card-content {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .workflow-intake-actions > button {
+    flex: 1 1 auto;
+  }
+
 }

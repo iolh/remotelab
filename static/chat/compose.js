@@ -1,5 +1,51 @@
 // ---- Send message ----
 let pendingComposerSend = null;
+let workflowComposerPlaceholderOverride = "";
+
+function getWorkflowComposerPlaceholderOverride() {
+  return typeof workflowComposerPlaceholderOverride === "string"
+    ? workflowComposerPlaceholderOverride
+    : "";
+}
+
+function setWorkflowComposerPlaceholderOverride(value = "") {
+  workflowComposerPlaceholderOverride = typeof value === "string" ? value : "";
+  if (typeof updateStatus === "function") {
+    updateStatus(typeof sessionStatus === "string" ? sessionStatus : "idle", getCurrentSession());
+  } else if (msgInput && !msgInput.disabled) {
+    msgInput.placeholder = getWorkflowComposerPlaceholderOverride() || "输入消息…";
+  }
+}
+
+function focusWorkflowComposerEntry(options = {}) {
+  const {
+    placeholder = "描述你要做的事，或输入 /form 打开完整表单…",
+    preserveValue = true,
+  } = options || {};
+
+  if (!preserveValue && msgInput && !msgInput.value.trim()) {
+    msgInput.value = "";
+  }
+  setWorkflowComposerPlaceholderOverride(placeholder);
+  if (typeof focusComposer === "function") {
+    focusComposer({ force: true, preventScroll: true });
+  } else {
+    msgInput?.focus?.();
+  }
+  return true;
+}
+
+window.remotelabComposerBridge = {
+  getPlaceholderOverride() {
+    return getWorkflowComposerPlaceholderOverride();
+  },
+  setPlaceholderOverride(value = "") {
+    setWorkflowComposerPlaceholderOverride(value);
+  },
+  focusWorkflowEntry(options = {}) {
+    return focusWorkflowComposerEntry(options);
+  },
+};
 
 function hasPendingComposerSend() {
   return !!pendingComposerSend;
@@ -157,12 +203,39 @@ async function maybeLaunchWorkflowFromComposerText(text) {
   if (visitorMode || pendingImages.length > 0) {
     return { handled: false };
   }
+  const normalizedText = typeof text === "string" ? text.trim() : "";
+  if (!normalizedText) {
+    return { handled: false };
+  }
+  if (/^\/(?:form|表单)$/u.test(normalizedText)) {
+    const detail = typeof window.remotelabWorkflowBridge?.getPendingIntakeDetail === "function"
+      ? window.remotelabWorkflowBridge.getPendingIntakeDetail()
+      : null;
+    window.openWorkflowTaskIntakeModal?.(detail || null);
+    return { handled: true, opened: true };
+  }
+  const canStartFromComposer = window.remotelabWorkflowBridge?.canStartFromComposer;
+  if (typeof canStartFromComposer === "function" && canStartFromComposer() === false) {
+    return { handled: false };
+  }
   const launcher = window.remotelabWorkflowBridge?.launchFromText;
   if (typeof launcher !== "function") {
     return { handled: false };
   }
   try {
-    return await launcher({ text });
+    const result = await launcher({ text: normalizedText });
+    if (
+      !result?.handled
+      && result?.partialInput
+      && typeof window.remotelabWorkflowBridge?.beginIntakeFromPartial === "function"
+    ) {
+      return await window.remotelabWorkflowBridge.beginIntakeFromPartial({
+        partialInput: result.partialInput,
+        assessment: result.assessment,
+        preferredMode: result.preferredMode,
+      });
+    }
+    return result;
   } catch (error) {
     window.remotelabToastBridge?.show(
       error instanceof Error ? error.message : "启动工作流失败",
@@ -181,7 +254,12 @@ async function sendMessage(existingRequestId) {
 
   const workflowLaunch = await maybeLaunchWorkflowFromComposerText(text);
   if (workflowLaunch?.handled) {
-    if (workflowLaunch.started) {
+    if (
+      workflowLaunch.started
+      || workflowLaunch.intakeStarted
+      || workflowLaunch.awaitingReply
+      || workflowLaunch.confirmationRequired
+    ) {
       clearDraft(currentSessionId);
       msgInput.value = "";
       autoResizeInput();
@@ -452,6 +530,9 @@ function clearDraft(sessionId = currentSessionId) {
 }
 
 msgInput.addEventListener("input", () => {
+  if (msgInput.value.trim()) {
+    setWorkflowComposerPlaceholderOverride("");
+  }
   autoResizeInput();
   saveDraft();
 });

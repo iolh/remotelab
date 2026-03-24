@@ -106,6 +106,7 @@ vm.runInNewContext(
 
 context.renderHiddenBlockEventsInto({}, [
   { type: 'message', role: 'assistant', content: 'draft' },
+  { type: 'workflow_metric', event: 'activated', mode: 'quick_execute' },
   { type: 'status', content: 'Preparing environment' },
   { type: 'reasoning', content: 'Inspecting files' },
   { type: 'manager_context', content: 'Manager note: keep replies in prose.' },

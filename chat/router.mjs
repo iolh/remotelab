@@ -53,6 +53,8 @@ import {
   handoffSessionResult,
   mergeSessionWorktree,
   cleanupSessionWorktree,
+  confirmWorkflowIntakeOnSession,
+  cancelWorkflowIntakeOnSession,
 } from './session-manager.mjs';
 import { classifyTaskComplexity } from './workflow-auto-router.mjs';
 import {
@@ -1919,6 +1921,59 @@ export async function handleRequest(req, res) {
         });
       } catch (error) {
         writeJson(res, 400, { error: error.message || 'Failed to start workflow on session' });
+      }
+      return;
+    }
+
+    if (parts.length === 6 && parts[0] === 'api' && parts[1] === 'sessions' && sessionId && parts[3] === 'workflow' && parts[4] === 'intake' && parts[5] === 'confirm') {
+      if (authSession?.role === 'visitor') {
+        writeJson(res, 403, { error: 'Owner access required' });
+        return;
+      }
+      if (!requireSessionAccess(res, authSession, sessionId)) return;
+
+      let body;
+      try { body = await readBody(req, 10240); } catch {
+        writeJson(res, 400, { error: 'Bad request' });
+        return;
+      }
+      let payload;
+      try { payload = JSON.parse(body); } catch {
+        writeJson(res, 400, { error: 'Invalid request body' });
+        return;
+      }
+
+      const input = payload?.input && typeof payload.input === 'object' && !Array.isArray(payload.input)
+        ? payload.input
+        : {};
+      try {
+        const outcome = await confirmWorkflowIntakeOnSession(sessionId, input);
+        writeJson(res, 200, {
+          ok: true,
+          session: createClientSessionDetail(outcome?.session || await getSession(sessionId)),
+          run: outcome?.run || null,
+        });
+      } catch (error) {
+        writeJson(res, 400, { error: error.message || 'Failed to confirm workflow intake' });
+      }
+      return;
+    }
+
+    if (parts.length === 6 && parts[0] === 'api' && parts[1] === 'sessions' && sessionId && parts[3] === 'workflow' && parts[4] === 'intake' && parts[5] === 'cancel') {
+      if (authSession?.role === 'visitor') {
+        writeJson(res, 403, { error: 'Owner access required' });
+        return;
+      }
+      if (!requireSessionAccess(res, authSession, sessionId)) return;
+
+      try {
+        const session = await cancelWorkflowIntakeOnSession(sessionId);
+        writeJson(res, 200, {
+          ok: true,
+          session: createClientSessionDetail(session),
+        });
+      } catch (error) {
+        writeJson(res, 400, { error: error.message || 'Failed to cancel workflow intake' });
       }
       return;
     }

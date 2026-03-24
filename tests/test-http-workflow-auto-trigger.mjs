@@ -5,14 +5,29 @@ import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import http from 'http';
+import net from 'net';
 import { spawn } from 'child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(__dirname);
 const cookie = 'session_token=test-session';
 
-function randomPort() {
-  return 38000 + Math.floor(Math.random() * 2000);
+async function getAvailablePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+    server.on('error', reject);
+  });
 }
 
 function sleep(ms) {
@@ -221,7 +236,7 @@ async function waitForRunTerminal(port, runId) {
 async function main() {
   const { home } = setupTempHome();
   const visitorSession = await createVisitorSessionDirect(home);
-  const port = randomPort();
+  const port = await getAvailablePort();
   const server = await startServer({ home, port });
 
   try {
@@ -235,29 +250,34 @@ async function main() {
     assert.equal(classifyRes.json?.confidence, 'high', 'classify endpoint should expose confidence');
     assert.match(classifyRes.json?.reason || '', /设计稿|交互/, 'classify endpoint should expose a readable reason');
 
-    const highSession = await createSession(port, 'High Auto Trigger');
-    const highRes = await submitMessage(
+    const quickSession = await createSession(port, 'Quick Auto Trigger');
+    const quickRes = await submitMessage(
       port,
-      highSession.id,
-      'req-high',
-      '请根据 Figma 设计稿重构搜索页交互，并评估筛选、空态、提交流程、错误提示、加载反馈和移动端适配的实现取舍。',
+      quickSession.id,
+      'req-quick',
+      '修个 typo',
     );
-    assert.equal(highRes.json?.workflowAutoTriggered?.mode, 'careful_deliberation', 'high-confidence complex messages should auto-trigger a workflow');
-    assert.equal(highRes.json?.workflowAutoTriggered?.confidence, 'high', 'auto-trigger responses should expose the server confidence');
-    assert.match(highRes.json?.workflowAutoTriggered?.reason || '', /设计稿|交互/, 'auto-trigger responses should expose the auto-route reason');
-    assert.equal(highRes.json?.session?.workflowDefinition?.mode, 'careful_deliberation', 'auto-triggered sessions should materialize a workflow definition');
-    assert.equal(highRes.json?.run?.requestId, 'req-high', 'auto-triggered runs should preserve the original request id');
-    await waitForRunTerminal(port, highRes.json?.run?.id);
+    assert.equal(quickRes.json?.workflowAutoTriggered?.mode, 'quick_execute', 'simple tasks should auto-start the quick workflow');
+    assert.equal(quickRes.json?.workflowAutoTriggered?.confidence, 'high', 'quick auto-start should expose classification confidence');
+    assert.equal(quickRes.json?.session?.workflowDefinition?.mode, 'quick_execute', 'simple tasks should materialize the quick workflow definition');
+    assert.notEqual(quickRes.json?.session?.pendingIntake, true, 'simple tasks should not leave a pending intake behind');
+    assert.equal(quickRes.json?.run?.requestId, 'req-quick', 'quick auto-start should still preserve the original request id');
+    await waitForRunTerminal(port, quickRes.json?.run?.id);
 
-    const mediumSession = await createSession(port, 'Medium Auto Trigger');
+    const mediumSession = await createSession(port, 'Medium Confidence');
     const mediumRes = await submitMessage(
       port,
       mediumSession.id,
       'req-medium',
-      ['需求如下：', '1. 调整搜索页结果列表布局并补齐标题样式和空态文案', '2. 补齐筛选回填、提交按钮文案以及筛选标签间距'].join('\n'),
+      [
+        '需求如下：',
+        '1. 调整搜索页结果列表布局',
+        '2. 补齐筛选回填和提交按钮文案',
+      ].join('\n'),
     );
-    assert.equal(mediumRes.json?.workflowAutoTriggered, undefined, 'medium-confidence routes should not auto-trigger');
-    assert.equal(mediumRes.json?.session?.workflowDefinition, null, 'medium-confidence routes should remain plain chat sessions');
+    assert.equal(mediumRes.json?.workflowAutoTriggered, undefined, 'medium-confidence task signals should stay on the chat path');
+    assert.equal(mediumRes.json?.session?.workflowDefinition, null, 'medium-confidence task signals should not implicitly create a workflow');
+    assert.notEqual(mediumRes.json?.session?.pendingIntake, true, 'medium-confidence task signals should not open persisted intake implicitly');
     await waitForRunTerminal(port, mediumRes.json?.run?.id);
 
     const activeWorkflowSession = await createSession(port, 'Existing Workflow');
@@ -271,11 +291,19 @@ async function main() {
     assert.equal(existingWorkflowRes.json?.workflowAutoTriggered, undefined, 'sessions with an active workflow should never auto-trigger again');
     await waitForRunTerminal(port, existingWorkflowRes.json?.run?.id);
 
-    const shortSession = await createSession(port, 'Short Message');
-    const shortRes = await submitMessage(port, shortSession.id, 'req-short', '修一下登录按钮样式');
-    assert.equal(shortRes.json?.workflowAutoTriggered, undefined, 'short messages should never auto-trigger');
-    assert.equal(shortRes.json?.session?.workflowDefinition, null, 'short messages should stay in the normal send path');
-    await waitForRunTerminal(port, shortRes.json?.run?.id);
+    const greetingSession = await createSession(port, 'Greeting Message');
+    const greetingRes = await submitMessage(port, greetingSession.id, 'req-greeting', '你好');
+    assert.equal(greetingRes.json?.workflowAutoTriggered, undefined, 'greetings must never trigger workflow intake or auto-start');
+    assert.equal(greetingRes.json?.session?.workflowDefinition, null, 'greetings should stay on the normal chat path');
+    assert.notEqual(greetingRes.json?.session?.pendingIntake, true, 'greetings should not create a persisted intake');
+    await waitForRunTerminal(port, greetingRes.json?.run?.id);
+
+    const questionSession = await createSession(port, 'Open Question');
+    const questionRes = await submitMessage(port, questionSession.id, 'req-question', '这个 bug 怎么回事？');
+    assert.equal(questionRes.json?.workflowAutoTriggered, undefined, 'open-ended questions must not be misclassified as workflow intent');
+    assert.equal(questionRes.json?.session?.workflowDefinition, null, 'open-ended questions should remain plain chat');
+    assert.notEqual(questionRes.json?.session?.pendingIntake, true, 'open-ended questions should not create a persisted intake');
+    await waitForRunTerminal(port, questionRes.json?.run?.id);
 
     const optOutSession = await createSession(port, 'Opt Out');
     const patchedOptOut = await patchSession(port, optOutSession.id, { workflowAutoTriggerDisabled: true });

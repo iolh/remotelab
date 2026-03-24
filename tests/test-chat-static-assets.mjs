@@ -226,8 +226,8 @@ async function main() {
     assert.match(page.text, /id="voiceSettingsMount"/);
     assert.match(page.text, /id="voiceInputBtn"/);
     assert.match(page.text, /id="voiceFileInput"/);
-    assert.match(page.text, /id="workflowTaskEntryRoot"/);
-    assert.match(page.text, /id="workflowTaskSidebarRoot"/);
+    assert.doesNotMatch(page.text, /id="workflowTaskEntryRoot"/);
+    assert.doesNotMatch(page.text, /id="workflowTaskSidebarRoot"/);
     assert.match(page.text, /id="chatChromeRoot"/);
     assert.doesNotMatch(page.text, /id="workflowTaskModal"/);
     assert.match(page.text, /id="voiceInputBtn"[\s\S]*id="sendBtn"/, 'voice button should render immediately before send');
@@ -395,7 +395,7 @@ async function main() {
     assert.match(chatIslandAsset.text, /launchFromText/);
     const chatIslandStylesheet = await request(port, 'GET', '/chat-island/chat-chrome.css');
     assert.equal(chatIslandStylesheet.status, 200, 'chat chrome island stylesheet should load');
-    assert.match(chatIslandStylesheet.text, /workflowTaskEntryRoot/);
+    assert.doesNotMatch(chatIslandStylesheet.text, /workflowTaskEntryRoot/);
     const bootstrapCatalogAsset = await request(port, 'GET', '/chat/bootstrap-session-catalog.js');
     assert.equal(bootstrapCatalogAsset.status, 200, 'bootstrap session catalog asset should load');
     assert.match(bootstrapCatalogAsset.text, /function getEffectiveSessionAppId\(/);

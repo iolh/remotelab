@@ -153,8 +153,9 @@
   font-size: 10px;
   font-weight: 600;
   color: var(--warning);
-  background: rgba(191, 90, 42, 0.08);
-  border: 1px solid rgba(191, 90, 42, 0.18);
+  line-height: 1.2;
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--warning) 18%, var(--border));
   border-radius: 999px;
   padding: 2px 7px;
 }
@@ -177,10 +178,10 @@
   cursor: pointer;
 }
 .board-card.board-priority-high {
-  border-color: rgba(191, 90, 42, 0.32);
+  border-color: color-mix(in srgb, var(--warning) 24%, var(--border));
 }
 .board-card.board-priority-medium {
-  border-color: rgba(10, 132, 255, 0.24);
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
 }
 .board-card:hover {
   background: var(--surface-hover);
@@ -214,17 +215,18 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.01em;
+  line-height: 1.2;
   white-space: nowrap;
 }
 .board-priority-pill.board-priority-high {
   color: var(--warning);
-  border-color: rgba(191, 90, 42, 0.28);
-  background: rgba(191, 90, 42, 0.08);
+  border-color: color-mix(in srgb, var(--warning) 24%, var(--border));
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg));
 }
 .board-priority-pill.board-priority-medium {
   color: var(--accent);
-  border-color: rgba(10, 132, 255, 0.22);
-  background: rgba(10, 132, 255, 0.08);
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
 }
 .board-priority-pill.board-priority-low {
   color: var(--text-muted);
@@ -645,8 +647,10 @@
 .session-workflow-stage-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  flex: 0 1 auto;
   max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 1px 7px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
@@ -655,6 +659,7 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.01em;
+  line-height: 1.2;
   white-space: nowrap;
   vertical-align: middle;
 }
@@ -671,18 +676,19 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.01em;
+  line-height: 1.2;
   white-space: nowrap;
   vertical-align: middle;
 }
 .session-worktree-pill.active {
   color: var(--accent);
-  border-color: rgba(10, 132, 255, 0.2);
-  background: rgba(10, 132, 255, 0.08);
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
 }
 .session-worktree-pill.merged {
   color: var(--success);
-  border-color: rgba(48, 209, 88, 0.24);
-  background: rgba(48, 209, 88, 0.1);
+  border-color: color-mix(in srgb, var(--success) 24%, var(--border));
+  background: color-mix(in srgb, var(--success) 10%, var(--bg));
 }
 .session-worktree-pill.cleaned {
   color: var(--text-muted);

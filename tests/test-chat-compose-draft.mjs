@@ -124,6 +124,8 @@ function createContext({
   const windowResizeListeners = [];
   const visualViewportResizeListeners = [];
   const layoutSubscribers = [];
+  const focusComposerCalls = [];
+  const workflowModalOpenCalls = [];
   const windowTarget = {
     innerHeight: windowInnerHeight,
     addEventListener(type, listener) {
@@ -136,7 +138,10 @@ function createContext({
       },
     },
   };
-  const focusComposerCalls = [];
+  windowTarget.openWorkflowTaskIntakeModal = (detail = null) => {
+    workflowModalOpenCalls.push(detail);
+    return true;
+  };
   const remoteLabLayout = {
     getViewportHeight() {
       const managedHeight = windowTarget.visualViewport?.height;
@@ -157,6 +162,7 @@ function createContext({
     inputArea,
     inputResizeHandle: makeEventTarget(),
     focusComposerCalls,
+    workflowModalOpenCalls,
     layoutSubscribers,
     windowResizeListeners,
     visualViewportResizeListeners,
@@ -474,5 +480,56 @@ await workflowOpenContext.sendMessage();
 assert.equal(workflowOpenDispatches.length, 0, 'workflow intake commands should not be sent as plain chat messages while opening the intake flow');
 assert.equal(workflowOpenContext.msgInput.value, '启动工作流', 'opening the workflow intake should keep the composer text in place in case the user cancels');
 assert.equal(workflowOpenContext.localStorage.getItem('draft_session-a'), '启动工作流', 'opening the workflow intake should preserve the durable draft until a task actually starts');
+
+const workflowFormContext = createContext();
+const workflowFormDispatches = [];
+workflowFormContext.window.remotelabWorkflowBridge = {
+  getPendingIntakeDetail() {
+    return {
+      input: { goal: '重构认证模块', constraints: '不改数据库' },
+      preferredMode: 'careful_deliberation',
+    };
+  },
+};
+workflowFormContext.dispatchAction = async (payload) => {
+  workflowFormDispatches.push(payload);
+  return true;
+};
+vm.runInNewContext(composeSource, workflowFormContext, { filename: 'static/chat/compose.js' });
+workflowFormContext.msgInput.value = '/form';
+await workflowFormContext.sendMessage();
+assert.equal(workflowFormDispatches.length, 0, '/form should not fall through to normal message dispatch');
+assert.deepEqual(
+  workflowFormContext.workflowModalOpenCalls,
+  [{
+    input: { goal: '重构认证模块', constraints: '不改数据库' },
+    preferredMode: 'careful_deliberation',
+  }],
+  '/form should open the full workflow dialog with the current intake seed when available',
+);
+
+const workflowIntakeContext = createContext();
+const workflowIntakeDispatches = [];
+const workflowIntakeCalls = [];
+workflowIntakeContext.window.remotelabWorkflowBridge = {
+  async launchFromText({ text }) {
+    workflowIntakeCalls.push(['launch', text]);
+    return { handled: false };
+  },
+};
+workflowIntakeContext.dispatchAction = async (payload) => {
+  workflowIntakeDispatches.push(payload);
+  return true;
+};
+vm.runInNewContext(composeSource, workflowIntakeContext, { filename: 'static/chat/compose.js' });
+workflowIntakeContext.msgInput.value = '重构认证模块';
+workflowIntakeContext.saveDraft();
+await workflowIntakeContext.sendMessage();
+assert.equal(workflowIntakeDispatches.length, 1, 'backend-driven intake should fall through to the normal send path');
+assert.equal(workflowIntakeDispatches[0]?.action, 'send', 'backend-driven intake should submit a regular send action');
+assert.equal(workflowIntakeContext.msgInput.value, '重构认证模块', 'falling through to the send path should keep the composer text visible until canonical acceptance');
+assert.equal(workflowIntakeContext.localStorage.getItem('draft_session-a'), null, 'falling through to the send path should clear the durable draft once the outbound request is in flight');
+assert.deepEqual(workflowIntakeCalls[0], ['launch', '重构认证模块']);
+assert.equal(workflowIntakeCalls.length, 1, 'frontend should no longer manage intake follow-up state locally');
 
 console.log('test-chat-compose-draft: ok');

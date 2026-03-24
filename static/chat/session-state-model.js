@@ -244,6 +244,10 @@
       || activity.compact.state === "pending";
   }
 
+  function isSessionPendingIntake(session) {
+    return session?.pendingIntake === true;
+  }
+
   function deriveSessionBoardColumnKey(session) {
     const activity = normalizeSessionActivity(session);
     if (
@@ -253,6 +257,8 @@
     ) {
       return "active_now";
     }
+
+    if (isSessionPendingIntake(session)) return "waiting_user";
 
     const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
     if (workflowState === "waiting_user") return "waiting_user";
@@ -310,6 +316,17 @@
       ));
     }
 
+    if (isSessionPendingIntake(session)) {
+      indicators.push(createStatus(
+        "waiting_user",
+        "waiting",
+        "status-waiting-user",
+        "",
+        "",
+        "Waiting on workflow intake confirmation",
+      ));
+    }
+
     const primary = indicators[0] || (
       session?.tool && includeToolFallback
         ? createStatus("tool", session.tool)
@@ -353,6 +370,7 @@
   function getSessionBoardPriority(session) {
     const explicitPriority = getWorkflowPriorityInfo(session?.workflowPriority);
     if (explicitPriority) return explicitPriority;
+    if (isSessionPendingIntake(session)) return getWorkflowPriorityInfo("high");
     const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
     if (workflowState === "waiting_user") return getWorkflowPriorityInfo("high");
     if (workflowState === "done") return getWorkflowPriorityInfo("low");
@@ -378,6 +396,7 @@
   }
 
   function isSessionCompleteAndReviewed(session) {
+    if (isSessionPendingIntake(session)) return false;
     const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
     return workflowState === "done"
       && !isSessionBusy(session)
@@ -398,7 +417,9 @@
   }
 
   function getSessionAttentionBand(session) {
-    const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
+    const workflowState = isSessionPendingIntake(session)
+      ? "waiting_user"
+      : normalizeSessionWorkflowState(session?.workflowState || "");
     const busy = isSessionBusy(session);
     const unread = hasSessionUnreadUpdate(session);
 

@@ -439,12 +439,16 @@ function handleWsMessage(msg) {
 
 // ---- Status ----
 function updateStatus(connState, session = getCurrentSession()) {
+  const resolveComposerPlaceholder = (fallback) => {
+    const override = window.remotelabComposerBridge?.getPlaceholderOverride?.();
+    return override || fallback;
+  };
   if (typeof shareSnapshotMode !== "undefined" && shareSnapshotMode) {
     statusDot.className = "status-dot";
     statusText.textContent = "只读快照";
     msgInput.disabled = true;
     msgInput.readOnly = true;
-    msgInput.placeholder = "只读快照";
+    msgInput.placeholder = resolveComposerPlaceholder("只读快照");
     sendBtn.style.display = "";
     sendBtn.disabled = true;
     sendBtn.title = "只读";
@@ -467,7 +471,9 @@ function updateStatus(connState, session = getCurrentSession()) {
     statusDot.className = "status-dot";
     statusText.textContent = "正在重连…";
     msgInput.disabled = !currentSessionId || archived;
-    msgInput.placeholder = archived ? "会话已归档，恢复后继续" : "输入消息…";
+    msgInput.placeholder = resolveComposerPlaceholder(
+      archived ? "会话已归档，恢复后继续" : "描述你要做的事，或输入 /form 打开完整表单…",
+    );
     sendBtn.style.display = "";
     sendBtn.disabled = !currentSessionId || archived;
     sendBtn.title = "发送";
@@ -496,13 +502,13 @@ function updateStatus(connState, session = getCurrentSession()) {
     statusText.textContent = "空闲";
   }
   msgInput.disabled = !(hasSession || canBootstrapSessionFromComposer) || archived;
-  msgInput.placeholder = archived
+  msgInput.placeholder = resolveComposerPlaceholder(archived
     ? "会话已归档，恢复后继续"
     : canBootstrapSessionFromComposer
-      ? "输入消息，系统会先创建会话…"
+      ? "描述你要做的事，或输入 /form；系统会先创建会话…"
     : inputBusy
       ? "后续消息排队中…"
-      : "输入消息…";
+      : "描述你要做的事，或输入 /form 打开完整表单…");
   sendBtn.style.display = "";
   sendBtn.disabled = !(hasSession || canBootstrapSessionFromComposer) || archived;
   sendBtn.title = inputBusy ? "后续消息排队" : "发送";
