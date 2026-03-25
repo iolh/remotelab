@@ -236,6 +236,103 @@ Reusable AI workflows shareable via link. Each App defines: name, systemPrompt, 
 
 ---
 
+## Visual Design Specification (Non-Negotiable)
+
+Every UI change — in `static/chat/`, `static/chat-island/`, `ui-island/src/`, or `templates/` — **must** follow this specification. Violating these rules produces visual regressions that are expensive to detect after the fact.
+
+### Design Token Layer
+
+All colors flow through semantic CSS custom properties defined in `static/chat/chat-base.css`. **Never hardcode hex/rgb values in component CSS or inline styles.** The canonical tokens are:
+
+| Token | Purpose |
+|-------|---------|
+| `--bg`, `--bg-secondary`, `--bg-tertiary` | Background surfaces |
+| `--border`, `--border-strong` | Border hierarchy |
+| `--text`, `--text-secondary`, `--text-muted` | Text hierarchy |
+| `--accent`, `--accent-dim` | Accent elements |
+| `--success`, `--success-bg` | Positive outcomes |
+| `--notice` | Informational / workflow status |
+| `--error`, `--error-bg` | Errors |
+| `--warning`, `--issue` | Warnings and issues |
+| `--surface-hover`, `--user-bubble`, `--tool-bg` | Specialized surfaces |
+| `--modal-shadow`, `--modal-backdrop`, `--overlay-backdrop` | Elevation |
+| `--focus-border` | Focus rings |
+| `--safe-top`, `--safe-bottom`, `--chat-gutter` | Layout / safe areas |
+
+For tinted borders and backgrounds, use `color-mix(in srgb, var(--token) N%, var(--base))` — this is the established pattern throughout the codebase.
+
+Light/dark mode is handled via `prefers-color-scheme` media query and explicit `data-theme` attribute. Both sets are defined in `chat-base.css`. Never add one without the other.
+
+### Font
+
+- **System font stack**: `-apple-system, system-ui, 'Segoe UI', sans-serif` on `body`
+- **Island layer** inherits via `font-family: inherit` — do not set explicit font-family in island components
+- **Mono**: Use the system monospace stack when needed (`ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`)
+
+### Font Size Scale (strict)
+
+| Size | Usage |
+|------|-------|
+| 10px | Micro labels: footer, managed pill, stage chip icon |
+| 11px | Badges, timeline status/time, meta text, stage chips |
+| 12px | Body text, inputs, descriptions, buttons, sidebar tabs, labels, card body text |
+| 13px | Card titles, popover titles, zone titles, toast text, workflow labels |
+| 14px | Sidebar header |
+| 15px | Header title, main textarea |
+| 18px | Dialog titles |
+
+Do not introduce new sizes outside this scale.
+
+### Border Radius Scale (strict)
+
+| Radius | Usage |
+|--------|-------|
+| 6px | Header buttons |
+| 8px | Popover/card buttons, input fields |
+| 10px | System notes, status cards, parallel items, dialog buttons |
+| 14px | Input wrapper, toast |
+| 16px | Popovers, status dialogs |
+| 22px | Codex import dialog |
+| 24px | Task dialog, task surface, mobile modal |
+| 999px | Pills, badges, dots, full-round elements |
+
+Do not introduce new radius values outside this scale.
+
+### Spacing Patterns
+
+- **Button padding**: `7px 10px` (standard), `1px 7px` (pills/badges)
+- **Card/zone padding**: `16px` desktop, `14px` mobile
+- **Dialog padding**: `24px` desktop, `16px` mobile
+- **Gap**: `4px` (tight), `8px` (standard), `10px` (zone), `12px`–`14px` (form fields)
+- **Mobile breakpoint**: `640px` for component adjustments, `768px` for layout (sidebar inline)
+
+### Two-Layer Frontend Architecture
+
+| Layer | Location | Tech | Build |
+|-------|----------|------|-------|
+| Static vanilla | `static/chat/` | Pure CSS + vanilla JS | None (served raw) |
+| Island | `ui-island/src/` → `static/chat-island/` | React + shadcn/ui + Tailwind | Vite build |
+
+Both layers **must** share the same CSS custom property tokens from `chat-base.css`. The island layer must never introduce its own color palette or shadow/elevation values.
+
+### Icon System
+
+- **Static layer**: VS Code Codicons subset via `static/chat/icons.js` + `.rl-icon` class
+- **Island layer**: Lucide React — keep the icon set minimal, import only what is used
+- Do not mix icon systems within a single UI surface
+
+### Enforcement Checklist (for every UI PR)
+
+1. Zero hardcoded hex/rgb/hsl color values in new CSS or TSX
+2. All new sizes exist in the font-size or border-radius scale above
+3. Dark mode works — both `prefers-color-scheme` and `data-theme` paths
+4. Mobile viewport (≤ 640px) does not overflow or truncate critical content
+5. `safe-area-inset-*` respected for iOS PWA
+6. No new `font-family` declarations — inherit from body
+7. Island CSS uses `var(--token)` references, not Tailwind's built-in color palette
+
+---
+
 ## Current Priorities
 
 Current operating rule: prefer capability-first shipping slices that validate the target product shape before another broad refactor round. Keep refactors limited to the work directly required by those slices or to regressions they expose.
