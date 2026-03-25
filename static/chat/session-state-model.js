@@ -244,10 +244,6 @@
       || activity.compact.state === "pending";
   }
 
-  function isSessionPendingIntake(session) {
-    return false;
-  }
-
   function deriveSessionBoardColumnKey(session) {
     const activity = normalizeSessionActivity(session);
     if (

@@ -101,39 +101,8 @@ type WorkflowTaskInput = {
   preference: string;
 };
 
-type WorkflowModeKey =
-  | "quick_execute"
-  | "standard_delivery"
-  | "careful_deliberation"
-  | "parallel_split";
-
-type WorkflowModeConfig = {
-  key: WorkflowModeKey;
-  label: string;
-  title: string;
-  reason: string;
-  flow: string[];
-  plan: string[];
-  successToast: string;
-  appRole: "execute" | "deliberate";
-};
-
-type WorkflowRoutePreview = {
-  label: string;
-  title: string;
-  flow: string[];
-  plan: string[];
-};
-
-type WorkflowClassificationResult = {
-  mode?: WorkflowModeKey;
-  confidence?: string;
-  reason?: string;
-} | null;
-
 type WorkflowOpenDetail = {
   input?: Partial<WorkflowTaskInput>;
-  preferredMode?: WorkflowModeKey | null;
 } | null;
 
 type ResolvedTheme = "light" | "dark";
@@ -169,7 +138,6 @@ declare global {
     remotelabWorkflowBridge?: {
       getSeedInput?: () => Partial<WorkflowTaskInput>;
       ensureAppsLoaded?: () => Promise<unknown>;
-      classifyTask?: (options: { text: string; folder?: string }) => Promise<WorkflowClassificationResult>;
       startTask?: (options: {
         input: WorkflowTaskInput;
         kickoffMessage: string;
@@ -198,106 +166,6 @@ const EMPTY_WORKFLOW_INPUT: WorkflowTaskInput = {
   preference: "",
 };
 
-const WORKFLOW_MODES: Record<WorkflowModeKey, WorkflowModeConfig> = {
-  quick_execute: {
-    key: "quick_execute",
-    label: "快速执行",
-    title: "直接进入执行，尽快把低风险任务做完。",
-    reason: "这次任务边界清楚、改动范围小，先直接做更高效。",
-    flow: ["执行"],
-    plan: [
-      "创建 1 条执行主线",
-      "自动带上任务背景并直接开工",
-      "完成后由主线自行收口",
-    ],
-    successToast: "已按快速执行开始",
-    appRole: "execute",
-  },
-  standard_delivery: {
-    key: "standard_delivery",
-    label: "标准交付",
-    title: "先创建执行主线，做完首轮后再建议进入验收。",
-    reason: "这是最稳的默认路径，适合大多数日常需求和常规 bug 修复。",
-    flow: ["执行", "验收", "执行收口"],
-    plan: [
-      "先创建执行主线并自动带上任务背景",
-      "这轮实现完成后，系统会在主线里建议你开启验收",
-      "验收结果会通过既有 typed handoff 转回主线",
-    ],
-    successToast: "已按标准交付开始",
-    appRole: "execute",
-  },
-  careful_deliberation: {
-    key: "careful_deliberation",
-    label: "审慎模式",
-    title: "先再议定方向，执行一轮后再议关键风险，再进入最后执行和验收。",
-    reason: "这次任务不适合一把做到底，先判方向，再在首轮实现后复盘取舍，会比直接冲到验收更稳。",
-    flow: ["再议", "执行", "再议", "执行", "验收"],
-    plan: [
-      "先创建再议会话，自动带上当前问题、约束和倾向",
-      "由首轮再议给出推荐路径、放弃路径和需要你拍板的点",
-      "首轮执行完成后，再开一轮再议，专门复盘残余风险、取舍和是否需要补做",
-      "确认后进入最后一轮执行收口，再做独立验收",
-    ],
-    successToast: "已按审慎模式开始",
-    appRole: "deliberate",
-  },
-  parallel_split: {
-    key: "parallel_split",
-    label: "并行推进",
-    title: "先创建再议主线，判断是否值得拆成支线并行。",
-    reason: "你已经给出了明显的并行线索，这次更适合先做拆分判断，再决定支线和 worktree 边界。",
-    flow: ["再议", "执行主线", "执行支线", "验收"],
-    plan: [
-      "先创建再议会话，判断是否值得并行",
-      "如果值得，再由主线决定支线边界和并行方式",
-      "避免一上来就把任务拆乱",
-    ],
-    successToast: "已按并行推进开始",
-    appRole: "deliberate",
-  },
-};
-
-const WORKFLOW_ROUTE_PREVIEWS: Record<WorkflowModeKey, WorkflowRoutePreview> = {
-  quick_execute: {
-    label: "直接推进",
-    title: "系统预估这次可以先直接实现，必要时再补收口。",
-    flow: ["直接实现"],
-    plan: [
-      "优先按当前目标直接推进改动",
-      "如果过程中出现范围扩张或明显风险，系统会自动暂停",
-    ],
-  },
-  standard_delivery: {
-    label: "标准链路",
-    title: "系统预估先实现，再做独立验收，最后按结果收口会更稳。",
-    flow: ["先实现", "再验收", "最后收口"],
-    plan: [
-      "先推进首轮实现",
-      "完成后触发独立验收，再决定是否需要补做",
-    ],
-  },
-  careful_deliberation: {
-    label: "先定方向",
-    title: "系统预估这次先收敛方向，再推进实现和验收会更可靠。",
-    flow: ["先定方向", "推进实现", "复盘风险", "最后验收"],
-    plan: [
-      "先判断路径、取舍和风险",
-      "再进入实现，必要时中途复盘一次",
-      "最后做独立验收",
-    ],
-  },
-  parallel_split: {
-    label: "拆分推进",
-    title: "系统预估这次适合先判断是否拆分，再决定主线和支线如何并行。",
-    flow: ["先拆分", "主线推进", "支线推进", "最后验收"],
-    plan: [
-      "先识别能否安全拆成并行子任务",
-      "冲突高的部分会保守处理，不会强行自动合流",
-    ],
-  },
-};
-
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -316,25 +184,6 @@ function buildWorkflowTaskInput(
   };
 }
 
-function buildTaskSignalText(input: WorkflowTaskInput) {
-  return [
-    input.goal,
-    input.constraints,
-    input.progress,
-    input.concern,
-    input.preference,
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
-function normalizeWorkflowModeKey(value: string | null | undefined): WorkflowModeKey | null {
-  if (value === "quick_execute" || value === "standard_delivery" || value === "careful_deliberation" || value === "parallel_split") {
-    return value;
-  }
-  return null;
-}
-
 function buildWorkflowKickoffMessage(input: WorkflowTaskInput) {
   const sections = [
     `目标：${input.goal}`,
@@ -346,10 +195,6 @@ function buildWorkflowKickoffMessage(input: WorkflowTaskInput) {
     "请先判断最合适的推进方式：任务边界清晰就直接推进；如果存在方向取舍、拆分必要性或明显风险，请先收敛再继续。",
   ].filter(Boolean);
   return sections.join("\n");
-}
-
-function getWorkflowRoutePreview(mode: WorkflowModeConfig): WorkflowRoutePreview {
-  return WORKFLOW_ROUTE_PREVIEWS[mode.key];
 }
 
 async function startWorkflowTaskFromInput(input: WorkflowTaskInput) {
@@ -913,21 +758,6 @@ function CodexImportDialog() {
   );
 }
 
-function ModeFlow({ steps }: { steps: string[] }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {steps.map((step, index) => (
-        <div key={`${step}-${index}`} className="flex items-center gap-2">
-          <span className="workflow-task-flow-step">{step}</span>
-          {index < steps.length - 1 ? (
-            <span className="text-xs text-[color:var(--text-muted)]">→</span>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function WorkflowTaskFormFields({
   input,
   onFieldChange,
@@ -1049,24 +879,16 @@ function WorkflowTaskFormFields({
 function WorkflowTaskDialog() {
   const [open, setOpen] = useState(false);
   const [showOptionalFields, setShowOptionalFields] = useState(false);
-  const [showRecommendationDetails, setShowRecommendationDetails] = useState(false);
   const [starting, setStarting] = useState(false);
   const [input, setInput] = useState<WorkflowTaskInput>(EMPTY_WORKFLOW_INPUT);
-  const [preferredMode, setPreferredMode] = useState<WorkflowModeKey | null>(null);
-  const [classifiedRoute, setClassifiedRoute] = useState<WorkflowClassificationResult>(null);
-  const [classifying, setClassifying] = useState(false);
 
   useEffect(() => {
     function handleOpen(event: Event) {
       const detail = (event as CustomEvent<WorkflowOpenDetail>).detail || null;
       const seedInput = window.remotelabWorkflowBridge?.getSeedInput?.() || {};
       setInput(buildWorkflowTaskInput(seedInput, detail?.input || {}));
-      setPreferredMode(detail?.preferredMode || null);
       setShowOptionalFields(false);
-      setShowRecommendationDetails(false);
       setStarting(false);
-      setClassifiedRoute(null);
-      setClassifying(false);
       setOpen(true);
       void window.remotelabWorkflowBridge?.ensureAppsLoaded?.();
     }
@@ -1076,78 +898,6 @@ function WorkflowTaskDialog() {
       window.removeEventListener(WORKFLOW_OPEN_EVENT, handleOpen as EventListener);
     };
   }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    if (preferredMode) {
-      setClassifiedRoute({
-        mode: preferredMode,
-        confidence: "high",
-        reason: "",
-      });
-      setClassifying(false);
-      return;
-    }
-
-    const classifier = window.remotelabWorkflowBridge?.classifyTask;
-    const signalText = buildTaskSignalText(input);
-    if (!classifier || !normalizeText(signalText)) {
-      setClassifiedRoute(null);
-      setClassifying(false);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      setClassifying(true);
-      void classifier({
-        text: signalText,
-        folder: normalizeText(input.project),
-      }).then((result) => {
-        if (cancelled) return;
-        const mode = normalizeWorkflowModeKey(result?.mode);
-        setClassifiedRoute(mode
-          ? {
-              mode,
-              confidence: normalizeText(result?.confidence),
-              reason: normalizeText(result?.reason),
-            }
-          : null);
-      }).catch(() => {
-        if (cancelled) return;
-        setClassifiedRoute(null);
-      }).finally(() => {
-        if (cancelled) return;
-        setClassifying(false);
-      });
-    }, 180);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [input, open, preferredMode]);
-
-  const recommendedMode = useMemo(() => {
-    const modeKey = preferredMode || normalizeWorkflowModeKey(classifiedRoute?.mode) || "standard_delivery";
-    return WORKFLOW_MODES[modeKey];
-  }, [classifiedRoute, preferredMode]);
-  const routePreview = useMemo(
-    () => getWorkflowRoutePreview(recommendedMode),
-    [recommendedMode],
-  );
-  const routeReason = useMemo(() => {
-    if (preferredMode) {
-      return WORKFLOW_MODES[preferredMode].reason;
-    }
-    if (normalizeText(classifiedRoute?.reason)) {
-      return normalizeText(classifiedRoute?.reason);
-    }
-    if (classifying) {
-      return "正在根据任务描述向服务端估计最合适的工作流路径。";
-    }
-    return routePreview.title;
-  }, [classifiedRoute, classifying, preferredMode, routePreview.title]);
 
   function updateField(key: keyof WorkflowTaskInput, value: string) {
     setInput((current) => ({
@@ -1165,10 +915,7 @@ function WorkflowTaskDialog() {
       await startWorkflowTaskFromInput(input);
       setOpen(false);
       setShowOptionalFields(false);
-      setShowRecommendationDetails(false);
       setInput(EMPTY_WORKFLOW_INPUT);
-      setPreferredMode(null);
-      setClassifiedRoute(null);
     } catch (error) {
       window.remotelabToastBridge?.show(
         error instanceof Error ? error.message : "开始任务失败",
@@ -1186,77 +933,29 @@ function WorkflowTaskDialog() {
           <DialogTitle className="workflow-task-dialog-title">开始任务</DialogTitle>
         </DialogHeader>
         <div className="workflow-task-dialog-body">
-          <div className="workflow-task-dialog-layout">
-            <div className="workflow-task-main-column">
-              <Card className="workflow-task-surface">
-                <CardHeader className="workflow-task-card-header">
-                  <CardTitle>任务信息</CardTitle>
-                </CardHeader>
-                <CardContent className="workflow-task-card-content">
-                  <WorkflowTaskFormFields
-                    input={input}
-                    onFieldChange={updateField}
-                    showOptionalFields={showOptionalFields}
-                    onShowOptionalFieldsChange={setShowOptionalFields}
-                    idPrefix="workflow-task"
-                    placeholders={{
-                      goal: "例如：修复移动端登录按钮无响应，并补上回归验证",
-                      project: "例如：/path/to/remotelab",
-                      constraints: "例如：不改接口、不改数据库结构，这次先不做重构",
-                      progress: "例如：已经定位到问题，还没开始改；或第一版已经提测",
-                      concern: "例如：担心影响现有会话流程、移动端布局或已有接口兼容",
-                      preference: "例如：先做最小改动修复，确认稳定后再考虑扩展",
-                    }}
-                    includeSystemDefaultNote
-                  />
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="workflow-task-side-column">
-              <Card className="workflow-task-surface workflow-task-recommendation-surface">
-                <CardHeader className="workflow-task-card-header">
-                  <div className="flex items-start justify-between gap-3">
-                    <CardTitle>系统预估路径</CardTitle>
-                    <Badge className="workflow-task-recommendation-badge" variant="secondary">
-                      {classifying && !preferredMode ? "分析中…" : routePreview.label}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="workflow-task-card-content">
-                  <p className="workflow-task-recommendation-reason">{routeReason}</p>
-                  <Collapsible
-                    open={showRecommendationDetails}
-                    onOpenChange={setShowRecommendationDetails}
-                    className="workflow-task-collapsible"
-                  >
-                    <CollapsibleTrigger asChild>
-                      <Button type="button" variant="ghost" size="sm" className="workflow-task-collapsible-trigger">
-                        <span>{showRecommendationDetails ? "收起说明" : "查看说明"}</span>
-                        <ChevronDown
-                          className={`workflow-task-collapsible-icon${showRecommendationDetails ? " is-open" : ""}`}
-                          strokeWidth={1.8}
-                        />
-                      </Button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="workflow-task-collapsible-content">
-                      <div className="workflow-task-recommendation-details">
-                        <ModeFlow steps={routePreview.flow} />
-                        <ul className="workflow-task-recommendation-list">
-                          {routePreview.plan.map((item) => (
-                            <li key={item} className="flex gap-2">
-                              <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-[color:var(--text-muted)]" />
-                              <span>{item}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+          <Card className="workflow-task-surface">
+            <CardHeader className="workflow-task-card-header">
+              <CardTitle>任务信息</CardTitle>
+            </CardHeader>
+            <CardContent className="workflow-task-card-content">
+              <WorkflowTaskFormFields
+                input={input}
+                onFieldChange={updateField}
+                showOptionalFields={showOptionalFields}
+                onShowOptionalFieldsChange={setShowOptionalFields}
+                idPrefix="workflow-task"
+                placeholders={{
+                  goal: "例如：修复移动端登录按钮无响应，并补上回归验证",
+                  project: "例如：/path/to/remotelab",
+                  constraints: "例如：不改接口、不改数据库结构，这次先不做重构",
+                  progress: "例如：已经定位到问题，还没开始改；或第一版已经提测",
+                  concern: "例如：担心影响现有会话流程、移动端布局或已有接口兼容",
+                  preference: "例如：先做最小改动修复，确认稳定后再考虑扩展",
+                }}
+                includeSystemDefaultNote
+              />
+            </CardContent>
+          </Card>
         </div>
         <DialogFooter className="workflow-task-dialog-footer">
           <Button variant="outline" onClick={() => setOpen(false)} disabled={starting}>

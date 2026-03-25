@@ -125,6 +125,17 @@ setTimeout(() => {
       }),
       '</delivery_summary>',
     ].join('\\n');
+  } else if (prompt.includes('再议结论已自动回灌')) {
+    text = [
+      '已吸收再议结论并完成收口。',
+      '<delivery_summary>',
+      JSON.stringify({
+        summary: '主线已吸收再议结论并完成收口。',
+        completed: ['吸收再议结论', '完成最终收口'],
+        remainingRisks: ['建议人工复核最终方向'],
+      }),
+      '</delivery_summary>',
+    ].join('\\n');
   }
   console.log(JSON.stringify({
     type: 'item.completed',
@@ -343,6 +354,33 @@ async function main() {
     assert.equal(replacementConclusion.supersedesHandoffId, firstConclusion.id, 'replacement handoffs should record the superseded predecessor');
     assert.equal(replacementConclusion.round, 2, 'replacement handoffs should increment the round counter');
     assert.equal(supersededDetail.workflowState, 'waiting_user', 'the replacement needs_decision handoff should keep the mainline waiting on the user');
+
+    const decisionMainline = await createSession(port, { name: '执行 · 发布方案收口', appName: '执行' });
+    const decisionSource = await createSession(port, { name: '再议 · 发布方案收口', appName: '再议' });
+
+    const decisionOutcome = await handoffResult(port, decisionSource.id, {
+      targetSessionId: decisionMainline.id,
+      handoffType: 'decision_result',
+      summary: '建议沿用现有发布方案，只补一轮发布前核对。',
+      payload: {
+        summary: '建议沿用现有发布方案，只补一轮发布前核对。',
+        recommendation: '沿用现有发布方案，只补一轮发布前核对。',
+        confidence: 'high',
+        tradeoffs: ['实现成本最低', '仍需人工复核发布清单'],
+      },
+    });
+    assert.equal(decisionOutcome.handoff?.status, 'accepted', 'high-confidence decision handoffs should auto-accept');
+
+    const decisionAccepted = await waitFor(async () => {
+      const detail = await getSessionDetail(port, decisionMainline.id);
+      const conclusions = Array.isArray(detail?.workflowPendingConclusions) ? detail.workflowPendingConclusions : [];
+      const accepted = conclusions.find((entry) => entry?.handoffType === 'decision_result' && entry?.status === 'accepted');
+      if (!accepted) return null;
+      return detail?.workflowState === 'done' ? detail : null;
+    }, 'accepted decision_result handoff');
+    const acceptedDecision = decisionAccepted.workflowPendingConclusions.find((entry) => entry?.handoffType === 'decision_result');
+    assert.equal(acceptedDecision.status, 'accepted', 'decision_result handoffs should keep the accepted terminal state');
+    assert.equal(decisionAccepted.workflowState, 'done', 'auto-absorbed decision_result handoffs should also drive the mainline to done');
 
     console.log('test-handoff-lifecycle: ok');
   } finally {

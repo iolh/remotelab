@@ -175,9 +175,6 @@ async function main() {
   vm.runInNewContext(script, attachedContext, { filename: 'static/chat/bootstrap.js' });
 
   const attachedResult = await attachedContext.window.remotelabWorkflowBridge.startTask({
-    appNames: ['再议'],
-    workflowMode: 'careful_deliberation',
-    gatePolicy: 'always_pause',
     input: { goal: '修复移动端登录按钮', project: '/repo/app' },
     kickoffMessage: '开始执行',
     successToast: '任务已开始',
@@ -216,9 +213,6 @@ async function main() {
   vm.runInNewContext(script, createdContext, { filename: 'static/chat/bootstrap.js' });
 
   const createdResult = await createdContext.window.remotelabWorkflowBridge.startTask({
-    appNames: ['执行'],
-    workflowMode: 'quick_execute',
-    gatePolicy: 'low_confidence_only',
     input: { goal: '修复移动端登录按钮', project: '/repo/app' },
     kickoffMessage: '开始执行',
     successToast: '任务已开始',
