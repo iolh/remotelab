@@ -1,3 +1,7 @@
+> Archived on 2026-03-25.
+> This intermediate simplification plan has been fully folded into the shipped event-driven workflow model documented in `notes/current/workflow-simplified.md`.
+> Keep this file only as historical reference.
+
 # 工作流简化演进 Plan
 
 项目路径：~/code/remotelab

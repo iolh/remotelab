@@ -65,7 +65,12 @@ remotelab/
 │
 ├── chat/                    # ── Chat service modules ──
 │   ├── router.mjs           # All HTTP routes & API endpoints (538 lines)
-│   ├── session-manager.mjs  # Canonical session/run orchestration + reconciliation
+│   ├── session-manager.mjs  # Session/run orchestration shell + module wiring
+│   ├── workflow-engine.mjs  # Event-driven workflow suggestions, handoffs, and auxiliary session flow
+│   ├── prompt-builder.mjs   # Prompt assembly, turn activation, and fork-context preparation
+│   ├── context-compaction.mjs # Context compaction queue + worker orchestration
+│   ├── follow-up-queue.mjs  # Queued follow-up buffering and dispatch
+│   ├── run-completion-suggestions.mjs # Post-run verification / decision suggestion logic
 │   ├── process-runner.mjs   # Tool invocation helpers + runtime adapters
 │   ├── runs.mjs             # Durable run metadata/result/spool storage
 │   ├── runner-supervisor.mjs # Detached runner launcher
@@ -170,6 +175,18 @@ Additional instances can override this with `REMOTELAB_INSTANCE_ROOT`, `REMOTELA
 
 ### Sessions
 Unit of work = one chat conversation with one AI tool. Persisted across disconnects. Resume IDs (`claudeSessionId`, `codexThreadId`) stored in metadata so AI context survives server restarts.
+
+### Event-Driven Workflow
+RemoteLab no longer uses a stage-based `workflowDefinition` / intake / inline-declaration state machine.
+
+- A mainline session keeps a lightweight `currentTask`.
+- When a mainline run completes, the system may attach a lightweight `workflowSuggestion`.
+- Accepting a suggestion spawns a focused auxiliary session such as verification or deliberation.
+- Auxiliary sessions return typed handoffs (`verification_result`, `decision_result`) into `workflowPendingConclusions`.
+- Handoffs move through `pending`, `needs_decision`, `accepted`, `ignored`, or `superseded`.
+- `workflowState` and `workflowPriority` remain as lightweight session-level signals, not a stage engine.
+
+The shipped orchestration model is event-driven suggestion + typed handoff, not predeclared workflow stages.
 
 ### Apps (Templates)
 Reusable AI workflows shareable via link. Each App defines: name, systemPrompt, skills, tool. When a Visitor clicks the share link → auto-creates a scoped Session with the App's system prompt injected.

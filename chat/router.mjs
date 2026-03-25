@@ -48,15 +48,11 @@ import {
   updateSessionGrouping,
   updateSessionAgreements,
   updateSessionWorkflowClassification,
-  updateSessionWorkflowAutoTriggerPreference,
   updateSessionRuntimePreferences,
   handoffSessionResult,
   mergeSessionWorktree,
   cleanupSessionWorktree,
-  confirmWorkflowIntakeOnSession,
-  cancelWorkflowIntakeOnSession,
 } from './session-manager.mjs';
-import { classifyTaskComplexity } from './workflow-auto-router.mjs';
 import {
   createTrigger,
   deleteTrigger,
@@ -1113,7 +1109,6 @@ function isOwnerOnlyRoute(pathname, method) {
   if (/^\/api\/sessions\/[^/]+\/conclusions\/[^/]+$/.test(pathname) && method === 'POST') return true;
   if (pathname.startsWith('/api/sessions/') && method === 'PATCH') return true;
   if (pathname === '/api/models' && method === 'GET') return true;
-  if (pathname === '/api/workflow/classify' && method === 'GET') return true;
   if (pathname === '/api/tools' && (method === 'GET' || method === 'POST')) return true;
   if (pathname === '/api/autocomplete' && method === 'GET') return true;
   if (pathname === '/api/browse' && method === 'GET') return true;
@@ -1328,28 +1323,6 @@ export async function handleRequest(req, res) {
     return;
   }
 
-  if (pathname === '/api/workflow/classify' && req.method === 'GET') {
-    const text = typeof parsedUrl.query.text === 'string'
-      ? parsedUrl.query.text.trim()
-      : '';
-    if (!text) {
-      writeJson(res, 400, { error: 'text is required' });
-      return;
-    }
-    const folder = typeof parsedUrl.query.folder === 'string'
-      ? parsedUrl.query.folder.trim()
-      : '';
-    const classification = classifyTaskComplexity(text, {
-      ...(folder ? { sessionFolder: folder } : {}),
-    });
-    writeJsonCached(req, res, {
-      mode: typeof classification?.mode === 'string' ? classification.mode : '',
-      confidence: typeof classification?.confidence === 'string' ? classification.confidence : '',
-      reason: typeof classification?.reason === 'string' ? classification.reason : '',
-    });
-    return;
-  }
-
   if (sessionGetRoute?.kind === 'list' || sessionGetRoute?.kind === 'archived-list') {
     const includeVisitor = authSession?.role === 'owner'
       && ['1', 'true', 'yes'].includes(String(parsedUrl.query.includeVisitor || '').toLowerCase());
@@ -1496,7 +1469,6 @@ export async function handleRequest(req, res) {
     const hasActiveAgreementsPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'activeAgreements');
     const hasWorkflowStatePatch = Object.prototype.hasOwnProperty.call(patch || {}, 'workflowState');
     const hasWorkflowPriorityPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'workflowPriority');
-    const hasWorkflowAutoTriggerDisabledPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'workflowAutoTriggerDisabled');
     const hasLastReviewedAtPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'lastReviewedAt');
     const hasHandoffTargetPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'handoffTargetSessionId');
     if (hasArchivedPatch && typeof patch.archived !== 'boolean') {
@@ -1548,10 +1520,6 @@ export async function handleRequest(req, res) {
     }
     if (hasWorkflowPriorityPatch && patch.workflowPriority !== null && typeof patch.workflowPriority !== 'string') {
       writeJson(res, 400, { error: 'workflowPriority must be a string or null' });
-      return;
-    }
-    if (hasWorkflowAutoTriggerDisabledPatch && typeof patch.workflowAutoTriggerDisabled !== 'boolean') {
-      writeJson(res, 400, { error: 'workflowAutoTriggerDisabled must be a boolean' });
       return;
     }
     if (hasLastReviewedAtPatch && patch.lastReviewedAt !== null && typeof patch.lastReviewedAt !== 'string') {
@@ -1615,9 +1583,6 @@ export async function handleRequest(req, res) {
         ...(hasWorkflowStatePatch ? { workflowState: patch.workflowState || '' } : {}),
         ...(hasWorkflowPriorityPatch ? { workflowPriority: patch.workflowPriority || '' } : {}),
       }) || session;
-    }
-    if (hasWorkflowAutoTriggerDisabledPatch) {
-      session = await updateSessionWorkflowAutoTriggerPreference(sessionId, patch.workflowAutoTriggerDisabled === true) || session;
     }
     if (hasToolPatch || hasModelPatch || hasEffortPatch || hasThinkingPatch) {
       session = await updateSessionRuntimePreferences(sessionId, {
@@ -1702,7 +1667,6 @@ export async function handleRequest(req, res) {
           queued: outcome.queued,
           run: outcome.run,
           session: createClientSessionDetail(outcome.session),
-          ...(outcome.workflowAutoTriggered ? { workflowAutoTriggered: outcome.workflowAutoTriggered } : {}),
         });
       } catch (error) {
         const statusCode = error?.code === 'SESSION_ARCHIVED' ? 409 : 400;
@@ -1892,9 +1856,9 @@ export async function handleRequest(req, res) {
       }
 
       const appId = typeof payload?.appId === 'string' ? payload.appId.trim() : '';
-      const workflowMode = typeof payload?.workflowMode === 'string' ? payload.workflowMode.trim() : '';
-      const gatePolicy = typeof payload?.gatePolicy === 'string' ? payload.gatePolicy.trim() : '';
-      const workflowCurrentTask = typeof payload?.workflowCurrentTask === 'string' ? payload.workflowCurrentTask.trim() : '';
+      const currentTask = typeof payload?.currentTask === 'string'
+        ? payload.currentTask.trim()
+        : (typeof payload?.workflowCurrentTask === 'string' ? payload.workflowCurrentTask.trim() : '');
       const kickoffMessage = typeof payload?.kickoffMessage === 'string' ? payload.kickoffMessage : '';
       const appNames = Array.isArray(payload?.appNames) ? payload.appNames.filter((entry) => typeof entry === 'string') : [];
       const input = payload?.input && typeof payload.input === 'object' && !Array.isArray(payload.input)
@@ -1905,9 +1869,7 @@ export async function handleRequest(req, res) {
         const outcome = await startWorkflowOnSession(sessionId, {
           appId,
           appNames,
-          workflowMode,
-          gatePolicy,
-          workflowCurrentTask,
+          currentTask,
           kickoffMessage,
           input,
         });
@@ -1921,59 +1883,6 @@ export async function handleRequest(req, res) {
         });
       } catch (error) {
         writeJson(res, 400, { error: error.message || 'Failed to start workflow on session' });
-      }
-      return;
-    }
-
-    if (parts.length === 6 && parts[0] === 'api' && parts[1] === 'sessions' && sessionId && parts[3] === 'workflow' && parts[4] === 'intake' && parts[5] === 'confirm') {
-      if (authSession?.role === 'visitor') {
-        writeJson(res, 403, { error: 'Owner access required' });
-        return;
-      }
-      if (!requireSessionAccess(res, authSession, sessionId)) return;
-
-      let body;
-      try { body = await readBody(req, 10240); } catch {
-        writeJson(res, 400, { error: 'Bad request' });
-        return;
-      }
-      let payload;
-      try { payload = JSON.parse(body); } catch {
-        writeJson(res, 400, { error: 'Invalid request body' });
-        return;
-      }
-
-      const input = payload?.input && typeof payload.input === 'object' && !Array.isArray(payload.input)
-        ? payload.input
-        : {};
-      try {
-        const outcome = await confirmWorkflowIntakeOnSession(sessionId, input);
-        writeJson(res, 200, {
-          ok: true,
-          session: createClientSessionDetail(outcome?.session || await getSession(sessionId)),
-          run: outcome?.run || null,
-        });
-      } catch (error) {
-        writeJson(res, 400, { error: error.message || 'Failed to confirm workflow intake' });
-      }
-      return;
-    }
-
-    if (parts.length === 6 && parts[0] === 'api' && parts[1] === 'sessions' && sessionId && parts[3] === 'workflow' && parts[4] === 'intake' && parts[5] === 'cancel') {
-      if (authSession?.role === 'visitor') {
-        writeJson(res, 403, { error: 'Owner access required' });
-        return;
-      }
-      if (!requireSessionAccess(res, authSession, sessionId)) return;
-
-      try {
-        const session = await cancelWorkflowIntakeOnSession(sessionId);
-        writeJson(res, 200, {
-          ok: true,
-          session: createClientSessionDetail(session),
-        });
-      } catch (error) {
-        writeJson(res, 400, { error: error.message || 'Failed to cancel workflow intake' });
       }
       return;
     }
@@ -2329,8 +2238,6 @@ export async function handleRequest(req, res) {
         worktree,
         completionTargets,
         externalTriggerId,
-        workflowMode,
-        gatePolicy,
       } = parsedBody;
       const wantsCodexImport = tool === 'codex' && typeof codexThreadId === 'string' && codexThreadId.trim();
       if (!tool || (!folder && !wantsCodexImport)) {
@@ -2381,8 +2288,6 @@ export async function handleRequest(req, res) {
         sourceName: typeof sourceName === 'string' ? sourceName : '',
         group: group || '',
         description: description || '',
-        workflowMode: typeof workflowMode === 'string' ? workflowMode : '',
-        gatePolicy: typeof gatePolicy === 'string' ? gatePolicy : '',
         worktree: worktree === true,
         completionTargets: Array.isArray(completionTargets) ? completionTargets : [],
         externalTriggerId: typeof externalTriggerId === 'string' ? externalTriggerId : '',

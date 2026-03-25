@@ -5,13 +5,8 @@
   --settings-textarea-height: 84px;
 }
 
-#chatChromeRoot,
-#workflowIntakePanelRoot {
+#chatChromeRoot {
   width: auto;
-}
-
-#workflowIntakePanelRoot {
-  display: block;
 }
 
 .workflow-task-dialog {
@@ -233,107 +228,6 @@
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.55;
-}
-
-.workflow-intake-panel-shell {
-  width: min(100%, 840px);
-  margin: 0 auto;
-  padding: 14px 16px 0;
-}
-
-.workflow-intake-card {
-  border-radius: 20px;
-  border: 1px solid color-mix(in srgb, var(--notice) 16%, var(--border));
-  background: color-mix(in srgb, var(--notice) 3%, var(--bg));
-  box-shadow: none;
-}
-
-.workflow-intake-card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 16px 16px 0;
-}
-
-.workflow-intake-card-title-wrap {
-  display: grid;
-  gap: 4px;
-}
-
-.workflow-intake-eyebrow {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.2;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.workflow-intake-title {
-  font-size: 15px;
-  line-height: 1.35;
-}
-
-.workflow-intake-card-content {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-}
-
-.workflow-intake-prompt {
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.workflow-intake-note {
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.workflow-intake-summary {
-  display: grid;
-  gap: 10px;
-}
-
-.workflow-intake-summary-item {
-  display: grid;
-  gap: 4px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  padding: 10px 12px;
-}
-
-.workflow-intake-summary-label {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.2;
-  font-weight: 600;
-}
-
-.workflow-intake-summary-value {
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.workflow-intake-inline-form {
-  gap: 12px;
-}
-
-.workflow-intake-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.workflow-intake-actions > button {
-  min-height: 36px;
-  border-radius: 10px;
 }
 
 .codex-import-dialog {
@@ -1141,24 +1035,6 @@
   }
 
   .codex-import-dialog-primary {
-    flex: 1 1 auto;
-  }
-
-  .workflow-intake-panel-shell {
-    padding: 12px 12px 0;
-  }
-
-  .workflow-intake-card {
-    border-radius: 16px;
-  }
-
-  .workflow-intake-card-header,
-  .workflow-intake-card-content {
-    padding-left: 14px;
-    padding-right: 14px;
-  }
-
-  .workflow-intake-actions > button {
     flex: 1 1 auto;
   }
 

@@ -19,7 +19,6 @@ import { buildTurnRoutingHint } from './session-routing.mjs';
 import {
   buildWorkflowCurrentTaskPromptBlock,
   buildWorkflowPendingConclusionsPromptBlock,
-  buildWorkflowStagePromptBlock,
 } from './workflow-engine.mjs';
 
 export const VISITOR_TURN_GUARDRAIL = [
@@ -227,7 +226,6 @@ export function buildManagerTurnContextText(session, text = '') {
     buildTurnRoutingHint(text),
     buildSessionAgreementsPromptBlock(session?.activeAgreements || []),
     buildWorkflowCurrentTaskPromptBlock(session),
-    buildWorkflowStagePromptBlock(session),
     buildWorkflowPendingConclusionsPromptBlock(session),
   ].filter(Boolean).join('\n\n');
 }
@@ -291,7 +289,7 @@ export function resolveResumeState(toolId, session, options = {}) {
 
 export async function buildPrompt(sessionId, session, text, previousTool, effectiveTool, snapshot = null, options = {}) {
   const toolDefinition = await getToolDefinitionAsync(effectiveTool);
-  const promptMode = toolDefinition?.promptMode === 'bare-user' || session?.workflowAutoTriggerDisabled === true
+  const promptMode = toolDefinition?.promptMode === 'bare-user'
     ? 'bare-user'
     : 'default';
   const flattenPrompt = toolDefinition?.flattenPrompt === true;

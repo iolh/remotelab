@@ -138,7 +138,7 @@ function createContext({
       },
     },
   };
-  windowTarget.openWorkflowTaskIntakeModal = (detail = null) => {
+  windowTarget.openWorkflowTaskDialog = (detail = null) => {
     workflowModalOpenCalls.push(detail);
     return true;
   };
@@ -440,57 +440,23 @@ failedSendContext.restoreFailedSendState('session-a', 'retry this request', [], 
 assert.equal(failedSendContext.msgInput.readOnly, false, 'failed sends should restore the composer input state');
 assert.equal(failedSendContext.localStorage.getItem('draft_session-a'), 'retry this request', 'failed sends should put the draft back into durable storage for retry');
 
-const workflowLaunchContext = createContext();
-const workflowLaunchCalls = [];
-const workflowLaunchDispatches = [];
-workflowLaunchContext.window.remotelabWorkflowBridge = {
-  async launchFromText({ text }) {
-    workflowLaunchCalls.push(text);
-    return { handled: true, started: true };
-  },
-};
-workflowLaunchContext.dispatchAction = async (payload) => {
-  workflowLaunchDispatches.push(payload);
+const plainWorkflowTextContext = createContext();
+const plainWorkflowTextDispatches = [];
+plainWorkflowTextContext.dispatchAction = async (payload) => {
+  plainWorkflowTextDispatches.push(payload);
   return true;
 };
-vm.runInNewContext(composeSource, workflowLaunchContext, { filename: 'static/chat/compose.js' });
-workflowLaunchContext.msgInput.value = '开始任务：修复移动端登录按钮';
-workflowLaunchContext.saveDraft();
-await workflowLaunchContext.sendMessage();
-assert.deepEqual(workflowLaunchCalls, ['开始任务：修复移动端登录按钮'], 'explicit workflow launch text should be routed into the workflow bridge');
-assert.equal(workflowLaunchDispatches.length, 0, 'workflow launch commands should not fall through to the normal message dispatch path');
-assert.equal(workflowLaunchContext.msgInput.value, '', 'successful workflow launches should clear the composer');
-assert.equal(workflowLaunchContext.localStorage.getItem('draft_session-a'), null, 'successful workflow launches should clear any persisted draft');
-
-const workflowOpenContext = createContext();
-const workflowOpenDispatches = [];
-workflowOpenContext.window.remotelabWorkflowBridge = {
-  async launchFromText() {
-    return { handled: true, opened: true };
-  },
-};
-workflowOpenContext.dispatchAction = async (payload) => {
-  workflowOpenDispatches.push(payload);
-  return true;
-};
-vm.runInNewContext(composeSource, workflowOpenContext, { filename: 'static/chat/compose.js' });
-workflowOpenContext.msgInput.value = '启动工作流';
-workflowOpenContext.saveDraft();
-await workflowOpenContext.sendMessage();
-assert.equal(workflowOpenDispatches.length, 0, 'workflow intake commands should not be sent as plain chat messages while opening the intake flow');
-assert.equal(workflowOpenContext.msgInput.value, '启动工作流', 'opening the workflow intake should keep the composer text in place in case the user cancels');
-assert.equal(workflowOpenContext.localStorage.getItem('draft_session-a'), '启动工作流', 'opening the workflow intake should preserve the durable draft until a task actually starts');
+vm.runInNewContext(composeSource, plainWorkflowTextContext, { filename: 'static/chat/compose.js' });
+plainWorkflowTextContext.msgInput.value = '开始任务：修复移动端登录按钮';
+plainWorkflowTextContext.saveDraft();
+await plainWorkflowTextContext.sendMessage();
+assert.equal(plainWorkflowTextDispatches.length, 1, 'workflow-like text should now follow the normal send path');
+assert.equal(plainWorkflowTextDispatches[0]?.action, 'send', 'workflow-like text should no longer be intercepted by composer-side intake logic');
+assert.equal(plainWorkflowTextContext.msgInput.value, '开始任务：修复移动端登录按钮', 'normal sends should keep the composer text visible until canonical acceptance');
+assert.equal(plainWorkflowTextContext.localStorage.getItem('draft_session-a'), null, 'normal sends should still clear the durable draft once the outbound request is in flight');
 
 const workflowFormContext = createContext();
 const workflowFormDispatches = [];
-workflowFormContext.window.remotelabWorkflowBridge = {
-  getPendingIntakeDetail() {
-    return {
-      input: { goal: '重构认证模块', constraints: '不改数据库' },
-      preferredMode: 'careful_deliberation',
-    };
-  },
-};
 workflowFormContext.dispatchAction = async (payload) => {
   workflowFormDispatches.push(payload);
   return true;
@@ -501,35 +467,8 @@ await workflowFormContext.sendMessage();
 assert.equal(workflowFormDispatches.length, 0, '/form should not fall through to normal message dispatch');
 assert.deepEqual(
   workflowFormContext.workflowModalOpenCalls,
-  [{
-    input: { goal: '重构认证模块', constraints: '不改数据库' },
-    preferredMode: 'careful_deliberation',
-  }],
-  '/form should open the full workflow dialog with the current intake seed when available',
+  [null],
+  '/form should open the explicit workflow task dialog without reviving legacy intake state',
 );
-
-const workflowIntakeContext = createContext();
-const workflowIntakeDispatches = [];
-const workflowIntakeCalls = [];
-workflowIntakeContext.window.remotelabWorkflowBridge = {
-  async launchFromText({ text }) {
-    workflowIntakeCalls.push(['launch', text]);
-    return { handled: false };
-  },
-};
-workflowIntakeContext.dispatchAction = async (payload) => {
-  workflowIntakeDispatches.push(payload);
-  return true;
-};
-vm.runInNewContext(composeSource, workflowIntakeContext, { filename: 'static/chat/compose.js' });
-workflowIntakeContext.msgInput.value = '重构认证模块';
-workflowIntakeContext.saveDraft();
-await workflowIntakeContext.sendMessage();
-assert.equal(workflowIntakeDispatches.length, 1, 'backend-driven intake should fall through to the normal send path');
-assert.equal(workflowIntakeDispatches[0]?.action, 'send', 'backend-driven intake should submit a regular send action');
-assert.equal(workflowIntakeContext.msgInput.value, '重构认证模块', 'falling through to the send path should keep the composer text visible until canonical acceptance');
-assert.equal(workflowIntakeContext.localStorage.getItem('draft_session-a'), null, 'falling through to the send path should clear the durable draft once the outbound request is in flight');
-assert.deepEqual(workflowIntakeCalls[0], ['launch', '重构认证模块']);
-assert.equal(workflowIntakeCalls.length, 1, 'frontend should no longer manage intake follow-up state locally');
 
 console.log('test-chat-compose-draft: ok');

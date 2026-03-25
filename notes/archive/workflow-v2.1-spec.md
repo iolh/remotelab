@@ -1,3 +1,7 @@
+> Archived on 2026-03-25.
+> This state-machine-era workflow spec has been superseded by `notes/current/workflow-simplified.md` and the event-driven handoff implementation in `chat/workflow-engine.mjs`.
+> Keep this file only as historical reference.
+
 # RemoteLab AI 协作工作流 — 正式规格 v2.1
 
 > 状态：**规格草案 v2.1**

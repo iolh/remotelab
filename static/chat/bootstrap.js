@@ -361,265 +361,6 @@ function getChromeWorkflowStatusLabel(session) {
   return "";
 }
 
-const CHROME_WORKFLOW_STAGE_ROLE_LABELS = {
-  execute: "执行",
-  verify: "验收",
-  deliberate: "再议",
-};
-
-function getNormalizedWorkflowDefinitionForChrome(session) {
-  const definition = session?.workflowDefinition;
-  if (!definition || typeof definition !== "object") return null;
-  const stages = Array.isArray(definition.stages)
-    ? definition.stages
-      .map((stage) => {
-        if (!stage || typeof stage !== "object") return null;
-        const role = typeof stage.role === "string" ? stage.role.trim().toLowerCase() : "";
-        if (!role) return null;
-        const label = typeof stage.label === "string" ? stage.label.trim() : "";
-        return {
-          role,
-          ...(label ? { label } : {}),
-        };
-      })
-      .filter(Boolean)
-    : [];
-  if (stages.length === 0) return null;
-  const currentStageIndex = Number.isInteger(definition.currentStageIndex) && definition.currentStageIndex >= 0
-    ? Math.min(definition.currentStageIndex, stages.length - 1)
-    : 0;
-  return {
-    stages,
-    currentStageIndex,
-  };
-}
-
-function getWorkflowStageBaseLabelForChrome(stage, index) {
-  const explicit = typeof stage?.label === "string" ? stage.label.trim() : "";
-  if (explicit) return explicit;
-  const role = typeof stage?.role === "string" ? stage.role.trim().toLowerCase() : "";
-  return CHROME_WORKFLOW_STAGE_ROLE_LABELS[role] || `阶段 ${index + 1}`;
-}
-
-function getWorkflowCurrentStageLabelForChrome(stage, index) {
-  const label = getWorkflowStageBaseLabelForChrome(stage, index);
-  return /中$/u.test(label) ? label : `${label}中`;
-}
-
-function isWorkflowActiveForChrome(session) {
-  return !!getNormalizedWorkflowDefinitionForChrome(session)
-    && String(session?.workflowState || "").trim() !== "done";
-}
-
-function buildChromeWorkflowStages(session) {
-  const definition = getNormalizedWorkflowDefinitionForChrome(session);
-  if (!definition || !isWorkflowActiveForChrome(session)) return [];
-  return definition.stages.map((stage, index) => ({
-    label: index === definition.currentStageIndex
-      ? getWorkflowCurrentStageLabelForChrome(stage, index)
-      : getWorkflowStageBaseLabelForChrome(stage, index),
-    state: index < definition.currentStageIndex
-      ? "completed"
-      : (index === definition.currentStageIndex ? "current" : "upcoming"),
-  }));
-}
-
-function getChromeWorkflowTimelineSortValue(stamp) {
-  const parsed = new Date(stamp || "").getTime();
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getChromeWorkflowTimelineTone(status = "") {
-  const normalized = normalizeWorkflowTaskText(status).toLowerCase();
-  if (["completed", "accepted"].includes(normalized)) return "success";
-  if (["paused_for_decision", "needs_decision", "pending"].includes(normalized)) return "notice";
-  if (["failed", "error", "rejected"].includes(normalized)) return "error";
-  if (["ignored", "superseded"].includes(normalized)) return "muted";
-  if (["needs_fix", "needs_more_validation"].includes(normalized)) return "warning";
-  return "neutral";
-}
-
-function getChromeWorkflowTimelineStatusLabel(status = "") {
-  const normalized = normalizeWorkflowTaskText(status).toLowerCase();
-  if (normalized === "running") return "运行中";
-  if (normalized === "completed") return "已完成";
-  if (normalized === "paused_for_decision") return "待决策";
-  if (normalized === "needs_decision") return "待决策";
-  if (normalized === "pending") return "待处理";
-  if (normalized === "accepted") return "已吸收";
-  if (normalized === "ignored") return "已忽略";
-  if (normalized === "superseded") return "已覆盖";
-  if (normalized === "failed") return "失败";
-  if (normalized === "needs_fix") return "需要修复";
-  if (normalized === "needs_more_validation") return "需要补验";
-  return normalizeWorkflowTaskText(status);
-}
-
-function getChromeWorkflowTimelineKindLabel(handoffType = "") {
-  const normalized = normalizeWorkflowTaskText(handoffType).toLowerCase();
-  if (normalized === "verification_result") return "验收结论";
-  if (normalized === "decision_result") return "再议结论";
-  if (normalized === "workflow_result") return "阶段结论";
-  if (normalized === "inline_stage_advance") return "阶段推进";
-  return "结果回流";
-}
-
-function getChromeWorkflowAutomationTone(type = "", content = "") {
-  const normalizedType = normalizeWorkflowTaskText(type).toLowerCase();
-  const normalizedContent = normalizeWorkflowTaskText(content).toLowerCase();
-  if (/失败|回退|error/u.test(normalizedContent)) return "error";
-  if (/暂停|待确认|风险/u.test(normalizedContent)) return "warning";
-  if (normalizedType === "workflow_auto_absorb") return "success";
-  if (/系统已接管此任务|已接管|已自动启动|已自动推进|已自动吸收/u.test(content)) return "success";
-  if (normalizedType === "workflow_auto_advance") return "notice";
-  return "neutral";
-}
-
-function buildChromeWorkflowStageTimelineEntry(entry, currentStageTraceId = "") {
-  if (!entry || typeof entry !== "object" || !entry.id) return null;
-  const stageRole = normalizeWorkflowTaskText(entry.stageRole).toLowerCase();
-  const stageLabel = normalizeWorkflowTaskText(entry.stage)
-    || CHROME_WORKFLOW_STAGE_ROLE_LABELS[stageRole]
-    || normalizeWorkflowTaskText(entry.appName)
-    || "阶段";
-  const status = normalizeWorkflowTaskText(entry.status)
-    || (entry.id === currentStageTraceId ? "running" : "");
-  const sessionKind = normalizeWorkflowTaskText(entry.sessionKind);
-  const stageIndex = Number.isInteger(entry.stageIndex) && entry.stageIndex >= 0 ? entry.stageIndex : -1;
-  const sessionName = normalizeWorkflowTaskText(entry.sessionName);
-  const outcome = normalizeWorkflowTaskText(entry.outcome);
-  const title = sessionKind === "mainline"
-    ? `${stageIndex >= 0 ? `阶段 ${stageIndex + 1}` : "主线阶段"} · ${stageLabel}`
-    : `${stageLabel}子线`;
-  const detailParts = [];
-  if (sessionName) detailParts.push(sessionName);
-  if (outcome && !["completed", "running"].includes(outcome.toLowerCase())) {
-    detailParts.push(outcome);
-  }
-  const at = entry.completedAt || entry.updatedAt || entry.startedAt || "";
-  return {
-    id: entry.id,
-    kind: "stage",
-    title,
-    detail: detailParts.join(" · "),
-    statusLabel: getChromeWorkflowTimelineStatusLabel(status),
-    tone: getChromeWorkflowTimelineTone(status),
-    at,
-  };
-}
-
-function buildChromeWorkflowDecisionTimelineEntry(entry) {
-  if (!entry || typeof entry !== "object" || !entry.id) return null;
-  const reason = normalizeWorkflowTaskText(entry.reason);
-  const summary = normalizeWorkflowTaskText(entry.summary);
-  const title = reason ? `决策点 · ${reason}` : "决策点";
-  const status = normalizeWorkflowTaskText(entry.status) || "pending";
-  return {
-    id: entry.id,
-    kind: "decision",
-    title,
-    detail: summary || normalizeWorkflowTaskText(entry.type),
-    statusLabel: getChromeWorkflowTimelineStatusLabel(status),
-    tone: getChromeWorkflowTimelineTone(status),
-    at: entry.resolvedAt || entry.updatedAt || entry.createdAt || "",
-  };
-}
-
-function buildChromeWorkflowReconcileTimelineEntry(entry) {
-  if (!entry || typeof entry !== "object" || !entry.id) return null;
-  const status = normalizeWorkflowTaskText(entry.status) || "pending";
-  return {
-    id: entry.id,
-    kind: "reconcile",
-    title: `${getChromeWorkflowTimelineKindLabel(entry.handoffType)}回流`,
-    detail: normalizeWorkflowTaskText(entry.summary),
-    statusLabel: getChromeWorkflowTimelineStatusLabel(status),
-    tone: getChromeWorkflowTimelineTone(status),
-    at: entry.resolvedAt || entry.updatedAt || entry.createdAt || "",
-  };
-}
-
-function buildChromeWorkflowAutomationTimelineEntry(event) {
-  if (!event || typeof event !== "object") return null;
-  const type = normalizeWorkflowTaskText(event.type);
-  const content = normalizeWorkflowTaskText(event.content || event.text || "");
-  if (!type || !content) return null;
-
-  let title = "";
-  if (type === "workflow_auto_advance") {
-    title = "自动推进";
-  } else if (type === "workflow_auto_absorb") {
-    title = "自动吸收";
-  } else if (type === "status" && /^系统已接管此任务/u.test(content)) {
-    title = "系统接管";
-  } else if (type === "status" && /^工作流已自动推进/u.test(content)) {
-    title = "阶段自动流转";
-  } else {
-    return null;
-  }
-
-  return {
-    id: `event:${Number.isInteger(event.seq) ? event.seq : content}`,
-    kind: "event",
-    title,
-    detail: content,
-    tone: getChromeWorkflowAutomationTone(type, content),
-    at: event.timestamp || event.createdAt || "",
-  };
-}
-
-function buildChromeWorkflowAutomationTimeline(session) {
-  if (!session?.id || renderedEventState.sessionId !== session.id) return [];
-  const displayEvents = Array.isArray(renderedEventState.displayEvents)
-    ? renderedEventState.displayEvents
-    : [];
-  return displayEvents
-    .map((event) => buildChromeWorkflowAutomationTimelineEntry(event))
-    .filter(Boolean)
-    .slice(-6);
-}
-
-function buildChromeWorkflowTimeline(session) {
-  const trace = session?.workflowTaskTrace && typeof session.workflowTaskTrace === "object"
-    ? session.workflowTaskTrace
-    : null;
-  const automationEntries = buildChromeWorkflowAutomationTimeline(session);
-  if (!trace) {
-    return automationEntries
-      .sort((left, right) => getChromeWorkflowTimelineSortValue(right?.at) - getChromeWorkflowTimelineSortValue(left?.at))
-      .slice(0, 8);
-  }
-  const currentStageTraceId = normalizeWorkflowTaskText(trace.currentStageTraceId);
-  const stageEntries = Array.isArray(trace.stageTraces)
-    ? trace.stageTraces
-      .map((entry) => buildChromeWorkflowStageTimelineEntry(entry, currentStageTraceId))
-      .filter(Boolean)
-    : [];
-  const decisionEntries = Array.isArray(trace.decisionRecords)
-    ? trace.decisionRecords
-      .map((entry) => buildChromeWorkflowDecisionTimelineEntry(entry))
-      .filter(Boolean)
-    : [];
-  const reconcileEntries = Array.isArray(trace.reconcileRecords)
-    ? trace.reconcileRecords
-      .map((entry) => buildChromeWorkflowReconcileTimelineEntry(entry))
-      .filter(Boolean)
-    : [];
-  return [...automationEntries, ...stageEntries, ...decisionEntries, ...reconcileEntries]
-    .sort((left, right) => getChromeWorkflowTimelineSortValue(right?.at) - getChromeWorkflowTimelineSortValue(left?.at))
-    .slice(0, 8);
-}
-
-function buildChromeWorkflowAutoTriggerState(session) {
-  if (!session || session.visitorId || session.archived) return null;
-  const activeWorkflow = !!getNormalizedWorkflowDefinitionForChrome(session);
-  return {
-    visible: !activeWorkflow,
-    disabled: session.workflowAutoTriggerDisabled === true,
-    activeWorkflow,
-  };
-}
-
 function buildChromeBridgeSummary(session) {
   if (!session || typeof isWorkflowMainlineSession !== "function" || !isWorkflowMainlineSession(session)) {
     return null;
@@ -658,8 +399,6 @@ function buildChromeBridgeSummary(session) {
     currentTask: currentTask || "",
     suggestion: cloneChromeSummarySuggestion(session),
     workflowStatus: getChromeWorkflowStatusLabel(session),
-    workflowStages: buildChromeWorkflowStages(session),
-    workflowTimeline: buildChromeWorkflowTimeline(session),
     activeVerification,
     pending: getByStatus(session, ["pending"]).map(cloneChromeSummaryConclusion).filter(Boolean),
     decisions: getByStatus(session, ["needs_decision"]).map(cloneChromeSummaryConclusion).filter(Boolean),
@@ -732,6 +471,7 @@ async function runChromeWorkflowSuggestionAction(action) {
 
 function buildParallelTaskGroupLabel(session) {
   return normalizeWorkflowTaskText(session?.group)
+    || normalizeWorkflowTaskText(session?.currentTask)
     || normalizeWorkflowTaskText(session?.workflowCurrentTask)
     || (typeof getSessionDisplayName === "function" ? normalizeWorkflowTaskText(getSessionDisplayName(session)) : "")
     || "并行任务";
@@ -855,9 +595,7 @@ function buildChromeBridgeState() {
     statusLabel: statusText?.textContent || "",
     currentSessionId: typeof currentSessionId === "string" ? currentSessionId : "",
     visitorMode: visitorMode === true,
-    pendingIntake: session?.pendingIntake === true,
     summary: buildChromeBridgeSummary(session),
-    workflowAutoTrigger: buildChromeWorkflowAutoTriggerState(session),
     actions: {
       fork: {
         visible: !!forkSessionBtn && forkSessionBtn.hidden !== true,
@@ -907,18 +645,11 @@ window.remotelabChromeBridge = {
     fork: () => (typeof forkCurrentSession === "function" ? forkCurrentSession() : Promise.resolve()),
     share: () => (typeof shareCurrentSessionSnapshot === "function" ? shareCurrentSessionSnapshot() : Promise.resolve()),
     handoff: () => (typeof handoffCurrentSessionResult === "function" ? handoffCurrentSessionResult() : Promise.resolve()),
-    setWorkflowAutoTriggerDisabled: (disabled) => setWorkflowAutoTriggerDisabledOnCurrentSession(disabled),
     workflowConclusionStatus: (conclusionId, status) => runChromeWorkflowConclusionAction(conclusionId, status),
     acceptWorkflowSuggestion: () => runChromeWorkflowSuggestionAction("accept"),
     dismissWorkflowSuggestion: () => runChromeWorkflowSuggestionAction("dismiss"),
     createParallelSessionsFromConclusion: (conclusionId) => createParallelSessionsFromConclusion(conclusionId),
   },
-};
-
-const WORKFLOW_APP_ALIASES = {
-  execute: ["执行", "主交付", "功能交付"],
-  verify: ["验收", "执行验收", "风险复核"],
-  deliberate: ["再议", "深度裁决", "PR把关", "合并", "发布把关", "推敲"],
 };
 
 function normalizeWorkflowTaskText(value) {
@@ -935,18 +666,6 @@ function buildWorkflowTaskSessionName(appName, input) {
   return `${appName} · ${clipped}`;
 }
 
-function findWorkflowTaskAppByNames(names = []) {
-  const candidates = Array.isArray(availableApps) ? availableApps : [];
-  const normalizedNames = names
-    .map((name) => normalizeWorkflowTaskText(name))
-    .filter(Boolean);
-  for (const name of normalizedNames) {
-    const found = candidates.find((app) => normalizeWorkflowTaskText(app?.name) === name);
-    if (found) return found;
-  }
-  return null;
-}
-
 function getWorkflowTaskSeedInput() {
   const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
   const seed = {
@@ -958,11 +677,15 @@ function getWorkflowTaskSeedInput() {
   if (folder && folder !== "~") {
     seed.project = folder;
   }
-  if (typeof getSessionDisplayName === "function") {
-    const displayName = normalizeWorkflowTaskText(getSessionDisplayName(session));
-    if (displayName && !/^chat$/iu.test(displayName)) {
-      seed.goal = displayName;
-    }
+  const displayName = typeof getSessionDisplayName === "function"
+    ? normalizeWorkflowTaskText(getSessionDisplayName(session))
+    : normalizeWorkflowTaskText(session?.name);
+  if (displayName && !/^chat$/iu.test(displayName)) {
+    seed.goal = displayName;
+  }
+  if (!seed.goal) {
+    seed.goal = normalizeWorkflowTaskText(session?.currentTask)
+      || normalizeWorkflowTaskText(session?.workflowCurrentTask);
   }
   return seed;
 }
@@ -1004,7 +727,7 @@ async function createWorkflowTaskSession({ input = {}, kickoffMessage = "", succ
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       input,
-      workflowCurrentTask: normalizeWorkflowTaskText(input.goal),
+      currentTask: normalizeWorkflowTaskText(input.goal),
       kickoffMessage: normalizeWorkflowTaskText(kickoffMessage),
     }),
   });
@@ -1025,204 +748,24 @@ async function createWorkflowTaskSession({ input = {}, kickoffMessage = "", succ
 }
 
 async function classifyWorkflowTask({ text = "", folder = "" } = {}) {
+  void folder;
   const normalizedText = normalizeWorkflowTaskText(text);
-  if (!normalizedText) {
-    return null;
-  }
-  const url = new URL("/api/workflow/classify", window.location.origin);
-  url.searchParams.set("text", normalizedText);
-  const normalizedFolder = normalizeWorkflowTaskText(folder);
-  if (normalizedFolder) {
-    url.searchParams.set("folder", normalizedFolder);
-  }
-  return fetchJsonOrRedirect(`${url.pathname}${url.search}`);
-}
-
-function normalizeWorkflowTaskInput(input = {}) {
+  if (!normalizedText) return null;
   return {
-    goal: normalizeWorkflowTaskText(input?.goal),
-    project: normalizeWorkflowTaskText(input?.project),
-    constraints: normalizeWorkflowTaskText(input?.constraints),
-    progress: normalizeWorkflowTaskText(input?.progress),
-    concern: normalizeWorkflowTaskText(input?.concern),
-    preference: normalizeWorkflowTaskText(input?.preference),
-  };
-}
-
-function buildWorkflowAssessmentSignal(input = {}) {
-  const normalizedInput = normalizeWorkflowTaskInput(input);
-  return [
-    normalizedInput.goal,
-    normalizedInput.constraints,
-    normalizedInput.progress,
-    normalizedInput.concern,
-    normalizedInput.preference,
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
-function normalizeWorkflowModeKey(value) {
-  const normalized = normalizeWorkflowTaskText(value);
-  if (
-    normalized === "quick_execute"
-    || normalized === "standard_delivery"
-    || normalized === "careful_deliberation"
-    || normalized === "parallel_split"
-  ) {
-    return normalized;
-  }
-  return "";
-}
-
-function mapWorkflowModeToComplexityLevel(mode, confidence = "") {
-  const normalizedMode = normalizeWorkflowModeKey(mode);
-  const normalizedConfidence = normalizeWorkflowTaskText(confidence).toLowerCase();
-  if (!normalizedMode) {
-    return "unknown";
-  }
-  if (normalizedMode === "careful_deliberation" || normalizedMode === "parallel_split") {
-    return "high";
-  }
-  if (normalizedMode === "quick_execute") {
-    return "low";
-  }
-  if (normalizedMode === "standard_delivery" && normalizedConfidence === "high") {
-    return "medium";
-  }
-  return normalizedMode ? "medium" : "low";
-}
-
-function shouldWorkflowAutoConfirmSimpleTask() {
-  try {
-    const stored = window.localStorage?.getItem("remotelab.workflowAutoConfirmSimpleTask");
-    if (stored == null || stored === "") return true;
-    const normalized = String(stored).trim().toLowerCase();
-    return !(normalized === "false" || normalized === "0" || normalized === "off");
-  } catch {
-    return true;
-  }
-}
-
-function buildWorkflowIntakeQuestion(missingFields = [], complexityLevel = "medium", reason = "") {
-  if (!Array.isArray(missingFields) || missingFields.length === 0) return "";
-  const [firstMissing] = missingFields;
-  if (firstMissing === "goal") {
-    return "你想让 workflow 具体完成什么？一句话描述目标即可。";
-  }
-  if (firstMissing === "constraints") {
-    if (reason) {
-      return `这件事看起来复杂度较高（${reason}）。开始前请补一句边界/不能动的地方；如无特殊要求可直接回复“无”。`;
-    }
-    return complexityLevel === "high"
-      ? "这件事复杂度较高。开始前请补一句边界/不能动的地方；如无特殊要求可直接回复“无”。"
-      : "开始前请补一句这次的边界或限制；如无特殊要求可直接回复“无”。";
-  }
-  return "开始前还缺一条关键信息，请补充后我再启动 workflow。";
-}
-
-async function assessWorkflowTaskCompleteness({ input = {}, preferredMode = "" } = {}) {
-  const normalizedInput = normalizeWorkflowTaskInput(input);
-  const signalText = buildWorkflowAssessmentSignal(normalizedInput);
-  const preferredModeKey = normalizeWorkflowModeKey(preferredMode);
-  let classification = preferredModeKey
-    ? {
-        mode: preferredModeKey,
-        confidence: "high",
-        reason: "",
-      }
-    : null;
-
-  if (!classification && signalText) {
-    try {
-      classification = await classifyWorkflowTask({
-        text: signalText,
-        folder: normalizedInput.project,
-      });
-    } catch {
-      classification = null;
-    }
-  }
-
-  const classifiedMode = normalizeWorkflowModeKey(classification?.mode);
-  const normalizedConfidence = normalizeWorkflowTaskText(classification?.confidence).toLowerCase();
-  if (!classifiedMode) {
-    return {
-      complete: false,
-      missingFields: [],
-      complexityLevel: "unknown",
-      reason: "",
-      classification: null,
-      autoConfirm: false,
-      suggestedQuestion: "",
-      intentConfident: false,
-    };
-  }
-  if (normalizedConfidence !== "high" && normalizedConfidence !== "medium") {
-    return {
-      complete: false,
-      missingFields: [],
-      complexityLevel: "unknown",
-      reason: "",
-      classification: {
-        mode: classifiedMode,
-        confidence: normalizeWorkflowTaskText(classification?.confidence),
-        reason: normalizeWorkflowTaskText(classification?.reason),
-      },
-      autoConfirm: false,
-      suggestedQuestion: "",
-      intentConfident: false,
-    };
-  }
-
-  const complexityLevel = mapWorkflowModeToComplexityLevel(
-    classifiedMode,
-    normalizedConfidence,
-  );
-  const missingFields = [];
-  if (!normalizedInput.goal) {
-    missingFields.push("goal");
-  }
-  if (complexityLevel === "high" && !normalizedInput.constraints) {
-    missingFields.push("constraints");
-  }
-
-  const reason = normalizeWorkflowTaskText(classification?.reason);
-  return {
-    complete: missingFields.length === 0,
-    missingFields,
-    complexityLevel,
-    reason,
-    classification: {
-      mode: classifiedMode,
-      confidence: normalizeWorkflowTaskText(classification?.confidence),
-      reason,
-    },
-    autoConfirm:
-      missingFields.length === 0
-      && shouldWorkflowAutoConfirmSimpleTask()
-      && (complexityLevel === "low" || complexityLevel === "medium"),
-    suggestedQuestion: buildWorkflowIntakeQuestion(missingFields, complexityLevel, reason),
-    intentConfident: true,
+    mode: "standard_delivery",
+    confidence: "high",
+    reason: "",
   };
 }
 
 function canStartWorkflowOnAttachedSession(session) {
   if (!session || typeof session !== "object") return false;
   if (!session.id || session.visitorId || session.archived) return false;
-  if (session.workflowAutoTriggerDisabled === true) return false;
   const runState = normalizeWorkflowTaskText(session?.activity?.run?.state);
   if (runState && runState !== "idle" && runState !== "completed" && runState !== "failed" && runState !== "cancelled") {
     return false;
   }
   return true;
-}
-
-function canStartWorkflowFromComposerContext() {
-  if (visitorMode) return false;
-  const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
-  if (!session) return true;
-  return canStartWorkflowOnAttachedSession(session);
 }
 
 async function startWorkflowOnAttachedSession({ input = {}, kickoffMessage = "", successToast = "" }) {
@@ -1236,7 +779,7 @@ async function startWorkflowOnAttachedSession({ input = {}, kickoffMessage = "",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       input,
-      workflowCurrentTask: normalizeWorkflowTaskText(input.goal),
+      currentTask: normalizeWorkflowTaskText(input.goal),
       kickoffMessage: normalizeWorkflowTaskText(kickoffMessage),
     }),
   });
@@ -1252,67 +795,6 @@ async function startWorkflowOnAttachedSession({ input = {}, kickoffMessage = "",
   };
 }
 
-async function confirmWorkflowIntakeOnAttachedSession({ input = {} } = {}) {
-  const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
-  if (!session?.id || session.visitorId) {
-    return null;
-  }
-  const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(session.id)}/workflow/intake/confirm`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      input: normalizeWorkflowTaskInput(input),
-    }),
-  });
-  const updatedSession = upsertSession(data.session) || data.session || session;
-  renderSessionList();
-  attachSession(updatedSession.id, updatedSession);
-  return {
-    session: updatedSession,
-    run: data?.run || null,
-  };
-}
-
-async function cancelWorkflowIntakeOnAttachedSession() {
-  const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
-  if (!session?.id || session.visitorId) {
-    return null;
-  }
-  const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(session.id)}/workflow/intake/cancel`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
-  });
-  const updatedSession = upsertSession(data.session) || data.session || session;
-  renderSessionList();
-  attachSession(updatedSession.id, updatedSession);
-  return updatedSession;
-}
-
-async function setWorkflowAutoTriggerDisabledOnCurrentSession(disabled = false) {
-  const session = typeof getCurrentSession === "function" ? getCurrentSession() : null;
-  if (!session?.id || session.visitorId) {
-    return null;
-  }
-
-  const data = await fetchJsonOrRedirect(`/api/sessions/${encodeURIComponent(session.id)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      workflowAutoTriggerDisabled: disabled === true,
-    }),
-  });
-  const updatedSession = upsertSession(data.session) || data.session || session;
-  renderSessionList();
-  if (currentSessionId === updatedSession.id) {
-    applyAttachedSessionState(updatedSession.id, updatedSession);
-  }
-  if (typeof showAppToast === "function") {
-    showAppToast(disabled === true ? "已关闭托管" : "已开启托管", "success");
-  }
-  return updatedSession;
-}
-
 window.remotelabWorkflowBridge = {
   getSeedInput() {
     return getWorkflowTaskSeedInput();
@@ -1320,38 +802,11 @@ window.remotelabWorkflowBridge = {
   ensureAppsLoaded() {
     return ensureWorkflowTaskAppsLoaded();
   },
-  getAppAliases() {
-    return {
-      execute: [...WORKFLOW_APP_ALIASES.execute],
-      verify: [...WORKFLOW_APP_ALIASES.verify],
-      deliberate: [...WORKFLOW_APP_ALIASES.deliberate],
-    };
-  },
   classifyTask(options = {}) {
     return classifyWorkflowTask({
       text: normalizeWorkflowTaskText(options?.text),
       folder: normalizeWorkflowTaskText(options?.folder),
     });
-  },
-  assessCompleteness(options = {}) {
-    return assessWorkflowTaskCompleteness({
-      input: options?.input && typeof options.input === "object" ? options.input : {},
-      preferredMode: normalizeWorkflowModeKey(options?.preferredMode),
-    });
-  },
-  canStartFromComposer() {
-    return canStartWorkflowFromComposerContext();
-  },
-  getSimpleTaskAutoConfirm() {
-    return shouldWorkflowAutoConfirmSimpleTask();
-  },
-  async confirmIntake(options = {}) {
-    return confirmWorkflowIntakeOnAttachedSession({
-      input: options?.input && typeof options.input === "object" ? options.input : {},
-    });
-  },
-  async cancelIntake() {
-    return cancelWorkflowIntakeOnAttachedSession();
   },
   async startTask(options = {}) {
     const reused = await startWorkflowOnAttachedSession({

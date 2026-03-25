@@ -379,55 +379,5 @@ assert.equal(typeof context.createNewSessionShortcut, 'function');
 assert.equal(typeof context.createNewAppShortcut, 'function');
 assert.equal(typeof context.switchTab, 'function');
 
-const sessionSurfaceUiSource = readFileSync(join(repoRoot, 'static', 'chat', 'session-surface-ui.js'), 'utf8');
-const workflowMetaContext = {
-  console,
-  esc(value) {
-    return String(value);
-  },
-  getSessionReviewStatusInfo() {
-    return null;
-  },
-  getSessionStatusSummary() {
-    return { primary: { key: 'idle', label: 'idle' } };
-  },
-  renderSessionStatusHtml() {
-    return '';
-  },
-  renderSessionWorktreeMetaHtml() {
-    return '';
-  },
-  renderSessionMessageCount() {
-    return '';
-  },
-};
-workflowMetaContext.globalThis = workflowMetaContext;
-vm.runInNewContext(
-  [
-    'const WORKFLOW_STAGE_ROLE_LABELS = { execute: "执行", verify: "验收", deliberate: "再议" };',
-    extractFunctionSource(sessionSurfaceUiSource, 'getNormalizedWorkflowDefinition'),
-    extractFunctionSource(sessionSurfaceUiSource, 'isWorkflowSessionActive'),
-    extractFunctionSource(sessionSurfaceUiSource, 'getWorkflowStageBaseLabel'),
-    extractFunctionSource(sessionSurfaceUiSource, 'getCurrentWorkflowStageLabel'),
-    extractFunctionSource(sessionSurfaceUiSource, 'renderCurrentWorkflowStageHtml'),
-    extractFunctionSource(sessionSurfaceUiSource, 'buildSessionMetaParts'),
-    'globalThis.buildSessionMetaParts = buildSessionMetaParts;',
-  ].join('\n'),
-  workflowMetaContext,
-  { filename: 'static/chat/session-surface-ui.js' },
-);
-
-const workflowMetaParts = workflowMetaContext.buildSessionMetaParts({
-  workflowDefinition: {
-    stages: [{ role: 'deliberate' }, { role: 'execute' }, { role: 'verify' }],
-    currentStageIndex: 1,
-  },
-});
-assert.match(
-  workflowMetaParts[0] || '',
-  /session-workflow-stage-pill[\s\S]*执行中/,
-  'session metadata rendering should tolerate workflowDefinition and expose the current stage label',
-);
-
 console.log('test-chat-split-frontend-smoke: ok');
 process.exit(0);

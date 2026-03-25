@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { Fragment, type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
   ChevronDown,
@@ -66,38 +66,15 @@ type WorkflowSuggestion = {
   body?: string;
 } | null;
 
-type WorkflowStage = {
-  label: string;
-  state: "completed" | "current" | "upcoming";
-};
-
-type WorkflowTimelineEntry = {
-  id: string;
-  kind: "stage" | "decision" | "reconcile" | "event";
-  title: string;
-  detail?: string;
-  statusLabel?: string;
-  tone?: "neutral" | "notice" | "success" | "warning" | "error" | "muted";
-  at?: string;
-};
-
 type ChromeState = {
   title?: string;
   statusLabel?: string;
   currentSessionId?: string;
   visitorMode?: boolean;
-  pendingIntake?: boolean;
-  workflowAutoTrigger?: {
-    visible?: boolean;
-    disabled?: boolean;
-    activeWorkflow?: boolean;
-  } | null;
   summary?: {
     currentTask?: string;
     suggestion?: WorkflowSuggestion;
     workflowStatus?: string;
-    workflowStages?: WorkflowStage[];
-    workflowTimeline?: WorkflowTimelineEntry[];
     activeVerification?: {
       id: string;
       name: string;
@@ -159,36 +136,6 @@ type WorkflowOpenDetail = {
   preferredMode?: WorkflowModeKey | null;
 } | null;
 
-type WorkflowAssessmentResult = {
-  complete: boolean;
-  missingFields: Array<keyof WorkflowTaskInput>;
-  complexityLevel: "low" | "medium" | "high" | "unknown";
-  reason?: string;
-  classification?: WorkflowClassificationResult;
-  autoConfirm?: boolean;
-  suggestedQuestion?: string;
-  intentConfident?: boolean;
-};
-
-type WorkflowIntakeState = {
-  phase: "clarify" | "confirm" | "edit";
-  input: WorkflowTaskInput;
-  assessment: WorkflowAssessmentResult;
-  preferredMode: WorkflowModeKey | null;
-  prompt?: string;
-};
-
-type WorkflowLaunchResult = {
-  handled: boolean;
-  opened?: boolean;
-  started?: boolean;
-  intakeStarted?: boolean;
-  awaitingReply?: boolean;
-  confirmationRequired?: boolean;
-  partialInput?: WorkflowTaskInput;
-  assessment?: WorkflowAssessmentResult;
-  preferredMode?: WorkflowModeKey | null;
-};
 type ResolvedTheme = "light" | "dark";
 
 declare global {
@@ -200,7 +147,6 @@ declare global {
         fork: () => Promise<void> | void;
         share: () => Promise<void> | void;
         handoff: () => Promise<void> | void;
-        setWorkflowAutoTriggerDisabled?: (disabled: boolean) => Promise<void> | void;
         workflowConclusionStatus?: (conclusionId: string, status: string) => Promise<void> | void;
         acceptWorkflowSuggestion?: () => Promise<void> | void;
         dismissWorkflowSuggestion?: () => Promise<void> | void;
@@ -223,31 +169,11 @@ declare global {
     remotelabWorkflowBridge?: {
       getSeedInput?: () => Partial<WorkflowTaskInput>;
       ensureAppsLoaded?: () => Promise<unknown>;
-      getAppAliases?: () => {
-        execute?: string[];
-        verify?: string[];
-        deliberate?: string[];
-      };
       classifyTask?: (options: { text: string; folder?: string }) => Promise<WorkflowClassificationResult>;
-      assessCompleteness?: (options: {
-        input: Partial<WorkflowTaskInput>;
-        preferredMode?: WorkflowModeKey | null;
-      }) => Promise<WorkflowAssessmentResult>;
-      canStartFromComposer?: () => boolean;
-      getSimpleTaskAutoConfirm?: () => boolean;
-      launchFromText?: (options: { text: string }) => Promise<WorkflowLaunchResult>;
-      getPendingIntakeState?: () => WorkflowIntakeState | null;
-      getPendingIntakeDetail?: () => WorkflowOpenDetail;
-      clearPendingIntake?: () => void;
-      confirmIntake?: (options: { input: WorkflowTaskInput }) => Promise<unknown>;
-      cancelIntake?: () => Promise<unknown>;
       startTask?: (options: {
-        appNames: string[];
         input: WorkflowTaskInput;
         kickoffMessage: string;
         successToast: string;
-        workflowMode?: WorkflowModeKey;
-        gatePolicy?: string;
       }) => Promise<unknown>;
     };
     remotelabComposerBridge?: {
@@ -257,13 +183,11 @@ declare global {
       getTheme?: () => string;
       subscribe?: (listener: (detail: { preference?: string; theme?: string }) => void) => () => void;
     };
-    openWorkflowTaskIntakeModal?: (detail?: WorkflowOpenDetail) => boolean;
+    openWorkflowTaskDialog?: (detail?: WorkflowOpenDetail) => boolean;
   }
 }
 
-const WORKFLOW_OPEN_EVENT = "remotelab:workflow-intake-open";
-const WORKFLOW_INTAKE_EVENT = "remotelab:workflow-intake-state";
-const WORKFLOW_INTAKE_MESSAGE_EVENT = "remotelab:workflow-intake-message";
+const WORKFLOW_OPEN_EVENT = "remotelab:workflow-task-open";
 const WORKFLOW_START_SUCCESS_TOAST = "任务已开始";
 const EMPTY_WORKFLOW_INPUT: WorkflowTaskInput = {
   goal: "",
@@ -272,20 +196,6 @@ const EMPTY_WORKFLOW_INPUT: WorkflowTaskInput = {
   progress: "",
   concern: "",
   preference: "",
-};
-const WORKFLOW_FIELD_LABELS: Record<keyof WorkflowTaskInput, string> = {
-  goal: "目标",
-  project: "项目",
-  constraints: "边界",
-  progress: "进展",
-  concern: "担心",
-  preference: "倾向",
-};
-
-const APP_ALIAS_FALLBACK = {
-  execute: ["执行", "主交付", "功能交付"],
-  verify: ["验收", "执行验收", "风险复核"],
-  deliberate: ["再议", "深度裁决", "PR把关", "合并", "发布把关", "推敲"],
 };
 
 const WORKFLOW_MODES: Record<WorkflowModeKey, WorkflowModeConfig> = {
@@ -406,123 +316,6 @@ function buildWorkflowTaskInput(
   };
 }
 
-function cloneWorkflowTaskInput(input: WorkflowTaskInput): WorkflowTaskInput {
-  return buildWorkflowTaskInput(input, {});
-}
-
-function normalizeWorkflowAssessmentResult(
-  assessment: Partial<WorkflowAssessmentResult> | null | undefined,
-): WorkflowAssessmentResult {
-  const missingFields = Array.isArray(assessment?.missingFields)
-    ? assessment.missingFields.filter((field): field is keyof WorkflowTaskInput => field in EMPTY_WORKFLOW_INPUT)
-    : [];
-  const complexityLevel = assessment?.complexityLevel === "high"
-    || assessment?.complexityLevel === "medium"
-    || assessment?.complexityLevel === "low"
-    || assessment?.complexityLevel === "unknown"
-    ? assessment.complexityLevel
-    : "medium";
-  const classification = assessment?.classification
-    ? {
-        mode: normalizeWorkflowModeKey(assessment.classification.mode) || undefined,
-        confidence: normalizeText(assessment.classification.confidence) || undefined,
-        reason: normalizeText(assessment.classification.reason) || undefined,
-      }
-    : null;
-  return {
-    complete: assessment?.complete === true,
-    missingFields,
-    complexityLevel,
-    reason: normalizeText(assessment?.reason),
-    classification,
-    autoConfirm: assessment?.autoConfirm === true,
-    suggestedQuestion: normalizeText(assessment?.suggestedQuestion),
-    intentConfident: assessment?.intentConfident === true,
-  };
-}
-
-function cloneWorkflowAssessmentResult(assessment: WorkflowAssessmentResult): WorkflowAssessmentResult {
-  return {
-    ...normalizeWorkflowAssessmentResult(assessment),
-    missingFields: [...assessment.missingFields],
-  };
-}
-
-let workflowIntakeState: WorkflowIntakeState | null = null;
-
-function cloneWorkflowIntakeState(state: WorkflowIntakeState | null): WorkflowIntakeState | null {
-  if (!state) return null;
-  return {
-    phase: state.phase,
-    input: cloneWorkflowTaskInput(state.input),
-    assessment: cloneWorkflowAssessmentResult(state.assessment),
-    preferredMode: state.preferredMode,
-    prompt: normalizeText(state.prompt),
-  };
-}
-
-function emitWorkflowIntakeState(nextState: WorkflowIntakeState | null) {
-  workflowIntakeState = cloneWorkflowIntakeState(nextState);
-  window.dispatchEvent(new CustomEvent(WORKFLOW_INTAKE_EVENT, {
-    detail: cloneWorkflowIntakeState(workflowIntakeState),
-  }));
-}
-
-function getWorkflowIntakeState() {
-  return cloneWorkflowIntakeState(workflowIntakeState);
-}
-
-function clearWorkflowIntakeState() {
-  emitWorkflowIntakeState(null);
-}
-
-function buildWorkflowIntakeStateFromMetadata(rawMetadata: unknown): WorkflowIntakeState | null {
-  const metadata = rawMetadata && typeof rawMetadata === "object"
-    ? rawMetadata as {
-        phase?: string;
-        inputSnapshot?: Partial<WorkflowTaskInput>;
-        missingFields?: Array<keyof WorkflowTaskInput>;
-        complexityLevel?: WorkflowAssessmentResult["complexityLevel"];
-        classification?: WorkflowClassificationResult;
-      }
-    : null;
-  if (!metadata) return null;
-  const phase = metadata.phase === "confirm" ? "confirm" : (metadata.phase === "clarify" ? "clarify" : "");
-  if (!phase) return null;
-  const input = buildWorkflowTaskInput({}, metadata.inputSnapshot || {});
-  const assessment = normalizeWorkflowAssessmentResult({
-    complete: phase === "confirm",
-    missingFields: Array.isArray(metadata.missingFields) ? metadata.missingFields : [],
-    complexityLevel: metadata.complexityLevel,
-    classification: metadata.classification,
-    autoConfirm: false,
-    intentConfident: true,
-  });
-  return {
-    phase,
-    input,
-    assessment,
-    preferredMode: normalizeWorkflowModeKey(metadata.classification?.mode) || null,
-    prompt: phase === "clarify" ? buildWorkflowIntakePrompt(assessment) : "",
-  };
-}
-
-function resolveWorkflowModeKeyFromText(value: string): WorkflowModeKey | null {
-  const normalized = normalizeText(value);
-  if (!normalized) return null;
-  if (/快速执行/u.test(normalized)) return "quick_execute";
-  if (/标准交付/u.test(normalized)) return "standard_delivery";
-  if (/审慎模式/u.test(normalized)) return "careful_deliberation";
-  if (/并行推进/u.test(normalized)) return "parallel_split";
-  return null;
-}
-
-function getAppAliases(role: keyof typeof APP_ALIAS_FALLBACK) {
-  const bridgeAliases = window.remotelabWorkflowBridge?.getAppAliases?.();
-  const names = bridgeAliases?.[role];
-  return Array.isArray(names) && names.length > 0 ? names : APP_ALIAS_FALLBACK[role];
-}
-
 function buildTaskSignalText(input: WorkflowTaskInput) {
   return [
     input.goal,
@@ -542,65 +335,6 @@ function normalizeWorkflowModeKey(value: string | null | undefined): WorkflowMod
   return null;
 }
 
-function buildExecuteKickoffMessage(input: WorkflowTaskInput, mode: WorkflowModeConfig) {
-  const sections = [
-    `目标：${input.goal}`,
-    input.project ? `项目/仓库：${input.project}` : "",
-    input.constraints ? `不能动 / 边界：${input.constraints}` : "",
-    input.progress ? `当前进展：${input.progress}` : "",
-    input.concern ? `我最担心：${input.concern}` : "",
-    input.preference ? `我当前倾向：${input.preference}` : "",
-  ].filter(Boolean);
-
-  if (mode.key === "quick_execute") {
-    sections.push("这次是低风险小改动，优先直接推进实现；如果没有明显风险，可以直接收口。");
-  } else {
-    sections.push("请先给我一个简洁执行计划，再往下推进实现。完成这一轮后，如果需要独立验收，请明确指出验收范围和当前风险。");
-  }
-  return sections.join("\n");
-}
-
-function buildDeliberationKickoffMessage(input: WorkflowTaskInput, mode: WorkflowModeConfig) {
-  const sections = [
-    `当前状态：${input.progress || input.goal || "这是一个新任务，尚未开始实现。"}`,
-    `核心问题：${input.goal}`,
-    input.constraints ? `约束：${input.constraints}` : "",
-    input.concern ? `我最担心：${input.concern}` : "",
-    input.preference ? `我当前倾向 / 备选：${input.preference}` : "",
-    input.project ? `项目/仓库：${input.project}` : "",
-  ].filter(Boolean);
-
-  if (mode.key === "parallel_split") {
-    sections.push("请先判断这个任务是否值得并行推进；如果值得，请给出主线 + 支线拆法、每条支线的边界，以及哪些部分不应该并行。");
-  } else {
-    sections.push("请先帮我收敛方向，给出推荐方案、放弃方案、风险与代价，以及需要我拍板的点。");
-  }
-  return sections.join("\n");
-}
-
-function buildVerificationKickoffMessage(input: WorkflowTaskInput) {
-  const sections = [
-    input.goal ? `验收目标：${input.goal}` : "",
-    input.project ? `项目/仓库：${input.project}` : "",
-    input.progress ? `当前进展 / 改动摘要：${input.progress}` : "",
-    input.constraints ? `边界 / 不能动：${input.constraints}` : "",
-    input.concern ? `我最担心：${input.concern}` : "",
-    input.preference ? `补充判断：${input.preference}` : "",
-    "请围绕这轮改动做独立验收，重点关注：已验证项、未验证项、发现的问题、验证证据，以及是否建议继续。",
-  ].filter(Boolean);
-  return sections.join("\n");
-}
-
-function buildKickoffMessage(
-  input: WorkflowTaskInput,
-  mode: WorkflowModeConfig,
-  role: "execute" | "verify" | "deliberate",
-) {
-  if (role === "execute") return buildExecuteKickoffMessage(input, mode);
-  if (role === "verify") return buildVerificationKickoffMessage(input);
-  return buildDeliberationKickoffMessage(input, mode);
-}
-
 function buildWorkflowKickoffMessage(input: WorkflowTaskInput) {
   const sections = [
     `目标：${input.goal}`,
@@ -618,121 +352,6 @@ function getWorkflowRoutePreview(mode: WorkflowModeConfig): WorkflowRoutePreview
   return WORKFLOW_ROUTE_PREVIEWS[mode.key];
 }
 
-const WORKFLOW_LAUNCH_PREFIX_PATTERN = /^(?:请|帮我|麻烦|想|要|我要|我想|用|按|直接|继续|现在|先|给我|替我|让我|就)?(?:(?:按)?(?:快速执行|标准交付|审慎模式|并行推进))?(?:模式)?(?:来|继续|直接)?(?:启动|开始|开启|进入|走)(?:一下|吧)?(?:(?:我的?|这个)?(?:工作流|任务))?(?<rest>.*)$/u;
-const WORKFLOW_INPUT_FIELD_MATCHERS: Array<{ key: keyof WorkflowTaskInput; pattern: RegExp }> = [
-  { key: "goal", pattern: /^(?:目标|任务|需求|goal)\s*[：:]\s*(.+)$/iu },
-  { key: "project", pattern: /^(?:项目(?:\/仓库)?|项目\/仓库|仓库|repo|project)\s*[：:]\s*(.+)$/iu },
-  { key: "constraints", pattern: /^(?:边界|约束|限制|不能动|不做|constraints?)\s*[：:]\s*(.+)$/iu },
-  { key: "progress", pattern: /^(?:进展|当前进展|现状|progress)\s*[：:]\s*(.+)$/iu },
-  { key: "concern", pattern: /^(?:我最担心|担心|风险|concern)\s*[：:]\s*(.+)$/iu },
-  { key: "preference", pattern: /^(?:我当前倾向|倾向|偏好|方案倾向|preference)\s*[：:]\s*(.+)$/iu },
-];
-
-function parseWorkflowInputBody(text: string): Partial<WorkflowTaskInput> {
-  const result: Partial<WorkflowTaskInput> = {};
-  const remainingLines: string[] = [];
-
-  for (const rawLine of text.split(/\n+/u)) {
-    const line = normalizeText(rawLine);
-    if (!line) continue;
-    const maybeSegments = /[：:]/u.test(line) && /[，,；;]/u.test(line)
-      ? line.split(/[，,；;]/u).map((segment) => normalizeText(segment)).filter(Boolean)
-      : [line];
-    let lineMatched = false;
-    for (const segment of maybeSegments) {
-      let matched = false;
-      for (const { key, pattern } of WORKFLOW_INPUT_FIELD_MATCHERS) {
-        const match = segment.match(pattern);
-        if (!match) continue;
-        const value = normalizeText(match[1]);
-        if (value && !result[key]) {
-          result[key] = value;
-        }
-        matched = true;
-        lineMatched = true;
-        break;
-      }
-      if (!matched) {
-        remainingLines.push(segment);
-      }
-    }
-  }
-
-  if (remainingLines.length > 0 && !result.goal) {
-    result.goal = remainingLines.join("\n");
-  }
-
-  return result;
-}
-
-function parseWorkflowLaunchText(rawText: string) {
-  const trimmed = normalizeText(rawText);
-  if (!trimmed) return null;
-  if (/^\/(?:form|表单)$/u.test(trimmed)) {
-    return null;
-  }
-  const lines = trimmed.split(/\n/u);
-  const firstLine = normalizeText(lines[0]);
-  const match = firstLine.match(WORKFLOW_LAUNCH_PREFIX_PATTERN);
-  const preferredMode = resolveWorkflowModeKeyFromText(trimmed);
-  const body = match
-    ? [normalizeText((match.groups?.rest || "").replace(/^[\s:：-]+/u, "")), ...lines.slice(1)]
-      .map((line) => normalizeText(line))
-      .filter(Boolean)
-      .join("\n")
-    : trimmed;
-
-  return {
-    preferredMode,
-    input: body ? parseWorkflowInputBody(body) : {},
-  };
-}
-
-function buildFallbackWorkflowAssessment(
-  input: WorkflowTaskInput,
-  preferredMode: WorkflowModeKey | null,
-): WorkflowAssessmentResult {
-  const complexityLevel = preferredMode === "careful_deliberation" || preferredMode === "parallel_split"
-    ? "high"
-    : preferredMode === "quick_execute"
-      ? "low"
-      : "medium";
-  const missingFields: Array<keyof WorkflowTaskInput> = [];
-  if (!normalizeText(input.goal)) {
-    missingFields.push("goal");
-  }
-  if (complexityLevel === "high" && !normalizeText(input.constraints)) {
-    missingFields.push("constraints");
-  }
-  return {
-    complete: missingFields.length === 0,
-    missingFields,
-    complexityLevel,
-    autoConfirm: complexityLevel !== "high",
-    suggestedQuestion: missingFields[0] === "constraints"
-      ? "这件事复杂度较高。开始前请补一句边界/不能动的地方；如无特殊要求可直接回复“无”。"
-      : "你想让 workflow 具体完成什么？一句话描述目标即可。",
-  };
-}
-
-async function assessWorkflowInput(
-  input: WorkflowTaskInput,
-  preferredMode: WorkflowModeKey | null,
-): Promise<WorkflowAssessmentResult> {
-  const assessor = window.remotelabWorkflowBridge?.assessCompleteness;
-  if (typeof assessor !== "function") {
-    return buildFallbackWorkflowAssessment(input, preferredMode);
-  }
-  try {
-    return normalizeWorkflowAssessmentResult(await assessor({
-      input,
-      preferredMode,
-    }));
-  } catch {
-    return buildFallbackWorkflowAssessment(input, preferredMode);
-  }
-}
-
 async function startWorkflowTaskFromInput(input: WorkflowTaskInput) {
   const kickoffMessage = buildWorkflowKickoffMessage(input);
   if (!window.remotelabWorkflowBridge?.startTask) {
@@ -746,159 +365,11 @@ async function startWorkflowTaskFromInput(input: WorkflowTaskInput) {
   });
 }
 
-function buildWorkflowIntakePrompt(assessment: WorkflowAssessmentResult) {
-  if (normalizeText(assessment.suggestedQuestion)) {
-    return normalizeText(assessment.suggestedQuestion);
-  }
-  const firstMissing = assessment.missingFields[0];
-  if (firstMissing === "constraints") {
-    return "开始前请补一句边界/不能动的地方；如无特殊要求可直接回复“无”。";
-  }
-  if (firstMissing === "goal") {
-    return "你想让 workflow 具体完成什么？一句话描述目标即可。";
-  }
-  return "开始前还缺一条关键信息，请补充后我再启动 workflow。";
-}
-
-function isHighConfidenceWorkflowAssessment(assessment: WorkflowAssessmentResult | null | undefined) {
-  if (assessment?.intentConfident !== true) {
-    return false;
-  }
-  return normalizeText(assessment.classification?.confidence).toLowerCase() === "high";
-}
-
-async function beginWorkflowIntakeFromPartial(
-  partialInput: Partial<WorkflowTaskInput>,
-  assessment: WorkflowAssessmentResult | null | undefined,
-  preferredMode: WorkflowModeKey | null,
-): Promise<WorkflowLaunchResult> {
-  const seedInput = window.remotelabWorkflowBridge?.getSeedInput?.() || {};
-  const input = buildWorkflowTaskInput(seedInput, partialInput);
-  const nextAssessment = assessment
-    ? normalizeWorkflowAssessmentResult(assessment)
-    : await assessWorkflowInput(input, preferredMode);
-
-  if (nextAssessment.complete && nextAssessment.autoConfirm) {
-    await startWorkflowTaskFromInput(input);
-    clearWorkflowIntakeState();
-    return { handled: true, started: true };
-  }
-
-  if (nextAssessment.complete) {
-    emitWorkflowIntakeState({
-      phase: "confirm",
-      input,
-      assessment: nextAssessment,
-      preferredMode,
-      prompt: "",
-    });
-    return { handled: true, intakeStarted: true, confirmationRequired: true };
-  }
-
-  emitWorkflowIntakeState({
-    phase: "clarify",
-    input,
-    assessment: nextAssessment,
-    preferredMode,
-    prompt: buildWorkflowIntakePrompt(nextAssessment),
-  });
-  return { handled: true, intakeStarted: true, awaitingReply: true };
-}
-
-function mergeWorkflowReplyIntoInput(state: WorkflowIntakeState, replyText: string) {
-  const nextInput = cloneWorkflowTaskInput(state.input);
-  const firstMissing = state.assessment.missingFields[0];
-  if (!firstMissing) {
-    return nextInput;
-  }
-  const normalizedReply = normalizeText(replyText);
-  if (!normalizedReply) {
-    return nextInput;
-  }
-  nextInput[firstMissing] = normalizedReply;
-  return nextInput;
-}
-
-async function continueWorkflowIntakeFromText(text: string): Promise<WorkflowLaunchResult> {
-  const state = getWorkflowIntakeState();
-  if (!state) {
-    return { handled: false };
-  }
-  if (state.phase !== "clarify") {
-    return { handled: false };
-  }
-
-  const nextInput = mergeWorkflowReplyIntoInput(state, text);
-  const nextAssessment = await assessWorkflowInput(nextInput, state.preferredMode);
-
-  if (nextAssessment.complete && nextAssessment.autoConfirm) {
-    await startWorkflowTaskFromInput(nextInput);
-    clearWorkflowIntakeState();
-    return { handled: true, started: true };
-  }
-
-  if (nextAssessment.complete) {
-    emitWorkflowIntakeState({
-      phase: "confirm",
-      input: nextInput,
-      assessment: nextAssessment,
-      preferredMode: state.preferredMode,
-      prompt: "",
-    });
-    return { handled: true, confirmationRequired: true };
-  }
-
-  emitWorkflowIntakeState({
-    phase: "clarify",
-    input: nextInput,
-    assessment: nextAssessment,
-    preferredMode: state.preferredMode,
-    prompt: buildWorkflowIntakePrompt(nextAssessment),
-  });
-  return { handled: true, awaitingReply: true };
-}
-
-async function launchWorkflowFromText(text: string): Promise<WorkflowLaunchResult> {
-  const pendingState = getWorkflowIntakeState();
-  if (pendingState?.phase === "clarify") {
-    return continueWorkflowIntakeFromText(text);
-  }
-
-  const parsed = parseWorkflowLaunchText(text);
-  if (!parsed) {
-    return { handled: false };
-  }
-
-  const seedInput = window.remotelabWorkflowBridge?.getSeedInput?.() || {};
-  const input = buildWorkflowTaskInput(seedInput, parsed.input);
-  const assessment = await assessWorkflowInput(input, parsed.preferredMode);
-  if (!isHighConfidenceWorkflowAssessment(assessment)) {
-    return { handled: false };
-  }
-  return beginWorkflowIntakeFromPartial(input, assessment, parsed.preferredMode);
-}
-
 function emitWorkflowTaskOpen(detail: WorkflowOpenDetail = null) {
   window.dispatchEvent(new CustomEvent(WORKFLOW_OPEN_EVENT, { detail }));
 }
 
-const workflowBridge = window.remotelabWorkflowBridge || {};
-workflowBridge.launchFromText = async ({ text }) => launchWorkflowFromText(text);
-workflowBridge.getPendingIntakeState = () => getWorkflowIntakeState();
-workflowBridge.getPendingIntakeDetail = () => {
-  const state = getWorkflowIntakeState();
-  if (!state) return null;
-  return {
-    input: state.input,
-    preferredMode: state.preferredMode,
-  };
-};
-workflowBridge.clearPendingIntake = () => {
-  clearWorkflowIntakeState();
-};
-window.remotelabWorkflowBridge = workflowBridge;
-
-window.openWorkflowTaskIntakeModal = (detail = null) => {
+window.openWorkflowTaskDialog = (detail = null) => {
   emitWorkflowTaskOpen(detail);
   return true;
 };
@@ -943,129 +414,8 @@ function getStatusButtonDescription(summary: ChromeState["summary"]) {
   return detail;
 }
 
-const workflowTimelineTimeFormatter = new Intl.DateTimeFormat(undefined, {
-  month: "numeric",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-function WorkflowStageTimeline({ summary }: { summary: ChromeState["summary"] }) {
-  const stages = Array.isArray(summary?.workflowStages)
-    ? summary.workflowStages.filter((stage) => stage && typeof stage.label === "string")
-    : [];
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const stageKey = stages.map((stage) => `${stage.state}:${stage.label}`).join("|");
-
-  useEffect(() => {
-    const scroller = scrollRef.current;
-    const current = scroller?.querySelector<HTMLElement>("[data-current-stage='true']");
-    if (!scroller || !current) return;
-    const targetLeft = Math.max(0, current.offsetLeft - ((scroller.clientWidth - current.offsetWidth) / 2));
-    scroller.scrollTo({ left: targetLeft });
-  }, [stageKey]);
-
-  if (stages.length === 0) return null;
-
-  return (
-    <div className="chrome-stage-timeline" aria-label="当前 workflow 阶段">
-      <div ref={scrollRef} className="chrome-stage-timeline-scroll">
-        {stages.map((stage, index) => (
-          <Fragment key={`${stage.state}:${stage.label}:${index}`}>
-            {index > 0 ? <span className="chrome-stage-connector" aria-hidden="true">→</span> : null}
-            <span
-              className={`chrome-stage-chip chrome-stage-chip-${stage.state}`}
-              data-current-stage={stage.state === "current" ? "true" : undefined}
-            >
-              <span className="chrome-stage-chip-icon" aria-hidden="true">
-                {stage.state === "completed" ? "✓" : (stage.state === "current" ? "●" : "○")}
-              </span>
-              <span className="chrome-stage-chip-label">{stage.label}</span>
-            </span>
-          </Fragment>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function getConclusionLabel(conclusion: Conclusion) {
   return normalizeText(conclusion.label) || "结果转交";
-}
-
-function getWorkflowTimelineKindLabel(kind: WorkflowTimelineEntry["kind"]) {
-  if (kind === "stage") return "阶段";
-  if (kind === "decision") return "决策";
-  if (kind === "event") return "反馈";
-  return "回流";
-}
-
-function getWorkflowTimelineTone(tone?: WorkflowTimelineEntry["tone"]) {
-  if (tone === "success" || tone === "notice" || tone === "warning" || tone === "error" || tone === "muted") {
-    return tone;
-  }
-  return "neutral";
-}
-
-function formatWorkflowTimelineTime(stamp?: string) {
-  const parsed = new Date(stamp || "").getTime();
-  if (!Number.isFinite(parsed)) return "";
-  return workflowTimelineTimeFormatter.format(parsed);
-}
-
-function WorkflowTimelineSummary({ summary }: { summary: ChromeState["summary"] }) {
-  const timeline = Array.isArray(summary?.workflowTimeline)
-    ? summary.workflowTimeline.filter((entry): entry is WorkflowTimelineEntry => !!entry && typeof entry.id === "string")
-    : [];
-
-  if (timeline.length === 0) return null;
-
-  return (
-    <section className="chrome-status-zone">
-      <div className="chrome-status-zone-title">阶段时间线</div>
-      <div className="chrome-status-timeline">
-        {timeline.map((entry) => {
-          const tone = getWorkflowTimelineTone(entry.tone);
-          const timestamp = formatWorkflowTimelineTime(entry.at);
-          const detail = normalizeText(entry.detail);
-          const statusLabel = normalizeText(entry.statusLabel);
-          return (
-            <div key={entry.id} className="chrome-status-timeline-item">
-              <span
-                className={`chrome-status-timeline-dot chrome-status-timeline-dot-${tone}`}
-                aria-hidden="true"
-              />
-              <div className="chrome-status-timeline-body">
-                <div className="chrome-status-timeline-header">
-                  <div className="chrome-status-timeline-title-row">
-                    <Badge variant="outline" className={`chrome-status-badge chrome-status-badge-${tone}`}>
-                      {getWorkflowTimelineKindLabel(entry.kind)}
-                    </Badge>
-                    <div className="chrome-status-timeline-title">
-                      {normalizeText(entry.title) || "阶段事件"}
-                    </div>
-                  </div>
-                  {timestamp ? (
-                    <div className="chrome-status-timeline-time">{timestamp}</div>
-                  ) : null}
-                </div>
-                {detail ? (
-                  <div className="chrome-status-timeline-detail">{detail}</div>
-                ) : null}
-                {statusLabel ? (
-                  <div className="chrome-status-timeline-meta">
-                    <span className={`chrome-status-timeline-status chrome-status-timeline-status-${tone}`}>
-                      {statusLabel}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
 }
 
 function getConclusionSource(conclusion: Conclusion) {
@@ -1121,10 +471,8 @@ function getRunStateBadgeInfo(runState?: string): { text: string; className: str
 
 function WorkflowStatusButton({
   summary,
-  workflowAutoTrigger,
 }: {
   summary: ChromeState["summary"];
-  workflowAutoTrigger?: ChromeState["workflowAutoTrigger"];
 }) {
   const pending = summary?.pending || [];
   const decisions = summary?.decisions || [];
@@ -1230,9 +578,7 @@ function WorkflowStatusButton({
             </section>
           ) : null}
 
-          <WorkflowTimelineSummary summary={summary} />
-
-          {(suggestion || decisions.length > 0 || pending.length > 0) ? (
+      {(suggestion || decisions.length > 0 || pending.length > 0) ? (
             <section className="chrome-status-zone">
               <div className="chrome-status-zone-title">需要你处理</div>
 
@@ -1392,103 +738,6 @@ function resolveCurrentTheme(): ResolvedTheme {
   return theme === "dark" ? "dark" : "light";
 }
 
-function WorkflowManagedPill({ state }: { state: ChromeState }) {
-  const workflowAutoTrigger = state.workflowAutoTrigger || null;
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const disabled = workflowAutoTrigger?.disabled === true;
-
-  if (!workflowAutoTrigger || workflowAutoTrigger.activeWorkflow === true) {
-    return null;
-  }
-
-  async function handleDisable() {
-    const run = window.remotelabChromeBridge?.actions?.setWorkflowAutoTriggerDisabled;
-    if (!run || busy) return;
-    try {
-      setBusy(true);
-      await run(true);
-      setOpen(false);
-    } catch {
-      window.remotelabToastBridge?.show("操作失败，请重试", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleEnable() {
-    const run = window.remotelabChromeBridge?.actions?.setWorkflowAutoTriggerDisabled;
-    if (!run || busy) return;
-    try {
-      setBusy(true);
-      await run(false);
-    } catch {
-      window.remotelabToastBridge?.show("操作失败，请重试", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (disabled) {
-    return (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="chrome-managed-pill chrome-managed-pill-disabled"
-        title="托管已关闭，点按重新开启"
-        aria-label="托管已关闭，点按重新开启"
-        disabled={busy}
-        onClick={() => void handleEnable()}
-      >
-        托管
-      </Button>
-    );
-  }
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="chrome-managed-pill"
-          title="托管中"
-          aria-label="托管中"
-        >
-          托管
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="chrome-managed-popover" align="start" sideOffset={10}>
-        <div className="chrome-managed-popover-body">
-          <div className="chrome-managed-popover-title">关闭托管？</div>
-          <div className="chrome-managed-popover-description">
-            关闭后，复杂任务不会自动进入工作流编排。
-          </div>
-          <div className="chrome-managed-popover-actions">
-            <Button
-              size="sm"
-              className="chrome-managed-popover-btn"
-              disabled={busy}
-              onClick={() => void handleDisable()}
-            >
-              {busy ? "关闭中…" : "关闭"}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="chrome-managed-popover-btn chrome-managed-popover-btn-ghost"
-              disabled={busy}
-              onClick={() => setOpen(false)}
-            >
-              取消
-            </Button>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 function HeaderActions() {
   const state = useChromeState();
   const [busy, setBusy] = useState<null | "fork" | "share" | "handoff">(null);
@@ -1537,9 +786,7 @@ function HeaderActions() {
 
   return (
     <div className="flex min-w-0 items-center gap-1">
-      <WorkflowManagedPill state={state} />
-      {summary ? <WorkflowStageTimeline summary={summary} /> : null}
-      {summary ? <WorkflowStatusButton summary={summary} workflowAutoTrigger={state.workflowAutoTrigger} /> : null}
+      {summary ? <WorkflowStatusButton summary={summary} /> : null}
       {actionDefs
         .filter((entry) => entry.visible)
         .map((entry) => {
@@ -1681,27 +928,6 @@ function ModeFlow({ steps }: { steps: string[] }) {
   );
 }
 
-function WorkflowInputSummary({ input }: { input: WorkflowTaskInput }) {
-  const entries = (Object.keys(WORKFLOW_FIELD_LABELS) as Array<keyof WorkflowTaskInput>)
-    .map((key) => ({
-      key,
-      label: WORKFLOW_FIELD_LABELS[key],
-      value: normalizeText(input[key]),
-    }))
-    .filter((entry) => entry.value);
-  if (entries.length === 0) return null;
-  return (
-    <div className="workflow-intake-summary">
-      {entries.map((entry) => (
-        <div key={entry.key} className="workflow-intake-summary-item">
-          <div className="workflow-intake-summary-label">{entry.label}</div>
-          <div className="workflow-intake-summary-value">{entry.value}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function WorkflowTaskFormFields({
   input,
   onFieldChange,
@@ -1816,191 +1042,6 @@ function WorkflowTaskFormFields({
           </div>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function WorkflowIntakePanel() {
-  const [state, setState] = useState<WorkflowIntakeState | null>(null);
-  const [draft, setDraft] = useState<WorkflowTaskInput>(EMPTY_WORKFLOW_INPUT);
-  const [showOptionalFields, setShowOptionalFields] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    function handleStateChange(event: Event) {
-      const detail = (event as CustomEvent<WorkflowIntakeState | null>).detail || null;
-      setState(detail);
-    }
-    function handleIntakeMessage(event: Event) {
-      const detail = (event as CustomEvent<{ metadata?: { workflowIntake?: unknown } }>).detail || {};
-      const nextState = buildWorkflowIntakeStateFromMetadata(detail?.metadata?.workflowIntake);
-      if (nextState) {
-        setState(nextState);
-      }
-    }
-    window.addEventListener(WORKFLOW_INTAKE_EVENT, handleStateChange as EventListener);
-    window.addEventListener(WORKFLOW_INTAKE_MESSAGE_EVENT, handleIntakeMessage as EventListener);
-    const unsubscribeChrome = window.remotelabChromeBridge?.subscribe?.((chromeState) => {
-      if (chromeState?.pendingIntake !== true) {
-        setState(null);
-      }
-    });
-    return () => {
-      window.removeEventListener(WORKFLOW_INTAKE_EVENT, handleStateChange as EventListener);
-      window.removeEventListener(WORKFLOW_INTAKE_MESSAGE_EVENT, handleIntakeMessage as EventListener);
-      unsubscribeChrome?.();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!state) {
-      setDraft(EMPTY_WORKFLOW_INPUT);
-      return;
-    }
-    setDraft(state.input);
-    setShowOptionalFields(Boolean(state.input.progress || state.input.concern || state.input.preference));
-  }, [state]);
-
-  if (!state) return null;
-
-  const modeKey = state.preferredMode || normalizeWorkflowModeKey(state.assessment.classification?.mode) || "standard_delivery";
-  const routePreview = getWorkflowRoutePreview(WORKFLOW_MODES[modeKey]);
-
-  function updateField(key: keyof WorkflowTaskInput, value: string) {
-    setDraft((current) => ({
-      ...current,
-      [key]: value,
-    }));
-  }
-
-  async function handleConfirmStart() {
-    try {
-      setBusy(true);
-      await window.remotelabWorkflowBridge?.confirmIntake?.({
-        input: state.phase === "edit" ? draft : state.input,
-      });
-      clearWorkflowIntakeState();
-    } catch (error) {
-      window.remotelabToastBridge?.show(
-        error instanceof Error ? error.message : "开始任务失败",
-        "error",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleApplyEdit() {
-    try {
-      setBusy(true);
-      await window.remotelabWorkflowBridge?.confirmIntake?.({
-        input: buildWorkflowTaskInput(state.input, draft),
-      });
-      clearWorkflowIntakeState();
-    } catch (error) {
-      window.remotelabToastBridge?.show(
-        error instanceof Error ? error.message : "更新任务失败",
-        "error",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="workflow-intake-panel-shell">
-      <Card className="workflow-intake-card">
-        <CardHeader className="workflow-intake-card-header">
-          <div className="workflow-intake-card-title-wrap">
-            <div className="workflow-intake-eyebrow">
-              {state.phase === "clarify" ? "任务补全" : state.phase === "edit" ? "修改任务" : "确认启动"}
-            </div>
-            <CardTitle className="workflow-intake-title">
-              {state.phase === "clarify" ? "还差一条关键信息" : "准备启动 workflow"}
-            </CardTitle>
-          </div>
-          <Badge className="workflow-task-recommendation-badge" variant="secondary">
-            {routePreview.label}
-          </Badge>
-        </CardHeader>
-        <CardContent className="workflow-intake-card-content">
-          {state.phase === "clarify" ? (
-            <>
-              <p className="workflow-intake-prompt">{state.prompt || "请直接在下方输入框回复，我会补全后继续。"}</p>
-              <WorkflowInputSummary input={state.input} />
-              <div className="workflow-intake-note">直接在下方输入框回复即可，如需完整字段编辑可切到表单。</div>
-            </>
-          ) : null}
-
-          {state.phase === "confirm" ? (
-            <>
-              <p className="workflow-intake-prompt">已解析出以下任务信息，确认后就会启动 workflow。</p>
-              <WorkflowInputSummary input={state.input} />
-            </>
-          ) : null}
-
-          {state.phase === "edit" ? (
-            <WorkflowTaskFormFields
-              input={draft}
-              onFieldChange={updateField}
-              showOptionalFields={showOptionalFields}
-              onShowOptionalFieldsChange={setShowOptionalFields}
-              idPrefix="workflow-inline"
-              className="workflow-task-form workflow-intake-inline-form"
-            />
-          ) : null}
-
-          <div className="workflow-intake-actions">
-            <Button
-              variant="outline"
-              onClick={() => {
-                const cancel = window.remotelabWorkflowBridge?.cancelIntake;
-                if (typeof cancel !== "function") {
-                  clearWorkflowIntakeState();
-                  return;
-                }
-                void cancel().finally(() => clearWorkflowIntakeState());
-              }}
-              disabled={busy}
-            >
-              取消
-            </Button>
-            {state.phase === "clarify" ? (
-              <Button
-                variant="ghost"
-                onClick={() => window.openWorkflowTaskIntakeModal?.({
-                  input: state.input,
-                  preferredMode: state.preferredMode,
-                })}
-                disabled={busy}
-              >
-                改为表单
-              </Button>
-            ) : null}
-            {state.phase === "confirm" ? (
-              <Button variant="outline" onClick={() => emitWorkflowIntakeState({
-                phase: "edit",
-                input: state.input,
-                assessment: state.assessment,
-                preferredMode: state.preferredMode,
-                prompt: state.prompt,
-              })} disabled={busy}>
-                修改
-              </Button>
-            ) : null}
-            {state.phase === "confirm" ? (
-              <Button variant="default" onClick={() => void handleConfirmStart()} disabled={busy}>
-                {busy ? "正在开始…" : "开始"}
-              </Button>
-            ) : null}
-            {state.phase === "edit" ? (
-              <Button variant="default" onClick={() => void handleApplyEdit()} disabled={busy}>
-                {busy ? "正在处理…" : "保存并继续"}
-              </Button>
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
@@ -2122,7 +1163,6 @@ function WorkflowTaskDialog() {
     try {
       setStarting(true);
       await startWorkflowTaskFromInput(input);
-      clearWorkflowIntakeState();
       setOpen(false);
       setShowOptionalFields(false);
       setShowRecommendationDetails(false);
@@ -2274,7 +1314,6 @@ function mountRoot(id: string, element: ReactElement) {
 }
 
 mountRoot("chatChromeRoot", <App />);
-mountRoot("workflowIntakePanelRoot", <WorkflowIntakePanel />);
 
 window.remotelabToastBridge = {
   show(message, tone = "neutral", options = {}) {

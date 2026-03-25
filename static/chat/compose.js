@@ -199,50 +199,16 @@ function getComposerDraftText(sessionId = currentSessionId) {
   return readStoredDraft(sessionId);
 }
 
-async function maybeLaunchWorkflowFromComposerText(text) {
+function maybeOpenWorkflowTaskDialog(text) {
   if (visitorMode || pendingImages.length > 0) {
-    return { handled: false };
+    return false;
   }
   const normalizedText = typeof text === "string" ? text.trim() : "";
-  if (!normalizedText) {
-    return { handled: false };
+  if (!/^\/(?:form|表单)$/u.test(normalizedText)) {
+    return false;
   }
-  if (/^\/(?:form|表单)$/u.test(normalizedText)) {
-    const detail = typeof window.remotelabWorkflowBridge?.getPendingIntakeDetail === "function"
-      ? window.remotelabWorkflowBridge.getPendingIntakeDetail()
-      : null;
-    window.openWorkflowTaskIntakeModal?.(detail || null);
-    return { handled: true, opened: true };
-  }
-  const canStartFromComposer = window.remotelabWorkflowBridge?.canStartFromComposer;
-  if (typeof canStartFromComposer === "function" && canStartFromComposer() === false) {
-    return { handled: false };
-  }
-  const launcher = window.remotelabWorkflowBridge?.launchFromText;
-  if (typeof launcher !== "function") {
-    return { handled: false };
-  }
-  try {
-    const result = await launcher({ text: normalizedText });
-    if (
-      !result?.handled
-      && result?.partialInput
-      && typeof window.remotelabWorkflowBridge?.beginIntakeFromPartial === "function"
-    ) {
-      return await window.remotelabWorkflowBridge.beginIntakeFromPartial({
-        partialInput: result.partialInput,
-        assessment: result.assessment,
-        preferredMode: result.preferredMode,
-      });
-    }
-    return result;
-  } catch (error) {
-    window.remotelabToastBridge?.show(
-      error instanceof Error ? error.message : "启动工作流失败",
-      "error",
-    );
-    return { handled: true };
-  }
+  window.openWorkflowTaskDialog?.(null);
+  return true;
 }
 
 async function sendMessage(existingRequestId) {
@@ -252,18 +218,7 @@ async function sendMessage(existingRequestId) {
   if (hasPendingComposerSend()) return;
   if ((!text && pendingImages.length === 0) || currentSession?.archived) return;
 
-  const workflowLaunch = await maybeLaunchWorkflowFromComposerText(text);
-  if (workflowLaunch?.handled) {
-    if (
-      workflowLaunch.started
-      || workflowLaunch.intakeStarted
-      || workflowLaunch.awaitingReply
-      || workflowLaunch.confirmationRequired
-    ) {
-      clearDraft(currentSessionId);
-      msgInput.value = "";
-      autoResizeInput();
-    }
+  if (maybeOpenWorkflowTaskDialog(text)) {
     return;
   }
 

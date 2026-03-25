@@ -19,6 +19,7 @@ import {
   normalizeSessionWorkflowPriority,
   normalizeSessionWorkflowState,
 } from './session-workflow-state.mjs';
+import { triggerSessionWorkflowStateSuggestion } from './summarizer.mjs';
 import { getRun } from './runs.mjs';
 import {
   getSessionQueueCount,
@@ -31,20 +32,40 @@ import {
 } from './session-meta-store.mjs';
 import { getApp, listApps, normalizeAppId } from './apps.mjs';
 import {
-  getCurrentWorkflowStage,
-  getNextWorkflowStage,
-  getWorkflowGatePolicy,
-  getWorkflowHandoffTypeForRole,
-  getStageRuntimeHint,
-  normalizeGatePolicy,
-  normalizeWorkflowDefinition,
-  resolveWorkflowDefinitionForMode,
-  WORKFLOW_RISK_SIGNAL_KEYWORDS,
-} from './workflow-definition.mjs';
-import { classifyTaskComplexity } from './workflow-auto-router.mjs';
-import { resolveRuntimeOverrideForTier } from './models.mjs';
+  normalizeWorkflowSuggestion,
+  suggestNextStep,
+} from './run-completion-suggestions.mjs';
 
 let dependencies = null;
+
+const WORKFLOW_MAINLINE_APP_NAMES = ['执行', '主交付', '功能交付'];
+const WORKFLOW_VERIFICATION_APP_NAMES = ['验收', '执行验收', '风险复核'];
+const WORKFLOW_DELIBERATION_APP_NAMES = ['再议', '深度裁决', 'PR把关', '合并', '发布把关', '推敲'];
+const WORKFLOW_PENDING_LIMIT = 20;
+const CODEX_DELIBERATION_ADVISORY_DEVELOPER_INSTRUCTIONS = [
+  'Treat this session as an advisory deliberation lane.',
+  'Inspect code and context as needed, but do not modify files and do not produce code changes.',
+  'Return judgments, tradeoffs, risks, and recommended next steps only.',
+].join(' ');
+const WORKFLOW_RISK_SIGNAL_KEYWORDS = Object.freeze([
+  '风险',
+  '需要确认',
+  'needs decision',
+  'needs_fix',
+  'needs_more_validation',
+  '无法验证',
+  '未验证',
+  'blocked',
+  'blocker',
+  'todo',
+  'rollback',
+  '回退',
+  'breaking',
+  'incompatible',
+  '兼容性',
+  'uncertain',
+  'unknown',
+]);
 
 function requireDeps() {
   if (!dependencies) {
@@ -97,52 +118,12 @@ function updateSessionHandoffTarget(id, handoffTargetSessionId) {
   return requireDeps().updateSessionHandoffTarget(id, handoffTargetSessionId);
 }
 
-function applySessionAppMetadata(id, app, extra = {}) {
-  return requireDeps().applySessionAppMetadata(id, app, extra);
-}
-
-function updateSessionWorkflowClassification(id, payload = {}) {
-  return requireDeps().updateSessionWorkflowClassification(id, payload);
-}
-
-function updateSessionWorkflowSuggestion(id, suggestion) {
-  return requireDeps().updateSessionWorkflowSuggestion(id, suggestion);
-}
-
-function appendWorkflowPendingConclusion(id, conclusion) {
-  return requireDeps().appendWorkflowPendingConclusion(id, conclusion);
-}
-
-function updateWorkflowPendingConclusionStatus(id, conclusionId, status) {
-  return requireDeps().updateWorkflowPendingConclusionStatus(id, conclusionId, status);
-}
-
 function submitHttpMessage(sessionId, text, images, options = {}) {
   return requireDeps().submitHttpMessage(sessionId, text, images, options);
 }
 
-function buildSessionNavigationHref(sessionId) {
-  const normalized = typeof sessionId === 'string' ? sessionId.trim() : '';
-  if (!normalized) return '/?tab=sessions';
-  return `/?session=${encodeURIComponent(normalized)}&tab=sessions`;
-}
-
 function generateId() {
   return randomBytes(16).toString('hex');
-}
-
-function normalizeWorktreeCoordinationText(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function normalizeSessionSourceName(value) {
-  if (typeof value !== 'string') return '';
-  return value.trim().replace(/\s+/g, ' ');
-}
-
-function normalizeSessionUserName(value) {
-  if (typeof value !== 'string') return '';
-  return value.trim().replace(/\s+/g, ' ');
 }
 
 function clipCompactionSection(value, maxChars = 12000) {
@@ -151,6 +132,201 @@ function clipCompactionSection(value, maxChars = 12000) {
   const headChars = Math.max(1, Math.floor(maxChars * 0.6));
   const tailChars = Math.max(1, maxChars - headChars);
   return `${text.slice(0, headChars).trimEnd()}\n[... truncated by RemoteLab ...]\n${text.slice(-tailChars).trimStart()}`;
+}
+
+function normalizeWorktreeCoordinationText(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+export function normalizeSessionAppName(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+export function normalizeWorkflowCurrentTask(value) {
+  return normalizeSessionDescription(value || '');
+}
+
+export function normalizeWorkflowLaunchMode(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['quick_execute', 'standard_delivery', 'careful_deliberation', 'parallel_split'].includes(normalized)) {
+    return normalized;
+  }
+  return '';
+}
+
+function normalizeWorkflowDecisionConfidence(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['high', 'medium', 'low'].includes(normalized)) return normalized;
+  return '';
+}
+
+function normalizeWorkflowVerificationRecommendation(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['ok', 'needs_fix', 'needs_more_validation'].includes(normalized)) return normalized;
+  return '';
+}
+
+function normalizeWorkflowConclusionStatus(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['pending', 'needs_decision', 'accepted', 'ignored', 'superseded'].includes(normalized)) {
+    return normalized;
+  }
+  return 'pending';
+}
+
+function normalizeWorkflowHandoffKind(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['risk_review', 'pr_gate', 'workflow'].includes(normalized)) return normalized;
+  return 'workflow';
+}
+
+export function normalizeWorkflowHandoffType(value, fallbackKind = '') {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['verification_result', 'decision_result', 'workflow_result'].includes(normalized)) {
+    return normalized;
+  }
+  const legacyKind = normalizeWorkflowHandoffKind(fallbackKind);
+  if (legacyKind === 'risk_review') return 'verification_result';
+  if (legacyKind === 'pr_gate') return 'decision_result';
+  return 'workflow_result';
+}
+
+function getWorkflowHandoffTypeLabel(handoffType) {
+  const normalized = normalizeWorkflowHandoffType(handoffType);
+  if (normalized === 'verification_result') return '验收结果';
+  if (normalized === 'decision_result') return '再议结论';
+  return '结果转交';
+}
+
+function normalizeWorkflowConclusionSummary(value) {
+  if (typeof value !== 'string') return '';
+  const compact = value.replace(/\s+/g, ' ').trim();
+  return clipCompactionSection(compact, 280);
+}
+
+function normalizeWorkflowConclusionList(values = [], maxItems = 12) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => normalizeWorkflowConclusionSummary(typeof value === 'string' ? value : ''))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function normalizeWorkflowParallelTaskText(value, maxChars = 600) {
+  if (typeof value !== 'string') return '';
+  const compact = value.replace(/\s+/g, ' ').trim();
+  return compact ? clipCompactionSection(compact, maxChars) : '';
+}
+
+function normalizeWorkflowParallelTask(task = {}, index = 0) {
+  if (!task || typeof task !== 'object' || Array.isArray(task)) return null;
+  const title = normalizeWorkflowParallelTaskText(task.title || task.name || '', 120) || `并行子任务 ${index + 1}`;
+  const taskText = normalizeWorkflowParallelTaskText(task.task || task.goal || task.summary || '', 600);
+  const boundary = normalizeWorkflowParallelTaskText(task.boundary || task.constraints || '', 400);
+  const repo = normalizeWorkflowParallelTaskText(task.repo || task.folder || task.project || '', 240);
+  if (!(title || taskText || boundary || repo)) return null;
+  return {
+    title,
+    ...(taskText ? { task: taskText } : {}),
+    ...(boundary ? { boundary } : {}),
+    ...(repo ? { repo } : {}),
+  };
+}
+
+function normalizeWorkflowParallelTasks(values = [], maxItems = 8) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value, index) => normalizeWorkflowParallelTask(value, index))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function normalizeWorkflowConclusionPayload(payload = {}, handoffType = 'workflow_result') {
+  const normalizedType = normalizeWorkflowHandoffType(handoffType);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return {};
+  }
+  if (normalizedType === 'verification_result') {
+    return {
+      ...(normalizeWorkflowConclusionSummary(payload.summary || '') ? { summary: normalizeWorkflowConclusionSummary(payload.summary || '') } : {}),
+      ...(normalizeWorkflowVerificationRecommendation(payload.recommendation || '') ? { recommendation: normalizeWorkflowVerificationRecommendation(payload.recommendation || '') } : {}),
+      ...(normalizeWorkflowDecisionConfidence(payload.confidence || '') ? { confidence: normalizeWorkflowDecisionConfidence(payload.confidence || '') } : {}),
+      ...(normalizeWorkflowConclusionList(payload.validated).length > 0 ? { validated: normalizeWorkflowConclusionList(payload.validated) } : {}),
+      ...(normalizeWorkflowConclusionList(payload.unverified).length > 0 ? { unverified: normalizeWorkflowConclusionList(payload.unverified) } : {}),
+      ...(normalizeWorkflowConclusionList(payload.findings).length > 0 ? { findings: normalizeWorkflowConclusionList(payload.findings) } : {}),
+      ...(normalizeWorkflowConclusionList(payload.evidence).length > 0 ? { evidence: normalizeWorkflowConclusionList(payload.evidence) } : {}),
+    };
+  }
+  if (normalizedType === 'decision_result') {
+    return {
+      ...(normalizeWorkflowConclusionSummary(payload.summary || '') ? { summary: normalizeWorkflowConclusionSummary(payload.summary || '') } : {}),
+      ...(normalizeWorkflowConclusionSummary(payload.recommendation || '') ? { recommendation: normalizeWorkflowConclusionSummary(payload.recommendation || '') } : {}),
+      ...(normalizeWorkflowDecisionConfidence(payload.confidence || '') ? { confidence: normalizeWorkflowDecisionConfidence(payload.confidence || '') } : {}),
+      ...(normalizeWorkflowConclusionList(payload.rejectedOptions).length > 0 ? { rejectedOptions: normalizeWorkflowConclusionList(payload.rejectedOptions) } : {}),
+      ...(normalizeWorkflowConclusionList(payload.tradeoffs).length > 0 ? { tradeoffs: normalizeWorkflowConclusionList(payload.tradeoffs) } : {}),
+      ...(normalizeWorkflowConclusionList(payload.decisionNeeded).length > 0 ? { decisionNeeded: normalizeWorkflowConclusionList(payload.decisionNeeded) } : {}),
+      ...(normalizeWorkflowParallelTasks(payload.parallelTasks).length > 0 ? { parallelTasks: normalizeWorkflowParallelTasks(payload.parallelTasks) } : {}),
+    };
+  }
+  return {
+    ...(normalizeWorkflowConclusionSummary(payload.summary || '') ? { summary: normalizeWorkflowConclusionSummary(payload.summary || '') } : {}),
+  };
+}
+
+function normalizeWorkflowPendingConclusion(conclusion = {}) {
+  const handoffKind = normalizeWorkflowHandoffKind(conclusion?.handoffKind || '');
+  const handoffType = normalizeWorkflowHandoffType(conclusion?.handoffType || '', handoffKind);
+  const status = normalizeWorkflowConclusionStatus(conclusion?.status || '');
+  const summary = normalizeWorkflowConclusionSummary(conclusion?.summary || '');
+  const payload = normalizeWorkflowConclusionPayload(conclusion?.payload || {}, handoffType);
+  return {
+    id: typeof conclusion?.id === 'string' && conclusion.id.trim() ? conclusion.id.trim() : generateId(),
+    sourceSessionId: typeof conclusion?.sourceSessionId === 'string' ? conclusion.sourceSessionId.trim() : '',
+    sourceSessionName: typeof conclusion?.sourceSessionName === 'string' ? conclusion.sourceSessionName.trim() : '',
+    handoffKind,
+    handoffType,
+    label: typeof conclusion?.label === 'string' && conclusion.label.trim()
+      ? conclusion.label.trim()
+      : getWorkflowHandoffTypeLabel(handoffType),
+    summary,
+    status,
+    round: Number.isInteger(conclusion?.round) && conclusion.round > 0 ? conclusion.round : 1,
+    createdAt: typeof conclusion?.createdAt === 'string' && conclusion.createdAt.trim() ? conclusion.createdAt.trim() : nowIso(),
+    ...(typeof conclusion?.handledAt === 'string' && conclusion.handledAt.trim() ? { handledAt: conclusion.handledAt.trim() } : {}),
+    ...(typeof conclusion?.eventSeq === 'number' ? { eventSeq: conclusion.eventSeq } : {}),
+    ...(typeof conclusion?.supersedesHandoffId === 'string' && conclusion.supersedesHandoffId.trim() ? { supersedesHandoffId: conclusion.supersedesHandoffId.trim() } : {}),
+    ...(Object.keys(payload).length > 0 ? { payload } : {}),
+  };
+}
+
+function normalizeWorkflowPendingConclusions(conclusions = []) {
+  if (!Array.isArray(conclusions)) return [];
+  return conclusions
+    .map((item) => normalizeWorkflowPendingConclusion(item))
+    .filter((item) => item.summary)
+    .slice(-WORKFLOW_PENDING_LIMIT);
+}
+
+function findWorkflowPendingConclusion(session, predicate) {
+  const entries = normalizeWorkflowPendingConclusions(session?.workflowPendingConclusions || []);
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (predicate(entry)) return entry;
+  }
+  return null;
+}
+
+function hasOpenWorkflowConclusions(session) {
+  return normalizeWorkflowPendingConclusions(session?.workflowPendingConclusions || []).some((entry) => (
+    ['pending', 'needs_decision'].includes(normalizeWorkflowConclusionStatus(entry.status))
+  ));
+}
+
+function hasPendingDecision(session) {
+  return normalizeWorkflowPendingConclusions(session?.workflowPendingConclusions || []).some((entry) => (
+    normalizeWorkflowConclusionStatus(entry.status) === 'needs_decision'
+  ));
 }
 
 function extractTaggedBlock(content, tagName) {
@@ -193,23 +369,38 @@ async function findLatestAssistantMessageForRun(sessionId, runId) {
   return null;
 }
 
-function getWorkflowHandoffKind(session) {
-  const appName = normalizeSessionAppName(
-    session?.templateAppName
-    || session?.appName
-    || '',
-  );
-  if (['验收', '执行验收', '风险复核', '挑战', '后台挑战'].includes(appName)) {
-    return 'risk_review';
+function findLatestAssistantConclusion(history = []) {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const event = history[index];
+    if (event?.type !== 'message' || event?.role !== 'assistant') continue;
+    if (isWorkflowAuxiliaryMessage(event)) continue;
+    if (typeof event?.content === 'string' && event.content.trim()) {
+      return event;
+    }
   }
-  if (['再议', '深度裁决', 'PR把关', '合并', '发布把关'].includes(appName)) {
-    return 'pr_gate';
-  }
-  return 'workflow';
+  return null;
 }
 
-export function getWorkflowHandoffTypeForSession(session) {
-  return normalizeWorkflowHandoffType('', getWorkflowHandoffKind(session));
+export function isWorkflowAuxiliaryMessage(event) {
+  return event?.type === 'message'
+    && event?.role === 'assistant'
+    && ['session_delegate_notice', 'workflow_handoff_notice', 'workflow_handoff'].includes(event?.messageKind || '');
+}
+
+export function isWorkflowStatusLikeEventType(type = '') {
+  return ['status', 'workflow_auto_absorb', 'workflow_auto_advance'].includes(type);
+}
+
+export function isWorkflowMainlineAppName(appName) {
+  return WORKFLOW_MAINLINE_APP_NAMES.includes(normalizeSessionAppName(appName || ''));
+}
+
+export function isWorkflowVerificationAppName(appName) {
+  return WORKFLOW_VERIFICATION_APP_NAMES.includes(normalizeSessionAppName(appName || ''));
+}
+
+export function isWorkflowDeliberationAppName(appName) {
+  return WORKFLOW_DELIBERATION_APP_NAMES.includes(normalizeSessionAppName(appName || ''));
 }
 
 export function getWorkflowSessionAppName(session) {
@@ -220,81 +411,414 @@ export function getWorkflowSessionAppName(session) {
   );
 }
 
-export function doesWorkflowSessionAppMatchStage(session, stage) {
-  if (!stage || typeof stage !== 'object') return false;
-  const sessionAppName = getWorkflowSessionAppName(session);
-  if (!sessionAppName) return false;
-  const stageAppNames = Array.isArray(stage.appNames) ? stage.appNames : [];
-  return stageAppNames.some((name) => normalizeSessionAppName(name || '') === sessionAppName);
-}
-
-export function isWorkflowMainlineAppName(appName) {
-  return ['执行', '主交付', '功能交付'].includes(normalizeSessionAppName(appName || ''));
-}
-
-export function isWorkflowVerificationAppName(appName) {
-  return ['验收', '执行验收', '风险复核'].includes(normalizeSessionAppName(appName || ''));
-}
-
-export function isWorkflowDeliberationAppName(appName) {
-  return ['再议', '深度裁决', 'PR把关', '推敲'].includes(normalizeSessionAppName(appName || ''));
-}
-
 export function isWorkflowMainlineSession(session) {
-  const definition = normalizeWorkflowDefinition(session?.workflowDefinition);
-  if (definition) {
-    return !normalizeWorktreeCoordinationText(session?.handoffTargetSessionId || '');
+  if (!session || normalizeWorktreeCoordinationText(session?.handoffTargetSessionId || '')) {
+    return false;
   }
   return isWorkflowMainlineAppName(getWorkflowSessionAppName(session));
 }
 
 export function isWorkflowVerificationSession(session) {
-  const stage = getCurrentWorkflowStage(session);
-  if (stage) return stage.role === 'verify';
   return isWorkflowVerificationAppName(getWorkflowSessionAppName(session));
 }
 
 export function isWorkflowDeliberationSession(session) {
-  const stage = getCurrentWorkflowStage(session);
-  if (stage) return stage.role === 'deliberate';
   return isWorkflowDeliberationAppName(getWorkflowSessionAppName(session));
 }
 
-const WORKFLOW_AUTO_ABSORB_VERIFICATION_INTERNAL_OPERATION = 'workflow_auto_absorb_verification';
-const WORKFLOW_FINAL_CLOSEOUT_INTERNAL_OPERATION = 'workflow_final_closeout';
-const WORKFLOW_VERIFICATION_APP_NAMES = ['验收', '执行验收', '风险复核'];
-const WORKFLOW_DELIBERATION_APP_NAMES = ['再议', '深度裁决', 'PR把关', '推敲'];
-const CODEX_DELIBERATION_ADVISORY_DEVELOPER_INSTRUCTIONS = [
-  'Treat this session as an advisory deliberation lane.',
-  'Inspect code and context as needed, but do not modify files and do not produce code changes.',
-  'Return judgments, tradeoffs, risks, and recommended next steps only.',
-].join(' ');
+function getWorkflowHandoffKind(session) {
+  const appName = getWorkflowSessionAppName(session);
+  if (isWorkflowVerificationAppName(appName)) return 'risk_review';
+  if (isWorkflowDeliberationAppName(appName)) return 'pr_gate';
+  return 'workflow';
+}
 
-function getWorkflowHandoffLabel(kind) {
-  if (kind === 'risk_review') return '验收转交';
-  if (kind === 'pr_gate') return '再议转交';
-  return '结果转交';
+export function getWorkflowHandoffTypeForSession(session) {
+  return normalizeWorkflowHandoffType('', getWorkflowHandoffKind(session));
 }
 
 function getWorkflowHandoffTypeIntro(handoffType) {
   const normalized = normalizeWorkflowHandoffType(handoffType);
-  if (normalized === 'verification_result') {
-    return '以下是本轮验收的最新结果。';
-  }
-  if (normalized === 'decision_result') {
-    return '以下是本轮再议的最新结论。';
-  }
+  if (normalized === 'verification_result') return '以下是本轮验收的最新结果。';
+  if (normalized === 'decision_result') return '以下是本轮再议的最新结论。';
   return '以下是本会话的最新结论。';
 }
 
-export function normalizeWorkflowCurrentTask(value) {
-  return normalizeSessionDescription(value || '');
+export function buildWorkflowCurrentTaskPromptBlock(session) {
+  const currentTask = normalizeWorkflowCurrentTask(session?.currentTask || session?.workflowCurrentTask || '');
+  if (!currentTask) return '';
+  return `Current task: ${currentTask}`;
+}
+
+export function buildWorkflowStagePromptBlock() {
+  return '';
+}
+
+export function buildWorkflowPendingConclusionsPromptBlock(session) {
+  if (!isWorkflowMainlineSession(session)) {
+    return '';
+  }
+  const entries = normalizeWorkflowPendingConclusions(session?.workflowPendingConclusions || [])
+    .filter((entry) => ['pending', 'needs_decision'].includes(normalizeWorkflowConclusionStatus(entry.status)));
+  if (entries.length === 0) return 'No open workflow handoffs.';
+  const lines = entries.map((entry, index) => {
+    const source = entry.sourceSessionName ? `来源：${entry.sourceSessionName}` : '来源：辅助会话';
+    const status = normalizeWorkflowConclusionStatus(entry.status) === 'needs_decision' ? '状态：待用户决策' : '状态：待处理';
+    const confidence = entry.handoffType === 'decision_result' && entry?.payload?.confidence
+      ? `\n   - 置信度：${entry.payload.confidence}`
+      : '';
+    return `${index + 1}. ${entry.label || getWorkflowHandoffTypeLabel(entry.handoffType)}\n   - ${source}\n   - ${status}${confidence}\n   - 摘要：${entry.summary}`;
+  });
+  return [
+    'Open workflow conclusions requiring attention:',
+    ...lines,
+    'When relevant, explicitly absorb, reject, or defer these conclusions instead of silently ignoring them.',
+  ].join('\n');
+}
+
+export async function updateSessionWorkflowClassification(id, payload = {}) {
+  const {
+    workflowState,
+    workflowPriority,
+  } = payload;
+  const nextWorkflowState = normalizeSessionWorkflowState(workflowState || '');
+  const hasWorkflowState = Object.prototype.hasOwnProperty.call(payload, 'workflowState');
+  const nextWorkflowPriority = normalizeSessionWorkflowPriority(workflowPriority || '');
+  const hasWorkflowPriority = Object.prototype.hasOwnProperty.call(payload, 'workflowPriority');
+  const shouldRefreshUpdatedAt = (hasWorkflowState && !!nextWorkflowState) || (hasWorkflowPriority && !!nextWorkflowPriority);
+  const result = await mutateSessionMeta(id, (session) => {
+    const currentWorkflowState = normalizeSessionWorkflowState(session.workflowState || '');
+    const currentWorkflowPriority = normalizeSessionWorkflowPriority(session.workflowPriority || '');
+    let changed = false;
+
+    if (hasWorkflowState) {
+      if (nextWorkflowState) {
+        if (currentWorkflowState !== nextWorkflowState) {
+          session.workflowState = nextWorkflowState;
+          changed = true;
+        }
+      } else if (currentWorkflowState) {
+        delete session.workflowState;
+        changed = true;
+      }
+    }
+
+    if (hasWorkflowPriority) {
+      if (nextWorkflowPriority) {
+        if (currentWorkflowPriority !== nextWorkflowPriority) {
+          session.workflowPriority = nextWorkflowPriority;
+          changed = true;
+        }
+      } else if (currentWorkflowPriority) {
+        delete session.workflowPriority;
+        changed = true;
+      }
+    }
+
+    if (changed && shouldRefreshUpdatedAt) {
+      session.updatedAt = nowIso();
+    }
+    return changed;
+  });
+
+  if (!result.meta) return null;
+  if (result.changed) {
+    broadcastSessionInvalidation(id);
+    if (shouldExposeSession(result.meta)) {
+      broadcastSessionsInvalidation();
+    }
+  }
+  return enrichSessionMeta(result.meta);
+}
+
+export async function updateSessionWorkflowState(id, workflowState) {
+  return updateSessionWorkflowClassification(id, { workflowState });
+}
+
+export async function updateSessionWorkflowPriority(id, workflowPriority) {
+  return updateSessionWorkflowClassification(id, { workflowPriority });
+}
+
+export async function updateSessionWorkflowCurrentTask(id, workflowCurrentTask) {
+  const nextCurrentTask = normalizeWorkflowCurrentTask(workflowCurrentTask || '');
+  const result = await mutateSessionMeta(id, (session) => {
+    const currentCurrentTask = normalizeWorkflowCurrentTask(session.currentTask || session.workflowCurrentTask || '');
+    if (nextCurrentTask) {
+      if (currentCurrentTask === nextCurrentTask) return false;
+      session.currentTask = nextCurrentTask;
+      delete session.workflowCurrentTask;
+    } else if (currentCurrentTask) {
+      delete session.currentTask;
+      delete session.workflowCurrentTask;
+    } else {
+      return false;
+    }
+    session.updatedAt = nowIso();
+    return true;
+  });
+
+  if (!result.meta) return null;
+  if (result.changed) {
+    broadcastSessionInvalidation(id);
+    if (shouldExposeSession(result.meta)) {
+      broadcastSessionsInvalidation();
+    }
+  }
+  return enrichSessionMeta(result.meta);
+}
+
+async function updateSessionWorkflowSuggestion(id, suggestion) {
+  const nextSuggestion = normalizeWorkflowSuggestion(suggestion || null, nowIso());
+  const result = await mutateSessionMeta(id, (session) => {
+    const currentSuggestion = normalizeWorkflowSuggestion(session.workflowSuggestion || null);
+    if (!nextSuggestion) {
+      if (!currentSuggestion) return false;
+      delete session.workflowSuggestion;
+      session.updatedAt = nowIso();
+      return true;
+    }
+    if (JSON.stringify(currentSuggestion || null) === JSON.stringify(nextSuggestion)) {
+      return false;
+    }
+    session.workflowSuggestion = nextSuggestion;
+    session.updatedAt = nowIso();
+    return true;
+  });
+
+  if (!result.meta) return null;
+  if (result.changed) {
+    broadcastSessionInvalidation(id);
+    if (shouldExposeSession(result.meta)) {
+      broadcastSessionsInvalidation();
+    }
+  }
+  return enrichSessionMeta(result.meta);
+}
+
+function getActiveWorkflowSuggestion(session) {
+  const normalized = normalizeWorkflowSuggestion(session?.workflowSuggestion || null);
+  if (!normalized || normalized.status !== 'pending') return null;
+  return normalized;
+}
+
+async function appendWorkflowPendingConclusion(id, conclusion) {
+  const baseConclusion = normalizeWorkflowPendingConclusion(conclusion);
+  const result = await mutateSessionMeta(id, (session) => {
+    const stamp = nowIso();
+    const current = normalizeWorkflowPendingConclusions(session.workflowPendingConclusions || []);
+    const sameSourceTypeEntries = current.filter((item) => (
+      item.sourceSessionId
+      && item.sourceSessionId === baseConclusion.sourceSessionId
+      && normalizeWorkflowHandoffType(item.handoffType || '', item.handoffKind || '') === baseConclusion.handoffType
+    ));
+
+    let supersedesHandoffId = '';
+    const updated = current.map((item) => {
+      const sameSource = item.sourceSessionId && item.sourceSessionId === baseConclusion.sourceSessionId;
+      const sameType = normalizeWorkflowHandoffType(item.handoffType || '', item.handoffKind || '') === baseConclusion.handoffType;
+      const unresolved = ['pending', 'needs_decision'].includes(normalizeWorkflowConclusionStatus(item.status));
+      if (!(sameSource && sameType && unresolved)) {
+        return item;
+      }
+      supersedesHandoffId = item.id;
+      return {
+        ...item,
+        status: 'superseded',
+        handledAt: stamp,
+      };
+    });
+
+    const nextRound = sameSourceTypeEntries.reduce((maxRound, item) => {
+      const currentRound = Number.isInteger(item?.round) && item.round > 0 ? item.round : 1;
+      return Math.max(maxRound, currentRound);
+    }, 0) + 1;
+
+    const nextConclusion = {
+      ...baseConclusion,
+      round: nextRound,
+      createdAt: stamp,
+      ...(supersedesHandoffId ? { supersedesHandoffId } : {}),
+    };
+
+    updated.push(nextConclusion);
+    session.workflowPendingConclusions = updated.slice(-WORKFLOW_PENDING_LIMIT);
+    session.updatedAt = stamp;
+    return true;
+  });
+
+  if (!result.meta) return null;
+  if (result.changed) {
+    broadcastSessionInvalidation(id);
+    if (shouldExposeSession(result.meta)) {
+      broadcastSessionsInvalidation();
+    }
+  }
+  return enrichSessionMeta(result.meta);
+}
+
+function clearTaggedBlocks(content = '') {
+  return String(content || '')
+    .replace(/<verification_result>[\s\S]*?<\/verification_result>/giu, '')
+    .replace(/<decision_result>[\s\S]*?<\/decision_result>/giu, '')
+    .replace(/<delivery_summary>[\s\S]*?<\/delivery_summary>/giu, '')
+    .trim();
+}
+
+function parseWorkflowVerificationResult(content) {
+  const taggedPayloadText = extractTaggedBlock(content, 'verification_result');
+  const parsedPayload = taggedPayloadText ? parseJsonObjectText(taggedPayloadText) : null;
+  const payload = normalizeWorkflowConclusionPayload(parsedPayload || {}, 'verification_result');
+  const summary = normalizeWorkflowConclusionSummary(
+    (parsedPayload && typeof parsedPayload.summary === 'string' ? parsedPayload.summary : '')
+    || clearTaggedBlocks(content),
+  );
+  return { summary, payload };
+}
+
+function parseWorkflowDecisionResult(content) {
+  const taggedPayloadText = extractTaggedBlock(content, 'decision_result');
+  const parsedPayload = taggedPayloadText ? parseJsonObjectText(taggedPayloadText) : null;
+  const payload = normalizeWorkflowConclusionPayload(parsedPayload || {}, 'decision_result');
+  const summary = normalizeWorkflowConclusionSummary(
+    (parsedPayload && typeof parsedPayload.summary === 'string' ? parsedPayload.summary : '')
+    || (parsedPayload && typeof parsedPayload.recommendation === 'string' ? parsedPayload.recommendation : '')
+    || clearTaggedBlocks(content),
+  );
+  return { summary, payload };
+}
+
+function parseWorkflowDeliverySummary(content) {
+  const taggedPayloadText = extractTaggedBlock(content, 'delivery_summary');
+  const parsedPayload = taggedPayloadText ? parseJsonObjectText(taggedPayloadText) : null;
+  const summary = normalizeWorkflowConclusionSummary(
+    (parsedPayload && typeof parsedPayload.summary === 'string' ? parsedPayload.summary : '')
+    || clearTaggedBlocks(content),
+  );
+  return {
+    summary,
+    payload: {
+      ...(summary ? { summary } : {}),
+      ...(normalizeWorkflowConclusionList(parsedPayload?.completed).length > 0 ? { completed: normalizeWorkflowConclusionList(parsedPayload?.completed) } : {}),
+      ...(normalizeWorkflowConclusionList(parsedPayload?.remainingRisks || parsedPayload?.risks).length > 0 ? { remainingRisks: normalizeWorkflowConclusionList(parsedPayload?.remainingRisks || parsedPayload?.risks) } : {}),
+    },
+  };
+}
+
+function isValidVerificationResultPayload(payload = {}) {
+  const normalized = normalizeWorkflowConclusionPayload(payload, 'verification_result');
+  const recommendation = normalizeWorkflowVerificationRecommendation(normalized.recommendation || '');
+  const confidence = normalizeWorkflowDecisionConfidence(normalized.confidence || '');
+  return !!recommendation && !!confidence;
+}
+
+function isValidDecisionResultPayload(payload = {}) {
+  const normalized = normalizeWorkflowConclusionPayload(payload, 'decision_result');
+  const recommendation = normalizeWorkflowConclusionSummary(normalized.recommendation || '');
+  const confidence = normalizeWorkflowDecisionConfidence(normalized.confidence || '');
+  return !!recommendation && !!confidence;
+}
+
+function detectWorkflowRiskSignalMatches(content) {
+  const haystack = typeof content === 'string' ? content.toLowerCase() : '';
+  if (!haystack) return [];
+  const matches = [];
+  for (const keyword of WORKFLOW_RISK_SIGNAL_KEYWORDS) {
+    const needle = keyword.toLowerCase();
+    if (!needle || !haystack.includes(needle)) continue;
+    matches.push(keyword);
+  }
+  return matches;
+}
+
+function summarizeWorkflowRiskSignals(matches = []) {
+  const unique = [];
+  const seen = new Set();
+  for (const match of Array.isArray(matches) ? matches : []) {
+    const normalized = typeof match === 'string' ? match.trim() : '';
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique.join('、');
+}
+
+export async function detectRunRiskSignals(session, runId) {
+  const sessionId = typeof session?.id === 'string' ? session.id.trim() : '';
+  const normalizedRunId = typeof runId === 'string' ? runId.trim() : '';
+  if (!sessionId || !normalizedRunId) {
+    return { hasRiskSignals: false, matches: [], summary: '', content: '' };
+  }
+  const assistantMessage = await findLatestAssistantMessageForRun(sessionId, normalizedRunId);
+  const content = typeof assistantMessage?.content === 'string' ? assistantMessage.content.trim() : '';
+  const matches = detectWorkflowRiskSignalMatches(content);
+  return {
+    hasRiskSignals: matches.length > 0,
+    matches,
+    summary: summarizeWorkflowRiskSignals(matches),
+    content,
+  };
+}
+
+function shouldWorkflowVerificationRequireHumanReview(payload = {}) {
+  const normalized = normalizeWorkflowConclusionPayload(payload, 'verification_result');
+  return normalizeWorkflowVerificationRecommendation(normalized.recommendation) !== 'ok'
+    || normalizeWorkflowDecisionConfidence(normalized.confidence) !== 'high';
+}
+
+function canWorkflowVerificationAutoAbsorb(payload = {}) {
+  return !shouldWorkflowVerificationRequireHumanReview(payload);
+}
+
+function shouldWorkflowDecisionRequireHumanReview(payload = {}) {
+  const normalized = normalizeWorkflowConclusionPayload(payload, 'decision_result');
+  if (!normalizeWorkflowConclusionSummary(normalized.recommendation || '')) return true;
+  if (normalizeWorkflowDecisionConfidence(normalized.confidence) !== 'high') return true;
+  return normalizeWorkflowConclusionList(normalized.decisionNeeded).length > 0;
+}
+
+function canWorkflowDecisionAutoAbsorb(payload = {}) {
+  return !shouldWorkflowDecisionRequireHumanReview(payload);
+}
+
+function shouldWorkflowConclusionAutoAccept(handoffType, handoffPayload = {}, options = {}) {
+  if (normalizeWorkflowConclusionStatus(options.initialStatus || '') !== 'pending') return false;
+  if (options?.hasRiskSignals === true) return false;
+  const normalizedType = normalizeWorkflowHandoffType(handoffType || '');
+  if (normalizedType === 'verification_result') {
+    return canWorkflowVerificationAutoAbsorb(handoffPayload);
+  }
+  if (normalizedType === 'decision_result') {
+    return canWorkflowDecisionAutoAbsorb(handoffPayload);
+  }
+  return false;
+}
+
+function buildSessionNavigationHref(sessionId) {
+  const normalized = typeof sessionId === 'string' ? sessionId.trim() : '';
+  if (!normalized) return '/?tab=sessions';
+  return `/?session=${encodeURIComponent(normalized)}&tab=sessions`;
+}
+
+function buildWorkflowHandoffMessage({ source, handoffKind, handoffType, conclusion }) {
+  const sourceName = typeof source?.name === 'string' && source.name.trim()
+    ? source.name.trim()
+    : '辅助会话';
+  const sourceLink = `[${sourceName}](${buildSessionNavigationHref(source?.id || '')})`;
+  const resolvedType = normalizeWorkflowHandoffType(handoffType || '', handoffKind || '');
+  return [
+    `### ${getWorkflowHandoffTypeLabel(resolvedType)}`,
+    `- 来源会话：${sourceLink}`,
+    '',
+    getWorkflowHandoffTypeIntro(resolvedType),
+    '',
+    conclusion,
+  ].filter(Boolean).join('\n');
 }
 
 export function extractWorkflowCurrentTaskFromName(name) {
   const normalized = typeof name === 'string' ? name.trim() : '';
   if (!normalized) return '';
-  const stripped = normalized.replace(/^(?:执行|主交付|功能交付)\s*[-·•—:：]\s*/u, '').trim();
+  const stripped = normalized.replace(/^(?:执行|主交付|功能交付|验收|再议)\s*[-·•—:：]\s*/u, '').trim();
   if (!stripped || stripped === normalized) return '';
   return normalizeWorkflowCurrentTask(stripped);
 }
@@ -326,7 +850,7 @@ export function extractWorkflowCurrentTaskFromText(text, currentTask = '') {
   }
 
   const ignoredLinePatterns = [
-    /^(?:这是一个复杂新需求|继续这个任务|执行计划可以|请继续|继续推进实现|现在请你收口成最终交付结果)[。！!.]?$/u,
+    /^(?:继续这个任务|请继续|继续推进实现|现在请你收口成最终交付结果)[。！!.]?$/u,
     /^(?:验收|再议|风险复核|PR把关)给了下面这些结论/u,
     /^(?:这是当前改动范围|这是当前 PR 评论|这是 PR 评论|这是关键 diff)/u,
   ];
@@ -334,647 +858,1189 @@ export function extractWorkflowCurrentTaskFromText(text, currentTask = '') {
     if (ignoredLinePatterns.some((pattern) => pattern.test(line))) continue;
     const candidate = normalizeWorkflowCurrentTask(line);
     if (!candidate || candidate.length < 6) continue;
-    if (normalizedCurrentTask && candidate === normalizedCurrentTask) {
-      return normalizedCurrentTask;
-    }
+    if (normalizedCurrentTask && candidate === normalizedCurrentTask) return normalizedCurrentTask;
     return candidate;
   }
 
   return '';
 }
 
-function normalizeWorkflowContractText(value, maxLength = 320) {
-  if (typeof value !== 'string') return '';
-  const compact = value.trim().replace(/\s+/g, ' ');
-  if (!compact) return '';
-  return compact.length > maxLength ? `${compact.slice(0, maxLength - 1)}…` : compact;
+function getWorkflowSummarySource(session) {
+  return normalizeWorkflowCurrentTask(session?.currentTask || session?.workflowCurrentTask || '')
+    || extractWorkflowCurrentTaskFromName(session?.name || '')
+    || normalizeWorkflowCurrentTask(session?.description || '')
+    || '当前任务';
 }
 
-function extractWorkflowAcceptanceCriteria(text) {
-  const lines = String(text || '')
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
+function buildWorkflowVerificationSessionName(sourceSession) {
+  return `验收 · ${clipCompactionSection(getWorkflowSummarySource(sourceSession), 40)}`;
+}
+
+function buildWorkflowDeliberationSessionName(sourceSession) {
+  return `再议 · ${clipCompactionSection(getWorkflowSummarySource(sourceSession), 40)}`;
+}
+
+export function buildWorkflowDeliverySummaryInstruction() {
+  return [
+    '结尾请追加一个 <delivery_summary> JSON 块，格式如下：',
+    '<delivery_summary>{"summary":"一句话最终交付摘要","completed":["已完成项"],"remainingRisks":["残余风险"]}</delivery_summary>',
+  ].join('\n');
+}
+
+async function buildWorkflowVerificationTemplateContext(sourceSession, runId = '') {
+  const assistantMessage = runId
+    ? await findLatestAssistantMessageForRun(sourceSession.id, runId)
+    : findLatestAssistantConclusion(await loadHistory(sourceSession.id, { includeBodies: true }));
+  return [
+    `主线任务：${getWorkflowSummarySource(sourceSession)}`,
+    sourceSession?.name ? `主线会话：${sourceSession.name}` : '',
+    sourceSession?.description ? `上下文摘要：${sourceSession.description}` : '',
+    assistantMessage?.content ? `最近输出：\n${clipCompactionSection(clearTaggedBlocks(assistantMessage.content), 2000)}` : '',
+    '请只做独立验收，不要修改代码。',
+  ].filter(Boolean).join('\n\n');
+}
+
+async function buildWorkflowDeliberationTemplateContext(sourceSession, runId = '') {
+  const assistantMessage = runId
+    ? await findLatestAssistantMessageForRun(sourceSession.id, runId)
+    : findLatestAssistantConclusion(await loadHistory(sourceSession.id, { includeBodies: true }));
+  const openConclusions = normalizeWorkflowPendingConclusions(sourceSession?.workflowPendingConclusions || [])
+    .filter((entry) => ['pending', 'needs_decision'].includes(normalizeWorkflowConclusionStatus(entry.status)))
+    .map((entry) => `- ${entry.label}: ${entry.summary}`)
+    .join('\n');
+  return [
+    `主线任务：${getWorkflowSummarySource(sourceSession)}`,
+    sourceSession?.name ? `主线会话：${sourceSession.name}` : '',
+    sourceSession?.description ? `上下文摘要：${sourceSession.description}` : '',
+    assistantMessage?.content ? `最近输出：\n${clipCompactionSection(clearTaggedBlocks(assistantMessage.content), 2000)}` : '',
+    openConclusions ? `待处理结论：\n${openConclusions}` : '',
+    '请只做方案判断和 tradeoff 分析，不要修改代码。',
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildWorkflowVerificationAutoStartMessage(templateContext = '') {
+  return [
+    '请基于已附带的自动验收上下文，直接开始本轮独立验收。',
+    templateContext ? `自动验收上下文：\n${templateContext}` : '',
+    '先说明你会如何验证，再给出最终结论。',
+    '如果缺乏验证条件，请明确列出未验证项，不要假设通过。',
+    '结尾请追加一个 <verification_result> JSON 块，格式如下：',
+    '<verification_result>{"summary":"一句话结论","recommendation":"ok|needs_fix|needs_more_validation","confidence":"high|medium|low","validated":["已验证项"],"unverified":["未验证项"],"findings":["发现的问题"],"evidence":["验证证据"]}</verification_result>',
+  ].join('\n\n');
+}
+
+function buildWorkflowDecisionAutoStartMessage(templateContext = '') {
+  return [
+    '请基于已附带的自动再议上下文，直接开始本轮独立再议。',
+    templateContext ? `自动再议上下文：\n${templateContext}` : '',
+    '先给出你的判断框架，再输出最终裁决。',
+    '不要修改代码；只产出判断、建议、tradeoff 和下一步执行方向。',
+    '结尾请追加一个 <decision_result> JSON 块，格式如下：',
+    '<decision_result>{"summary":"一句话裁决","recommendation":"建议采用的方向","confidence":"high|medium|low","rejectedOptions":["放弃的方案"],"tradeoffs":["关键取舍"],"decisionNeeded":["仍需用户确认的点"],"parallelTasks":[{"title":"并行子任务","task":"子任务描述","boundary":"边界","repo":"可选仓库"}]}</decision_result>',
+  ].join('\n\n');
+}
+
+function buildWorkflowVerificationAutoAbsorbPrompt(handoff = {}, sourceSession = null) {
+  const payload = handoff?.payload && typeof handoff.payload === 'object' ? handoff.payload : {};
+  return [
+    '验收结果已自动回灌，请在当前主线内吸收这条高置信度验收结论。',
+    sourceSession?.name ? `来源会话：${sourceSession.name}` : '',
+    handoff?.summary ? `验收结论摘要：${handoff.summary}` : '',
+    Array.isArray(payload.validated) && payload.validated.length > 0
+      ? `已验证项：\n${payload.validated.map((item) => `- ${item}`).join('\n')}`
+      : '',
+    Array.isArray(payload.evidence) && payload.evidence.length > 0
+      ? `验证证据：\n${payload.evidence.map((item) => `- ${item}`).join('\n')}`
+      : '',
+    '请明确说明：1. 已吸收的验收结论；2. 是否还有残余风险；3. 如果任务已完成，请直接追加最终交付摘要。',
+    buildWorkflowDeliverySummaryInstruction(),
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildWorkflowDecisionAutoAbsorbPrompt(handoff = {}, sourceSession = null) {
+  const payload = handoff?.payload && typeof handoff.payload === 'object' ? handoff.payload : {};
+  const parallelTasks = Array.isArray(payload.parallelTasks) ? payload.parallelTasks : [];
+  return [
+    '再议结论已自动回灌，请在当前主线内吸收这条裁决结论，更新你的执行计划，并按新方向继续推进。',
+    sourceSession?.name ? `来源会话：${sourceSession.name}` : '',
+    handoff?.summary ? `再议结论摘要：${handoff.summary}` : '',
+    payload?.recommendation ? `建议方向：${payload.recommendation}` : '',
+    Array.isArray(payload.tradeoffs) && payload.tradeoffs.length > 0
+      ? `关键取舍：\n${payload.tradeoffs.map((item) => `- ${item}`).join('\n')}`
+      : '',
+    Array.isArray(payload.decisionNeeded) && payload.decisionNeeded.length > 0
+      ? `仍需确认：\n${payload.decisionNeeded.map((item) => `- ${item}`).join('\n')}`
+      : '',
+    parallelTasks.length > 0
+      ? `建议的并行子线：\n${parallelTasks.map((task, index) => `- ${task?.title || `并行子任务 ${index + 1}`}${task?.task ? `：${task.task}` : ''}`).join('\n')}`
+      : '',
+    '请明确说明：1. 采纳/拒绝了哪些裁决点；2. 更新后的执行计划；3. 如果任务已完成，请直接追加最终交付摘要。',
+    buildWorkflowDeliverySummaryInstruction(),
+  ].filter(Boolean).join('\n\n');
+}
+
+const WORKFLOW_SUBSTAGE_EXECUTORS = Object.freeze({
+  verify: {
+    role: 'verify',
+    defaultAppName: '验收',
+    defaultEffort: 'high',
+    appNames: WORKFLOW_VERIFICATION_APP_NAMES,
+    suggestionType: 'suggest_verification',
+    handoffType: 'verification_result',
+    templateContextName: '自动验收上下文',
+    buildSessionName: buildWorkflowVerificationSessionName,
+    buildTemplateContext: buildWorkflowVerificationTemplateContext,
+    buildAutoStartMessage: buildWorkflowVerificationAutoStartMessage,
+    parseResult: parseWorkflowVerificationResult,
+    isValidPayload: isValidVerificationResultPayload,
+    buildAutoAbsorbPrompt: buildWorkflowVerificationAutoAbsorbPrompt,
+    matchesSession: isWorkflowVerificationSession,
+    autoStartRequestIdPrefix: 'workflow-verify-auto',
+  },
+  deliberate: {
+    role: 'deliberate',
+    defaultAppName: '再议',
+    defaultEffort: 'high',
+    appNames: WORKFLOW_DELIBERATION_APP_NAMES,
+    suggestionType: 'suggest_decision',
+    handoffType: 'decision_result',
+    templateContextName: '自动再议上下文',
+    buildSessionName: buildWorkflowDeliberationSessionName,
+    buildTemplateContext: buildWorkflowDeliberationTemplateContext,
+    buildAutoStartMessage: buildWorkflowDecisionAutoStartMessage,
+    parseResult: parseWorkflowDecisionResult,
+    isValidPayload: isValidDecisionResultPayload,
+    buildAutoAbsorbPrompt: buildWorkflowDecisionAutoAbsorbPrompt,
+    matchesSession: isWorkflowDeliberationSession,
+    autoStartRequestIdPrefix: 'workflow-deliberate-auto',
+  },
+});
+
+export function getWorkflowSubstageExecutorByRole(role) {
+  const normalizedRole = typeof role === 'string' ? role.trim().toLowerCase() : '';
+  return WORKFLOW_SUBSTAGE_EXECUTORS[normalizedRole] || null;
+}
+
+export function getWorkflowSubstageExecutorBySuggestionType(type) {
+  const normalizedType = typeof type === 'string' ? type.trim().toLowerCase() : '';
+  return Object.values(WORKFLOW_SUBSTAGE_EXECUTORS).find((executor) => executor.suggestionType === normalizedType) || null;
+}
+
+export function getWorkflowSubstageExecutorByHandoffType(handoffType) {
+  const normalizedType = normalizeWorkflowHandoffType(handoffType || '');
+  return Object.values(WORKFLOW_SUBSTAGE_EXECUTORS).find((executor) => executor.handoffType === normalizedType) || null;
+}
+
+export function getWorkflowSubstageExecutorForSession(session) {
+  if (isWorkflowVerificationSession(session)) return WORKFLOW_SUBSTAGE_EXECUTORS.verify;
+  if (isWorkflowDeliberationSession(session)) return WORKFLOW_SUBSTAGE_EXECUTORS.deliberate;
+  return null;
+}
+
+async function findWorkflowAppByNames(names = []) {
+  const normalizedNames = (Array.isArray(names) ? names : [])
+    .map((name) => normalizeSessionAppName(name || ''))
     .filter(Boolean);
-  const accepted = [];
-  for (const line of lines) {
-    const match = line.match(/^(?:成功标准|验收标准|验收条件|Acceptance Criteria)\s*[:：]\s*(.+)$/iu);
-    if (!match) continue;
-    const entries = String(match[1] || '')
-      .split(/[；;]/u)
-      .map((entry) => normalizeWorkflowContractText(entry, 180))
-      .filter(Boolean);
-    if (entries.length > 0) {
-      accepted.push(...entries);
+  if (normalizedNames.length === 0) return null;
+  const apps = await listApps();
+  return apps.find((app) => normalizedNames.includes(normalizeSessionAppName(app?.name || ''))) || null;
+}
+
+async function resolveWorkflowSubstageSessionDefaults(executor, sourceSession, run = null) {
+  const app = await findWorkflowAppByNames(executor?.appNames || []);
+  const currentTask = getWorkflowSummarySource(sourceSession);
+  const effectiveTool = typeof run?.tool === 'string' && run.tool.trim()
+    ? run.tool.trim()
+    : (typeof sourceSession?.tool === 'string' ? sourceSession.tool.trim() : (app?.tool || 'codex'));
+  const effectiveModel = typeof run?.model === 'string' && run.model.trim()
+    ? run.model.trim()
+    : (typeof sourceSession?.model === 'string' ? sourceSession.model.trim() : (typeof app?.model === 'string' ? app.model.trim() : ''));
+  const effectiveEffort = typeof app?.effort === 'string' && app.effort.trim()
+    ? app.effort.trim()
+    : (typeof sourceSession?.effort === 'string' && sourceSession.effort.trim() ? sourceSession.effort.trim() : executor?.defaultEffort || 'high');
+  const effectiveThinking = app?.thinking === true || sourceSession?.thinking === true;
+  return {
+    name: typeof executor?.buildSessionName === 'function' ? executor.buildSessionName(sourceSession) : `${executor?.defaultAppName || '辅助'} · ${clipCompactionSection(currentTask, 40)}`,
+    appId: app?.id || '',
+    appName: normalizeSessionAppName(app?.name || executor?.defaultAppName || ''),
+    systemPrompt: typeof app?.systemPrompt === 'string' ? app.systemPrompt : '',
+    tool: effectiveTool,
+    model: effectiveModel,
+    effort: effectiveEffort,
+    thinking: effectiveThinking,
+    group: normalizeSessionGroup(sourceSession?.group || ''),
+    description: currentTask,
+    sourceId: normalizeAppId(sourceSession?.sourceId || ''),
+    sourceName: typeof sourceSession?.sourceName === 'string' ? sourceSession.sourceName.trim() : '',
+    userId: typeof sourceSession?.userId === 'string' ? sourceSession.userId.trim() : '',
+    userName: typeof sourceSession?.userName === 'string' ? sourceSession.userName.trim() : '',
+    rootSessionId: sourceSession?.rootSessionId || sourceSession?.id || '',
+  };
+}
+
+async function findReusableWorkflowSubstageSession(sourceSession, sessionDefaults, executor) {
+  const rootSessionId = sourceSession?.rootSessionId || sourceSession?.id || '';
+  const metas = await loadSessionsMeta();
+  const candidates = metas
+    .filter((meta) => (
+      meta
+      && !meta.archived
+      && !meta.visitorId
+      && !meta.activeRunId
+      && meta.id !== sourceSession.id
+      && normalizeWorktreeCoordinationText(meta.handoffTargetSessionId || '') === sourceSession.id
+      && executor?.matchesSession?.(meta)
+      && (!rootSessionId || (meta.rootSessionId || meta.id) === rootSessionId)
+    ))
+    .sort((left, right) => Date.parse(right?.updatedAt || 0) - Date.parse(left?.updatedAt || 0));
+  if (candidates.length === 0) return null;
+  return getSession(candidates[0].id) || candidates[0];
+}
+
+async function prepareWorkflowSessionFreshThread(sessionId) {
+  return (await mutateSessionMeta(sessionId, (session) => {
+    let changed = false;
+    if (session.codexResumeMode !== 'transcript_only') {
+      session.codexResumeMode = 'transcript_only';
+      changed = true;
+    }
+    if (session.providerResumeId) {
+      delete session.providerResumeId;
+      changed = true;
+    }
+    if (session.claudeSessionId) {
+      delete session.claudeSessionId;
+      changed = true;
+    }
+    if (session.codexThreadId) {
+      delete session.codexThreadId;
+      changed = true;
+    }
+    if (changed) {
+      session.updatedAt = nowIso();
+    }
+    return changed;
+  })).meta;
+}
+
+async function attachWorkflowSubstageTemplateContext(executor, sessionId, sourceSession, runId = '') {
+  const templateContext = await executor.buildTemplateContext(sourceSession, runId);
+  if (!templateContext) return '';
+  await appendEvent(sessionId, {
+    type: 'template_context',
+    templateName: executor.templateContextName || '自动辅助上下文',
+    content: templateContext,
+    sourceSessionId: sourceSession.id,
+    sourceSessionName: sourceSession.name || '',
+    sourceSessionUpdatedAt: sourceSession.updatedAt || sourceSession.created || nowIso(),
+    updatedAt: nowIso(),
+    timestamp: Date.now(),
+  });
+  await clearForkContext(sessionId);
+  return templateContext;
+}
+
+async function ensureWorkflowSubstageSession(sourceSession, sessionDefaults, executor) {
+  const reusedSession = await findReusableWorkflowSubstageSession(sourceSession, sessionDefaults, executor);
+  if (reusedSession) {
+    await prepareWorkflowSessionFreshThread(reusedSession.id);
+    const refreshed = await updateSessionHandoffTarget(reusedSession.id, sourceSession.id)
+      || await getSession(reusedSession.id)
+      || reusedSession;
+    return { session: refreshed, reused: true };
+  }
+
+  const createdSession = await createSession(
+    sourceSession.folder,
+    sessionDefaults.tool,
+    sessionDefaults.name,
+    {
+      appId: sessionDefaults.appId,
+      appName: sessionDefaults.appName,
+      systemPrompt: sessionDefaults.systemPrompt,
+      model: sessionDefaults.model,
+      effort: sessionDefaults.effort,
+      thinking: sessionDefaults.thinking,
+      group: sessionDefaults.group,
+      description: sessionDefaults.description,
+      sourceId: sessionDefaults.sourceId,
+      sourceName: sessionDefaults.sourceName,
+      userId: sessionDefaults.userId,
+      userName: sessionDefaults.userName,
+      rootSessionId: sessionDefaults.rootSessionId,
+    },
+  );
+  if (!createdSession) {
+    throw new Error('Unable to create workflow substage session');
+  }
+  const updated = await updateSessionHandoffTarget(createdSession.id, sourceSession.id)
+    || await getSession(createdSession.id)
+    || createdSession;
+  return { session: updated, reused: false };
+}
+
+async function acceptWorkflowSuggestionInternal(sessionId, sourceSession, triggeringRun, suggestionOrType = null) {
+  const run = triggeringRun || null;
+  const executor = typeof suggestionOrType === 'string' && suggestionOrType
+    ? (getWorkflowSubstageExecutorBySuggestionType(suggestionOrType) || getWorkflowSubstageExecutorByRole(suggestionOrType))
+    : null;
+  const resolvedExecutor = executor
+    || getWorkflowSubstageExecutorBySuggestionType(sourceSession?.workflowSuggestion?.type || '')
+    || null;
+  if (!resolvedExecutor) {
+    throw new Error('Unsupported workflow suggestion');
+  }
+
+  const sessionDefaults = await resolveWorkflowSubstageSessionDefaults(resolvedExecutor, sourceSession, run);
+  const ensured = await ensureWorkflowSubstageSession(sourceSession, sessionDefaults, resolvedExecutor);
+  const auxiliarySession = ensured?.session;
+  if (!auxiliarySession) return null;
+  let resolvedAuxiliarySession = auxiliarySession;
+  let launchedRun = null;
+
+  let templateContext = '';
+  try {
+    templateContext = await attachWorkflowSubstageTemplateContext(
+      resolvedExecutor,
+      auxiliarySession.id,
+      sourceSession,
+      run?.id || '',
+    );
+  } catch (error) {
+    console.warn(`[workflow] Failed to attach ${resolvedExecutor.role} context: ${error?.message}`);
+  }
+
+  try {
+    const started = await submitHttpMessage(auxiliarySession.id, resolvedExecutor.buildAutoStartMessage(templateContext), [], {
+      requestId: createInternalRequestId(resolvedExecutor.autoStartRequestIdPrefix || 'workflow-substage-auto'),
+      model: sessionDefaults.model || undefined,
+      effort: sessionDefaults.effort || undefined,
+      thinking: sessionDefaults.thinking === true,
+      freshThread: true,
+      skipSessionContinuation: true,
+      recordUserMessage: false,
+    });
+    resolvedAuxiliarySession = started.session || await getSession(auxiliarySession.id) || resolvedAuxiliarySession;
+    launchedRun = started.run || null;
+  } catch (error) {
+    console.warn(`[workflow] Failed to auto-start ${resolvedExecutor.role}: ${error?.message}`);
+  }
+
+  await updateSessionWorkflowSuggestion(sessionId, null);
+  return {
+    session: resolvedAuxiliarySession,
+    run: launchedRun,
+    executor: resolvedExecutor,
+  };
+}
+
+export async function dismissWorkflowSuggestion(sessionId) {
+  const session = await getSession(sessionId);
+  if (!session) return null;
+  if (!getActiveWorkflowSuggestion(session)) {
+    throw new Error('No active workflow suggestion');
+  }
+  return updateSessionWorkflowSuggestion(sessionId, null);
+}
+
+export async function acceptWorkflowSuggestion(sessionId) {
+  const sourceSession = await getSession(sessionId);
+  if (!sourceSession) return null;
+  if (sourceSession.visitorId) return null;
+
+  const suggestion = getActiveWorkflowSuggestion(sourceSession);
+  if (!suggestion) {
+    throw new Error('No active workflow suggestion');
+  }
+
+  const run = suggestion.runId ? await getRun(suggestion.runId) : null;
+  const prepared = await acceptWorkflowSuggestionInternal(sessionId, sourceSession, run, suggestion.type);
+  const auxiliarySession = prepared?.session || null;
+  if (!auxiliarySession) {
+    throw new Error('Unable to prepare workflow substage session');
+  }
+  const refreshedSource = await updateSessionWorkflowSuggestion(sourceSession.id, null)
+    || await getSession(sourceSession.id)
+    || sourceSession;
+  const resolvedAuxiliarySession = await getSession(auxiliarySession.id) || auxiliarySession;
+  return {
+    session: resolvedAuxiliarySession,
+    sourceSession: refreshedSource,
+    suggestion,
+    run: prepared?.run || null,
+  };
+}
+
+export function shouldAutoAdvanceWorkflowStage() {
+  return false;
+}
+
+export async function maybeEmitWorkflowSuggestion(sessionId, session, run) {
+  if (!session?.id || !run?.id) return null;
+  if (session.archived || isInternalSession(session)) return null;
+  if (!isWorkflowMainlineSession(session)) return updateSessionWorkflowSuggestion(sessionId, null);
+  if (run.state !== 'completed') return null;
+  if (hasOpenWorkflowConclusions(session)) return updateSessionWorkflowSuggestion(sessionId, null);
+
+  const riskSignals = await detectRunRiskSignals(session, run.id);
+  const nextStep = suggestNextStep({
+    session,
+    run,
+    isMainlineSession: true,
+    hasRiskSignals: riskSignals.hasRiskSignals,
+    riskSummary: riskSignals.summary,
+  });
+  if (nextStep.action !== 'suggest_verification' && nextStep.action !== 'suggest_decision') {
+    return updateSessionWorkflowSuggestion(sessionId, null);
+  }
+
+  const currentSuggestion = getActiveWorkflowSuggestion(session);
+  if (currentSuggestion?.type === nextStep.action && currentSuggestion.runId === run.id) {
+    return session;
+  }
+
+  return updateSessionWorkflowSuggestion(sessionId, {
+    type: nextStep.action,
+    status: 'pending',
+    runId: run.id,
+    createdAt: nowIso(),
+    reason: nextStep.reason || '',
+  });
+}
+
+export async function startWorkflowOnSession(sessionId, options = {}) {
+  const session = await getSession(sessionId);
+  if (!session) return null;
+  if (session.visitorId) return null;
+  if (session.archived) {
+    throw new Error('Archived sessions cannot start a workflow');
+  }
+  if (isSessionRunning(session)) {
+    throw new Error('Session is running');
+  }
+
+  const requestedAppId = typeof options.appId === 'string' ? options.appId.trim() : '';
+  const requestedAppNames = Array.isArray(options.appNames) && options.appNames.length > 0
+    ? options.appNames
+    : (isWorkflowDeliberationSession(session) ? WORKFLOW_DELIBERATION_APP_NAMES : WORKFLOW_MAINLINE_APP_NAMES);
+  const app = requestedAppId
+    ? await getApp(requestedAppId)
+    : await findWorkflowAppByNames(requestedAppNames);
+  const fallbackTemplateAppName = requestedAppNames
+    .map((name) => normalizeSessionAppName(name || ''))
+    .find(Boolean);
+  const kickoffMessage = typeof options.kickoffMessage === 'string' ? options.kickoffMessage.trim() : '';
+  const nextCurrentTask = normalizeWorkflowCurrentTask(
+    options.currentTask
+    || options.workflowCurrentTask
+    || options?.input?.goal
+    || session.currentTask
+    || session.workflowCurrentTask
+    || session.description
+    || '',
+  );
+  const shouldAdoptTemplateRuntime = Number(session?.messageCount || 0) === 0;
+  const stamp = nowIso();
+
+  const result = await mutateSessionMeta(sessionId, (draft) => {
+    let changed = false;
+    if (nextCurrentTask) {
+      const currentTask = normalizeWorkflowCurrentTask(draft.currentTask || draft.workflowCurrentTask || '');
+      if (currentTask !== nextCurrentTask) {
+        draft.currentTask = nextCurrentTask;
+        delete draft.workflowCurrentTask;
+        changed = true;
+      }
+      if (!normalizeSessionDescription(draft.description || '')) {
+        draft.description = nextCurrentTask;
+        changed = true;
+      }
+    }
+    if (app?.id && draft.templateAppId !== app.id) {
+      draft.templateAppId = app.id;
+      changed = true;
+    }
+    const nextAppName = normalizeSessionAppName(app?.name || '') || fallbackTemplateAppName;
+    if (nextAppName && draft.appName !== nextAppName) {
+      draft.appName = nextAppName;
+      changed = true;
+    }
+    if (shouldAdoptTemplateRuntime) {
+      const nextTool = typeof app?.tool === 'string' ? app.tool.trim() : '';
+      if (nextTool && draft.tool !== nextTool) {
+        draft.tool = nextTool;
+        changed = true;
+      }
+      const nextModel = typeof app?.model === 'string' ? app.model.trim() : '';
+      if (nextModel && draft.model !== nextModel) {
+        draft.model = nextModel;
+        changed = true;
+      }
+      const nextEffort = typeof app?.effort === 'string' ? app.effort.trim() : '';
+      if (nextEffort && draft.effort !== nextEffort) {
+        draft.effort = nextEffort;
+        changed = true;
+      }
+      if (typeof app?.systemPrompt === 'string' && app.systemPrompt && draft.systemPrompt !== app.systemPrompt) {
+        draft.systemPrompt = app.systemPrompt;
+        changed = true;
+      }
+      if (app?.thinking === true && draft.thinking !== true) {
+        draft.thinking = true;
+        changed = true;
+      } else if (app?.thinking !== true && draft.thinking === true) {
+        delete draft.thinking;
+        changed = true;
+      }
+    }
+    if (changed) {
+      draft.updatedAt = stamp;
+    }
+    return changed;
+  });
+
+  if (result.changed) {
+    broadcastSessionInvalidation(sessionId);
+    if (shouldExposeSession(result.meta)) {
+      broadcastSessionsInvalidation();
     }
   }
-  return [...new Set(accepted)].slice(0, 8);
+
+  if (app?.templateContext?.content) {
+    await appendEvent(sessionId, {
+      type: 'template_context',
+      templateName: app.name || fallbackTemplateAppName || 'Workflow Template',
+      appId: app.id,
+      content: app.templateContext.content,
+      updatedAt: nowIso(),
+      timestamp: Date.now(),
+    });
+    await clearForkContext(sessionId);
+  }
+
+  let updatedSession = await getSession(sessionId) || session;
+  let launchedRun = null;
+  if (kickoffMessage) {
+    const kickoffRequestId = typeof options.requestId === 'string' ? options.requestId.trim() : '';
+    const started = await submitHttpMessage(sessionId, kickoffMessage, [], {
+      requestId: kickoffRequestId || createInternalRequestId('workflow-start'),
+      tool: typeof options.tool === 'string' && options.tool.trim()
+        ? options.tool.trim()
+        : undefined,
+      model: typeof options.model === 'string' && options.model.trim()
+        ? options.model.trim()
+        : (typeof updatedSession?.model === 'string' && updatedSession.model.trim() ? updatedSession.model.trim() : undefined),
+      effort: typeof options.effort === 'string' && options.effort.trim()
+        ? options.effort.trim()
+        : (typeof updatedSession?.effort === 'string' && updatedSession.effort.trim() ? updatedSession.effort.trim() : undefined),
+      thinking: Object.prototype.hasOwnProperty.call(options, 'thinking')
+        ? options.thinking === true
+        : updatedSession?.thinking === true,
+      recordedUserText: typeof options.recordedUserText === 'string' && options.recordedUserText.trim()
+        ? options.recordedUserText.trim()
+        : kickoffMessage,
+      recordUserMessage: options.recordUserMessage !== false,
+    });
+    updatedSession = started.session || await getSession(sessionId) || updatedSession;
+    launchedRun = started.run || null;
+  }
+
+  return {
+    session: await getSession(sessionId) || updatedSession,
+    run: launchedRun,
+  };
 }
 
-function mapWorkflowRoleToTaskStage(role) {
-  const normalized = typeof role === 'string' ? role.trim().toLowerCase() : '';
-  if (normalized === 'deliberate') return 'planning';
-  if (normalized === 'verify') return 'reviewing';
-  if (normalized === 'execute') return 'executing';
-  return 'pending';
+function normalizeWorkflowTaskText(value) {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
-export function buildWorkflowRoutingSignalText(text = '', input = {}) {
-  return [
-    text,
-    input?.goal,
-    input?.constraints,
-    input?.progress,
-    input?.concern,
-    input?.preference,
-  ]
-    .filter((value) => typeof value === 'string' && value.trim())
-    .join('\n')
+function extractParallelTasksFromConclusionText(value) {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  const match = /<parallel_tasks>([\s\S]*?)<\/parallel_tasks>/iu.exec(value);
+  if (!match?.[1]) return [];
+  let raw = match[1].trim();
+  raw = raw.replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '').trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    const tasks = Array.isArray(parsed)
+      ? parsed
+      : (Array.isArray(parsed?.parallelTasks)
+        ? parsed.parallelTasks
+        : (Array.isArray(parsed?.tasks) ? parsed.tasks : []));
+    return normalizeWorkflowParallelTasks(tasks);
+  } catch {
+    return [];
+  }
+}
+
+function stripParallelTasksFromConclusionText(value) {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/<parallel_tasks>[\s\S]*?<\/parallel_tasks>/giu, '')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
-export function normalizeWorkflowLaunchMode(value) {
-  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (['quick_execute', 'standard_delivery', 'careful_deliberation', 'parallel_split'].includes(normalized)) {
-    return normalized;
+function buildParallelTasksConclusionSummary(tasks = []) {
+  const normalized = normalizeWorkflowParallelTasks(tasks);
+  if (normalized.length === 0) return '';
+  const titles = normalized.map((task) => task.title).filter(Boolean).slice(0, 3);
+  return `建议按 ${normalized.length} 条并行执行线推进${titles.length > 0 ? `：${titles.join('、')}` : ''}`;
+}
+
+function resolveWorkflowHandoffInitialStatus(handoffType, handoffPayload = {}) {
+  const normalizedType = normalizeWorkflowHandoffType(handoffType || '');
+  if (normalizedType === 'verification_result' && shouldWorkflowVerificationRequireHumanReview(handoffPayload)) {
+    return 'needs_decision';
   }
-  return '';
-}
-
-export function resolveWorkflowLaunchDecision({
-  requestedMode = '',
-  gatePolicy = 'low_confidence_only',
-  signalText = '',
-  routeContext = {},
-  classified = null,
-} = {}) {
-  const normalizedMode = normalizeWorkflowLaunchMode(requestedMode);
-  const normalizedGatePolicy = normalizeGatePolicy(gatePolicy);
-  if (normalizedMode) {
-    return {
-      mode: normalizedMode,
-      gatePolicy: normalizedGatePolicy,
-      autoRouted: false,
-      confidence: '',
-      reason: '',
-    };
+  if (normalizedType === 'decision_result' && shouldWorkflowDecisionRequireHumanReview(handoffPayload)) {
+    return 'needs_decision';
   }
-  const resolvedClassification = classified && typeof classified === 'object'
-    ? classified
-    : classifyTaskComplexity(signalText || '', routeContext && typeof routeContext === 'object' ? routeContext : {});
-  return {
-    mode: normalizeWorkflowLaunchMode(resolvedClassification.mode || '') || 'quick_execute',
-    gatePolicy: normalizedGatePolicy,
-    autoRouted: true,
-    confidence: typeof resolvedClassification.confidence === 'string' ? resolvedClassification.confidence : '',
-    reason: normalizeWorkflowContractText(resolvedClassification.reason || '', 200),
-  };
+  return 'pending';
 }
 
-function buildWorkflowTaskContract({
-  existingTask = null,
-  session = null,
-  input = {},
-  workflowCurrentTask = '',
-  sourceText = '',
-  definition = null,
-  route = null,
-  now = nowIso(),
-} = {}) {
-  const currentStage = definition?.stages?.[definition.currentStageIndex] || definition?.stages?.[0] || null;
-  const project = normalizeWorkflowContractText(
-    input?.project
-    || session?.folder
-    || '',
-    240,
-  );
-  const constraints = normalizeWorkflowContractText(input?.constraints || '', 240);
-  return {
-    id: typeof existingTask?.id === 'string' && existingTask.id.trim()
-      ? existingTask.id.trim()
-      : `task_${generateId()}`,
-    parentId: typeof existingTask?.parentId === 'string' ? existingTask.parentId.trim() : '',
-    goal: normalizeWorkflowCurrentTask(workflowCurrentTask || sourceText || session?.description || ''),
-    acceptanceCriteria: extractWorkflowAcceptanceCriteria(sourceText),
-    scopeBoundary: {
-      ...(project ? { project } : {}),
-      ...(constraints ? { constraints } : {}),
-    },
-    dependsOn: Array.isArray(existingTask?.dependsOn)
-      ? existingTask.dependsOn.filter((entry) => typeof entry === 'string' && entry.trim())
-      : [],
-    stage: mapWorkflowRoleToTaskStage(currentStage?.role || ''),
-    assignedRole: typeof currentStage?.role === 'string' ? currentStage.role : '',
-    boundModel: normalizeWorkflowContractText(session?.model || '', 120),
-    worktreePath: normalizeWorkflowContractText(session?.worktree?.path || '', 240),
-    rollbackRef: normalizeWorkflowContractText(session?.worktree?.branch || '', 160),
-    budgetConsumed: {
-      tokenEquivalent: Number.isFinite(existingTask?.budgetConsumed?.tokenEquivalent)
-        ? Number(existingTask.budgetConsumed.tokenEquivalent)
-        : 0,
-      wallTimeMs: Number.isFinite(existingTask?.budgetConsumed?.wallTimeMs)
-        ? Number(existingTask.budgetConsumed.wallTimeMs)
-        : 0,
-      apiCalls: Number.isFinite(existingTask?.budgetConsumed?.apiCalls)
-        ? Number(existingTask.budgetConsumed.apiCalls)
-        : 0,
-    },
-    budgetCeiling: existingTask?.budgetCeiling ?? null,
-    createdAt: typeof existingTask?.createdAt === 'string' && existingTask.createdAt
-      ? existingTask.createdAt
-      : now,
-    updatedAt: now,
-    route: {
-      mode: typeof route?.mode === 'string' ? route.mode : '',
-      autoRouted: route?.autoRouted === true,
-      confidence: typeof route?.confidence === 'string' ? route.confidence : '',
-      reason: typeof route?.reason === 'string' ? route.reason : '',
-    },
-  };
+async function persistLastWorkflowHandoffRunId(sessionId, runId = '') {
+  const normalizedRunId = typeof runId === 'string' ? runId.trim() : '';
+  if (!normalizedRunId) return null;
+  return (await mutateSessionMeta(sessionId, (session) => {
+    if (session.lastWorkflowHandoffRunId === normalizedRunId) return false;
+    session.lastWorkflowHandoffRunId = normalizedRunId;
+    session.updatedAt = nowIso();
+    return true;
+  })).meta;
 }
 
-async function appendWorkflowMetric(sessionId, event, payload = {}) {
-  await appendEvent(sessionId, {
-    type: 'workflow_metric',
-    event,
-    timestamp: Date.now(),
-    ...payload,
-  });
+async function setPendingWorkflowAutoAbsorb(sessionId, value = null) {
+  return (await mutateSessionMeta(sessionId, (session) => {
+    const nextValue = value && typeof value === 'object' ? {
+      sourceSessionId: typeof value.sourceSessionId === 'string' ? value.sourceSessionId.trim() : '',
+      conclusionId: typeof value.conclusionId === 'string' ? value.conclusionId.trim() : '',
+      runId: typeof value.runId === 'string' ? value.runId.trim() : '',
+      handoffType: normalizeWorkflowHandoffType(value.handoffType || ''),
+      summary: normalizeWorkflowConclusionSummary(value.summary || ''),
+    } : null;
+    const currentValue = session.pendingWorkflowAutoAbsorb && typeof session.pendingWorkflowAutoAbsorb === 'object'
+      ? session.pendingWorkflowAutoAbsorb
+      : null;
+    if (JSON.stringify(currentValue) === JSON.stringify(nextValue)) return false;
+    if (nextValue && nextValue.sourceSessionId && nextValue.conclusionId && nextValue.runId) {
+      session.pendingWorkflowAutoAbsorb = nextValue;
+    } else if (session.pendingWorkflowAutoAbsorb) {
+      delete session.pendingWorkflowAutoAbsorb;
+    } else {
+      return false;
+    }
+    session.updatedAt = nowIso();
+    return true;
+  })).meta;
 }
 
-function getWorkflowMetricStageSnapshot(definition, index) {
-  if (!definition || !Number.isInteger(index) || index < 0) return null;
-  const stage = definition?.stages?.[index] || null;
-  if (!stage) return null;
-  return {
-    stage: formatWorkflowStageLabel(stage, index),
-    role: typeof stage?.role === 'string' ? stage.role : '',
-    index,
-    terminal: stage?.terminal === true,
-  };
-}
-
-function getWorkflowTaskContractId(session) {
-  return typeof session?.workflowTaskContract?.id === 'string' ? session.workflowTaskContract.id.trim() : '';
-}
-
-async function appendWorkflowHumanPauseMetric(sessionId, session, reason = '', payload = {}) {
-  const definition = normalizeWorkflowDefinition(session?.workflowDefinition);
-  const currentIndex = Number.isInteger(definition?.currentStageIndex) ? definition.currentStageIndex : 0;
-  const currentStage = getWorkflowMetricStageSnapshot(definition, currentIndex);
-  await appendWorkflowMetric(sessionId, 'human_pause', {
-    reason: normalizeWorkflowContractText(reason || '', 160),
-    ...(currentStage ? {
-      stage: currentStage.stage,
-      stageRole: currentStage.role,
-      stageIndex: currentStage.index,
-      terminalStage: currentStage.terminal === true,
-    } : {}),
-    ...(getWorkflowTaskContractId(session) ? { taskId: getWorkflowTaskContractId(session) } : {}),
-    ...payload,
-  });
-}
-
-async function appendWorkflowCompletedMetric(sessionId, session, payload = {}) {
-  const history = await loadHistory(sessionId, { includeBodies: false });
-  const alreadyCompleted = history.some((event) => (
-    event?.type === 'workflow_metric'
-    && event?.event === 'completed'
-  ));
-  if (alreadyCompleted) return false;
-
-  const activationEvent = history.find((event) => (
-    event?.type === 'workflow_metric'
-    && event?.event === 'activated'
-  )) || null;
-  const humanPauseCount = history.filter((event) => (
-    event?.type === 'workflow_metric'
-    && event?.event === 'human_pause'
-  )).length;
-  const runIds = new Set(
-    history
-      .map((event) => (typeof event?.runId === 'string' ? event.runId.trim() : ''))
-      .filter(Boolean),
-  );
-  const definition = normalizeWorkflowDefinition(session?.workflowDefinition);
-  await appendWorkflowMetric(sessionId, 'completed', {
-    totalStages: Array.isArray(definition?.stages) ? definition.stages.length : 0,
-    totalRuns: runIds.size,
-    humanPauseCount,
-    durationMs: Number.isFinite(activationEvent?.timestamp)
-      ? Math.max(0, Date.now() - Number(activationEvent.timestamp))
-      : 0,
-    ...(getWorkflowTaskContractId(session) ? { taskId: getWorkflowTaskContractId(session) } : {}),
-    ...payload,
-  });
-  return true;
+async function setPendingWorkflowFinalCloseout(sessionId, value = null) {
+  return (await mutateSessionMeta(sessionId, (session) => {
+    const nextValue = value && typeof value === 'object' ? {
+      runId: typeof value.runId === 'string' ? value.runId.trim() : '',
+      sourceSessionId: typeof value.sourceSessionId === 'string' ? value.sourceSessionId.trim() : '',
+      summary: normalizeWorkflowConclusionSummary(value.summary || ''),
+    } : null;
+    const currentValue = session.pendingWorkflowFinalCloseout && typeof session.pendingWorkflowFinalCloseout === 'object'
+      ? session.pendingWorkflowFinalCloseout
+      : null;
+    if (JSON.stringify(currentValue) === JSON.stringify(nextValue)) return false;
+    if (nextValue?.runId) {
+      session.pendingWorkflowFinalCloseout = nextValue;
+    } else if (session.pendingWorkflowFinalCloseout) {
+      delete session.pendingWorkflowFinalCloseout;
+    } else {
+      return false;
+    }
+    session.updatedAt = nowIso();
+    return true;
+  })).meta;
 }
 
 async function markWorkflowWaitingUser(sessionId, reason = '', payload = {}) {
   const updated = await updateSessionWorkflowClassification(sessionId, { workflowState: 'waiting_user' })
     || await getSession(sessionId);
   if (updated) {
-    await appendWorkflowHumanPauseMetric(sessionId, updated, reason, payload);
-    await updateCurrentWorkflowStageTrace(getWorkflowTraceRootSessionId(updated) || sessionId, 'paused_for_decision', {
-      outcome: normalizeWorkflowContractText(reason || '', 160),
-      conclusionId: typeof payload?.conclusionId === 'string' ? payload.conclusionId : '',
-      markPaused: true,
-    });
-    await appendWorkflowDecisionRecord(sessionId, updated, reason, payload);
     sendDecisionPush({ ...updated, id: sessionId }, reason).catch(() => {});
   }
   return updated;
+}
+
+async function clearWorkflowWaitingUserIfUnblocked(sessionId, session = null) {
+  const current = session || await getSession(sessionId);
+  if (!current) return null;
+  if (normalizeSessionWorkflowState(current?.workflowState || '') !== 'waiting_user') return current;
+  if (hasPendingDecision(current)) return current;
+  return updateSessionWorkflowClassification(sessionId, { workflowState: '' }) || current;
 }
 
 async function markWorkflowDone(sessionId, session = null, payload = {}) {
   const updated = await updateSessionWorkflowClassification(sessionId, { workflowState: 'done' })
     || await getSession(sessionId)
     || session;
-  if (updated) {
-    await appendWorkflowCompletedMetric(sessionId, updated, payload);
-    await updateCurrentWorkflowStageTrace(getWorkflowTraceRootSessionId(updated) || sessionId, 'completed', {
-      outcome: typeof payload?.reason === 'string' ? payload.reason : 'completed',
-      conclusionId: typeof payload?.conclusionId === 'string' ? payload.conclusionId : '',
-      markCompleted: true,
-    });
-  }
   return updated;
 }
 
-const WORKFLOW_TASK_TRACE_STAGE_LIMIT = 24;
-const WORKFLOW_TASK_TRACE_DECISION_LIMIT = 24;
-const WORKFLOW_TASK_TRACE_RECONCILE_LIMIT = 24;
-const WORKFLOW_TASK_TRACE_SESSION_LIMIT = 12;
+function buildWorkflowFinalCloseoutPrompt(session, sourceSession = null, handoff = null) {
+  return [
+    '上一轮已经吸收了辅助结论，但尚未形成明确的最终交付摘要。',
+    sourceSession?.name ? `来源会话：${sourceSession.name}` : '',
+    handoff?.summary ? `最近吸收的结论：${handoff.summary}` : '',
+    getWorkflowSummarySource(session) ? `当前任务：${getWorkflowSummarySource(session)}` : '',
+    '请直接完成最终收口，明确已完成项、残余风险，以及是否还需要用户介入。',
+    buildWorkflowDeliverySummaryInstruction(),
+  ].filter(Boolean).join('\n\n');
+}
 
-function cloneWorkflowTraceValue(value) {
-  if (!value || typeof value !== 'object') return null;
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch {
+function buildWorkflowAutoAbsorbPrompt(handoff = {}, sourceSession = null) {
+  const handoffType = normalizeWorkflowHandoffType(handoff?.handoffType || handoff?.type || handoff?.kind || '');
+  const executor = getWorkflowSubstageExecutorByHandoffType(handoffType);
+  if (!executor?.buildAutoAbsorbPrompt) return '';
+  return executor.buildAutoAbsorbPrompt(handoff, sourceSession);
+}
+
+async function queueWorkflowAutoAbsorb(targetSession, sourceSession, handoff) {
+  if (!targetSession?.id || !sourceSession?.id || !handoff?.conclusionId) {
+    return { started: false };
+  }
+  const latestTarget = await getSession(targetSession.id);
+  if (!latestTarget || latestTarget.archived || latestTarget.visitorId) {
+    return { started: false, reason: 'target-unavailable' };
+  }
+  if (isSessionRunning(latestTarget) || getSessionQueueCount(latestTarget) > 0) {
+    return { started: false, reason: 'target-busy' };
+  }
+
+  const absorbPrompt = buildWorkflowAutoAbsorbPrompt(handoff, sourceSession);
+  if (!absorbPrompt) {
+    return { started: false, reason: 'unsupported-handoff' };
+  }
+
+  const started = await submitHttpMessage(targetSession.id, absorbPrompt, [], {
+    requestId: createInternalRequestId('workflow-auto-absorb'),
+    model: typeof latestTarget?.model === 'string' && latestTarget.model.trim() ? latestTarget.model.trim() : undefined,
+    effort: typeof latestTarget?.effort === 'string' && latestTarget.effort.trim() ? latestTarget.effort.trim() : undefined,
+    thinking: latestTarget?.thinking === true,
+    recordUserMessage: false,
+    queueIfBusy: false,
+    internalOperation: 'workflow_auto_absorb_verification',
+  });
+  if (!started?.run?.id) {
+    return { started: false, reason: 'start-failed' };
+  }
+
+  await setPendingWorkflowAutoAbsorb(targetSession.id, {
+    sourceSessionId: sourceSession.id,
+    conclusionId: handoff.conclusionId,
+    runId: started.run.id,
+    handoffType: normalizeWorkflowHandoffType(handoff?.handoffType || handoff?.type || ''),
+    summary: handoff?.summary || '',
+  });
+  await appendEvent(targetSession.id, systemEvent('workflow_auto_absorb', `已自动吸收${getWorkflowHandoffTypeLabel(handoff.handoffType || handoff.type || '')}。`));
+  broadcastSessionInvalidation(targetSession.id);
+  return {
+    started: true,
+    run: started.run,
+    session: started.session || await getSession(targetSession.id) || latestTarget,
+  };
+}
+
+async function queueWorkflowFinalCloseout(session, sourceSession, handoff = null) {
+  if (!session?.id) return { started: false };
+  const latestSession = await getSession(session.id);
+  if (!latestSession || latestSession.archived || latestSession.visitorId) {
+    return { started: false, reason: 'target-unavailable' };
+  }
+  if (isSessionRunning(latestSession) || getSessionQueueCount(latestSession) > 0) {
+    return { started: false, reason: 'target-busy' };
+  }
+
+  const started = await submitHttpMessage(latestSession.id, buildWorkflowFinalCloseoutPrompt(latestSession, sourceSession, handoff), [], {
+    requestId: createInternalRequestId('workflow-final-closeout'),
+    model: typeof latestSession?.model === 'string' && latestSession.model.trim() ? latestSession.model.trim() : undefined,
+    effort: typeof latestSession?.effort === 'string' && latestSession.effort.trim() ? latestSession.effort.trim() : undefined,
+    thinking: latestSession?.thinking === true,
+    recordUserMessage: false,
+    queueIfBusy: false,
+    internalOperation: 'workflow_final_closeout',
+  });
+  if (!started?.run?.id) {
+    return { started: false, reason: 'start-failed' };
+  }
+
+  await setPendingWorkflowFinalCloseout(latestSession.id, {
+    runId: started.run.id,
+    sourceSessionId: sourceSession?.id || '',
+    summary: handoff?.summary || '',
+  });
+  broadcastSessionInvalidation(latestSession.id);
+  return {
+    started: true,
+    run: started.run,
+    session: started.session || await getSession(latestSession.id) || latestSession,
+  };
+}
+
+export function isWorkflowConclusionTerminalStatus(status) {
+  return ['accepted', 'ignored', 'superseded'].includes(normalizeWorkflowConclusionStatus(status || ''));
+}
+
+export async function handleWorkflowConclusionSettled(sessionId, session, conclusionId, nextStatus) {
+  if (!session?.id || !isWorkflowConclusionTerminalStatus(nextStatus)) return session;
+  const settledConclusion = findWorkflowPendingConclusion(session, (entry) => entry.id === conclusionId);
+  if (!settledConclusion) return session;
+
+  let current = await getSession(sessionId) || session;
+  if (nextStatus === 'accepted') {
+    const pendingAutoAbsorb = current?.pendingWorkflowAutoAbsorb && typeof current.pendingWorkflowAutoAbsorb === 'object'
+      ? current.pendingWorkflowAutoAbsorb
+      : null;
+    if (pendingAutoAbsorb?.conclusionId !== conclusionId) {
+      const sourceSession = settledConclusion.sourceSessionId
+        ? await getSession(settledConclusion.sourceSessionId)
+        : null;
+      if (sourceSession) {
+        const autoAbsorb = await queueWorkflowAutoAbsorb(current, sourceSession, {
+          conclusionId,
+          handoffType: settledConclusion.handoffType,
+          summary: settledConclusion.summary,
+          payload: settledConclusion.payload || {},
+        });
+        current = autoAbsorb?.session || await getSession(sessionId) || current;
+      }
+    }
+  }
+
+  return clearWorkflowWaitingUserIfUnblocked(sessionId, current) || current;
+}
+
+export async function updateWorkflowPendingConclusionStatus(id, conclusionId, status) {
+  const nextConclusionId = typeof conclusionId === 'string' ? conclusionId.trim() : '';
+  if (!nextConclusionId) {
+    throw new Error('conclusionId is required');
+  }
+  const nextStatus = normalizeWorkflowConclusionStatus(status || '');
+  let previousStatus = '';
+  const result = await mutateSessionMeta(id, (session) => {
+    const current = normalizeWorkflowPendingConclusions(session.workflowPendingConclusions || []);
+    const index = current.findIndex((item) => item.id === nextConclusionId);
+    if (index === -1) {
+      throw new Error('Conclusion not found');
+    }
+    const existing = current[index];
+    previousStatus = normalizeWorkflowConclusionStatus(existing.status);
+    if (previousStatus === nextStatus) {
+      return false;
+    }
+    const updated = {
+      ...existing,
+      status: nextStatus,
+      ...(['accepted', 'ignored', 'superseded'].includes(nextStatus) ? { handledAt: nowIso() } : {}),
+    };
+    if (nextStatus === 'pending' || nextStatus === 'needs_decision') {
+      delete updated.handledAt;
+    }
+    current[index] = updated;
+    session.workflowPendingConclusions = current.slice(-WORKFLOW_PENDING_LIMIT);
+    session.updatedAt = nowIso();
+    return true;
+  });
+
+  if (!result.meta) return null;
+  let enriched = await enrichSessionMeta(result.meta);
+  if (result.changed) {
+    broadcastSessionInvalidation(id);
+    if (shouldExposeSession(result.meta)) {
+      broadcastSessionsInvalidation();
+    }
+    if (isWorkflowConclusionTerminalStatus(nextStatus) && previousStatus !== nextStatus) {
+      enriched = await handleWorkflowConclusionSettled(id, enriched, nextConclusionId, nextStatus) || enriched;
+    } else if (nextStatus === 'needs_decision') {
+      enriched = await markWorkflowWaitingUser(id, 'handoff_requires_decision', {
+        conclusionId: nextConclusionId,
+      }) || enriched;
+    } else if (nextStatus === 'pending') {
+      enriched = await clearWorkflowWaitingUserIfUnblocked(id, enriched) || enriched;
+    }
+  }
+  return enriched;
+}
+
+export async function maybeAutoHandoffWorkflowSubstageResult(sessionId, session, run) {
+  if (!session?.id || !run?.id) return null;
+  const executor = getWorkflowSubstageExecutorForSession(session);
+  if (!executor) return null;
+  if (run.state !== 'completed') return null;
+  if (!normalizeWorktreeCoordinationText(session?.handoffTargetSessionId || '')) return null;
+  if (normalizeWorktreeCoordinationText(session?.lastWorkflowHandoffRunId || '') === run.id) return null;
+
+  const assistantMessage = await findLatestAssistantMessageForRun(sessionId, run.id);
+  const parsed = executor.parseResult(assistantMessage?.content || '');
+  const summary = parsed.summary || normalizeWorkflowConclusionSummary(clearTaggedBlocks(assistantMessage?.content || ''));
+  if (!summary) return null;
+
+  const outcome = await handoffSessionResult(sessionId, {
+    targetSessionId: session.handoffTargetSessionId,
+    handoffType: executor.handoffType,
+    summary,
+    payload: parsed.payload,
+    sourceRunId: run.id,
+  });
+  if (!outcome?.handoff?.conclusionId) return outcome;
+
+  if (!executor.isValidPayload(parsed.payload || {})) {
+    const updatedTarget = await updateWorkflowPendingConclusionStatus(
+      outcome.targetSession.id,
+      outcome.handoff.conclusionId,
+      'needs_decision',
+    ) || outcome.targetSession;
+    await appendEvent(updatedTarget.id, statusEvent('辅助结论已回灌，但缺少完整结构化数据，已转为人工确认。'));
+    broadcastSessionInvalidation(updatedTarget.id);
+    return {
+      ...outcome,
+      targetSession: updatedTarget,
+      handoff: {
+        ...outcome.handoff,
+        status: 'needs_decision',
+      },
+    };
+  }
+
+  if (outcome.handoff.status === 'needs_decision') {
+    await appendEvent(outcome.targetSession.id, statusEvent('辅助结论需要人工确认，主线已暂停自动推进。'));
+    broadcastSessionInvalidation(outcome.targetSession.id);
+  }
+  return outcome;
+}
+
+export async function finalizeWorkflowAutoAbsorb(sessionId, session, run) {
+  const pending = session?.pendingWorkflowAutoAbsorb && typeof session.pendingWorkflowAutoAbsorb === 'object'
+    ? session.pendingWorkflowAutoAbsorb
+    : null;
+  if (!pending?.runId || pending.runId !== run.id || !pending.conclusionId) {
     return null;
   }
-}
 
-function getWorkflowTraceTaskId(session) {
-  return normalizeWorkflowContractText(
-    session?.workflowTaskTrace?.taskId
-    || session?.workflowTraceBridge?.taskId
-    || getWorkflowTaskContractId(session)
-    || '',
-    160,
-  );
-}
-
-function getWorkflowTraceRootTaskId(session) {
-  return normalizeWorkflowContractText(
-    session?.workflowTaskTrace?.rootTaskId
-    || session?.workflowTraceBridge?.rootTaskId
-    || getWorkflowTraceTaskId(session)
-    || '',
-    160,
-  );
-}
-
-function getWorkflowTraceRootSessionId(session) {
-  return normalizeWorkflowContractText(
-    session?.workflowTaskTrace?.rootSessionId
-    || session?.workflowTraceBridge?.rootSessionId
-    || session?.id
-    || '',
-    160,
-  );
-}
-
-function findWorkflowTraceRecordIndex(records = [], predicate) {
-  if (typeof predicate !== 'function' || !Array.isArray(records)) return -1;
-  for (let index = records.length - 1; index >= 0; index -= 1) {
-    if (predicate(records[index], index)) return index;
+  let updatedSession = session;
+  if (run.state === 'completed') {
+    await appendEvent(sessionId, statusEvent('高置信度辅助结论已自动吸收。'));
+    const assistantMessage = await findLatestAssistantMessageForRun(sessionId, run.id);
+    const deliverySummary = parseWorkflowDeliverySummary(assistantMessage?.content || '');
+    if (deliverySummary.summary) {
+      updatedSession = await markWorkflowDone(sessionId, session, {
+        reason: 'auto_absorb_complete',
+        conclusionId: pending.conclusionId,
+      }) || await getSession(sessionId) || session;
+      await appendEvent(sessionId, statusEvent('工作流已收口完成。'));
+    } else {
+      const sourceSession = pending?.sourceSessionId ? await getSession(pending.sourceSessionId) : null;
+      const closeout = await queueWorkflowFinalCloseout(updatedSession, sourceSession, {
+        summary: pending?.summary || '',
+      });
+      if (!closeout?.started) {
+        updatedSession = await markWorkflowWaitingUser(sessionId, 'final_closeout_missing_summary', {
+          conclusionId: pending.conclusionId,
+          sourceSessionId: pending?.sourceSessionId || '',
+        }) || await getSession(sessionId) || updatedSession;
+        await appendEvent(sessionId, statusEvent('自动吸收已完成，但最终收口未能自动启动，请手动确认。'));
+      } else {
+        updatedSession = closeout.session || updatedSession;
+      }
+    }
+  } else {
+    updatedSession = await updateWorkflowPendingConclusionStatus(sessionId, pending.conclusionId, 'needs_decision')
+      || await getSession(sessionId)
+      || session;
+    updatedSession = await markWorkflowWaitingUser(sessionId, 'auto_absorb_failed', {
+      conclusionId: pending.conclusionId,
+      sourceSessionId: pending?.sourceSessionId || '',
+    }) || updatedSession;
+    await appendEvent(sessionId, statusEvent('自动吸收辅助结论失败，已回退到人工确认。'));
   }
-  return -1;
+
+  await setPendingWorkflowAutoAbsorb(sessionId, null);
+  broadcastSessionInvalidation(sessionId);
+  return updatedSession;
 }
 
-function buildWorkflowTraceSessionLink(session, overrides = {}) {
-  const now = typeof overrides.updatedAt === 'string' && overrides.updatedAt
-    ? overrides.updatedAt
-    : nowIso();
-  return {
-    sessionId: normalizeWorkflowContractText(overrides.sessionId || session?.id || '', 160),
-    sessionName: normalizeWorkflowContractText(overrides.sessionName || session?.name || '', 240),
-    appName: normalizeWorkflowContractText(session?.appName || '', 120),
-    role: normalizeWorkflowContractText(overrides.role || '', 80),
-    sessionKind: normalizeWorkflowContractText(overrides.sessionKind || '', 80),
-    sourceSessionId: normalizeWorkflowContractText(overrides.sourceSessionId || '', 160),
-    runId: normalizeWorkflowContractText(overrides.runId || '', 160),
-    status: normalizeWorkflowContractText(overrides.status || '', 80),
-    linkedAt: typeof overrides.linkedAt === 'string' && overrides.linkedAt ? overrides.linkedAt : now,
-    updatedAt: now,
-  };
-}
-
-function upsertWorkflowTraceSessionLink(trace, link) {
-  if (!trace || !link?.sessionId) return false;
-  const current = Array.isArray(trace.sessionLinks) ? trace.sessionLinks.filter(Boolean) : [];
-  const index = current.findIndex((entry) => entry?.sessionId === link.sessionId);
-  if (index === -1) {
-    trace.sessionLinks = [...current.slice(-(WORKFLOW_TASK_TRACE_SESSION_LIMIT - 1)), link];
-    return true;
+export async function finalizeWorkflowFinalCloseout(sessionId, session, run) {
+  const pending = session?.pendingWorkflowFinalCloseout && typeof session.pendingWorkflowFinalCloseout === 'object'
+    ? session.pendingWorkflowFinalCloseout
+    : null;
+  if (!pending?.runId || pending.runId !== run.id) {
+    return null;
   }
-  const existing = current[index];
-  const next = {
-    ...existing,
-    ...link,
-    linkedAt: existing?.linkedAt || link.linkedAt || nowIso(),
-    updatedAt: link.updatedAt || nowIso(),
-  };
-  if (JSON.stringify(existing || null) === JSON.stringify(next)) return false;
-  current[index] = next;
-  trace.sessionLinks = current.slice(-WORKFLOW_TASK_TRACE_SESSION_LIMIT);
-  return true;
+
+  let updatedSession = session;
+  if (run.state === 'completed') {
+    const assistantMessage = await findLatestAssistantMessageForRun(sessionId, run.id);
+    const deliverySummary = parseWorkflowDeliverySummary(assistantMessage?.content || '');
+    if (deliverySummary.summary) {
+      updatedSession = await markWorkflowDone(sessionId, session, {
+        reason: 'final_closeout_completed',
+        sourceSessionId: pending?.sourceSessionId || '',
+      }) || await getSession(sessionId) || session;
+      await appendEvent(sessionId, statusEvent('工作流已收口完成。'));
+    } else {
+      updatedSession = await markWorkflowWaitingUser(sessionId, 'final_closeout_missing_summary', {
+        sourceSessionId: pending?.sourceSessionId || '',
+      }) || await getSession(sessionId) || session;
+      await appendEvent(sessionId, statusEvent('最终收口未产出 <delivery_summary>，已转为人工确认。'));
+    }
+  } else {
+    updatedSession = await markWorkflowWaitingUser(sessionId, 'final_closeout_failed', {
+      sourceSessionId: pending?.sourceSessionId || '',
+    }) || await getSession(sessionId) || session;
+    await appendEvent(sessionId, statusEvent('最终收口自动执行失败，已转为人工确认。'));
+  }
+
+  await setPendingWorkflowFinalCloseout(sessionId, null);
+  broadcastSessionInvalidation(sessionId);
+  return updatedSession;
 }
 
-function buildWorkflowStageTraceRecord({
-  taskId = '',
-  session = null,
-  stage = '',
-  stageRole = '',
-  stageIndex = -1,
-  sessionKind = '',
-  status = 'running',
-  runId = '',
-  sourceSessionId = '',
-  sourceRunId = '',
-  handoffType = '',
-  parentStageTraceId = '',
-  startedAt = nowIso(),
-} = {}) {
-  return {
-    id: `trace_stage_${generateId()}`,
-    taskId: normalizeWorkflowContractText(taskId, 160),
-    sessionId: normalizeWorkflowContractText(session?.id || '', 160),
-    sessionName: normalizeWorkflowContractText(session?.name || '', 240),
-    appName: normalizeWorkflowContractText(session?.appName || '', 120),
-    stage: normalizeWorkflowContractText(stage, 120),
-    stageRole: normalizeWorkflowContractText(stageRole, 80),
-    stageIndex: Number.isInteger(stageIndex) ? stageIndex : -1,
-    sessionKind: normalizeWorkflowContractText(sessionKind, 80),
-    status: normalizeWorkflowContractText(status, 80),
-    runId: normalizeWorkflowContractText(runId, 160),
-    sourceSessionId: normalizeWorkflowContractText(sourceSessionId, 160),
-    sourceRunId: normalizeWorkflowContractText(sourceRunId, 160),
-    handoffType: normalizeWorkflowContractText(handoffType, 80),
-    parentStageTraceId: normalizeWorkflowContractText(parentStageTraceId, 160),
-    model: normalizeWorkflowContractText(session?.model || '', 120),
-    startedAt,
-    updatedAt: startedAt,
-  };
-}
+export async function handoffSessionResult(sessionId, payload = {}) {
+  const source = await getSession(sessionId);
+  if (!source) return null;
+  if (source.visitorId) return null;
 
-function buildWorkflowDecisionRecord({
-  taskId = '',
-  sessionId = '',
-  stageTraceId = '',
-  conclusionId = '',
-  type = '',
-  reason = '',
-  status = 'pending',
-  sourceSessionId = '',
-  sourceRunId = '',
-  summary = '',
-  confidence = '',
-  createdAt = nowIso(),
-} = {}) {
-  return {
-    id: `trace_decision_${generateId()}`,
-    taskId: normalizeWorkflowContractText(taskId, 160),
-    sessionId: normalizeWorkflowContractText(sessionId, 160),
-    stageTraceId: normalizeWorkflowContractText(stageTraceId, 160),
-    conclusionId: normalizeWorkflowContractText(conclusionId, 160),
-    type: normalizeWorkflowContractText(type, 120),
-    reason: normalizeWorkflowContractText(reason, 160),
-    status: normalizeWorkflowContractText(status, 80),
-    sourceSessionId: normalizeWorkflowContractText(sourceSessionId, 160),
-    sourceRunId: normalizeWorkflowContractText(sourceRunId, 160),
-    summary: normalizeWorkflowConclusionSummary(summary || ''),
-    confidence: normalizeWorkflowContractText(confidence, 40),
-    createdAt,
-    updatedAt: createdAt,
-  };
-}
+  const targetSessionId = typeof payload?.targetSessionId === 'string'
+    ? payload.targetSessionId.trim()
+    : '';
+  const resolvedTargetSessionId = targetSessionId || normalizeWorktreeCoordinationText(source?.handoffTargetSessionId || '');
+  if (!resolvedTargetSessionId) {
+    throw new Error('targetSessionId is required');
+  }
+  if (resolvedTargetSessionId === source.id) {
+    throw new Error('targetSessionId must be different from the source session');
+  }
 
-function buildWorkflowReconcileRecord({
-  taskId = '',
-  targetSessionId = '',
-  sourceSessionId = '',
-  sourceRunId = '',
-  absorbRunId = '',
-  conclusionId = '',
-  handoffType = '',
-  status = '',
-  summary = '',
-  autoAbsorbed = false,
-  createdAt = nowIso(),
-} = {}) {
-  return {
-    id: `trace_reconcile_${generateId()}`,
-    taskId: normalizeWorkflowContractText(taskId, 160),
-    sessionId: normalizeWorkflowContractText(targetSessionId, 160),
-    targetSessionId: normalizeWorkflowContractText(targetSessionId, 160),
-    sourceSessionId: normalizeWorkflowContractText(sourceSessionId, 160),
-    sourceRunId: normalizeWorkflowContractText(sourceRunId, 160),
-    absorbRunId: normalizeWorkflowContractText(absorbRunId, 160),
-    conclusionId: normalizeWorkflowContractText(conclusionId, 160),
-    handoffType: normalizeWorkflowContractText(handoffType, 80),
-    status: normalizeWorkflowContractText(status, 80),
-    summary: normalizeWorkflowConclusionSummary(summary || ''),
-    autoAbsorbed: autoAbsorbed === true,
-    costAttribution: {
-      mode: 'session_local',
-      sourceRunId: normalizeWorkflowContractText(sourceRunId, 160),
-      absorbRunId: normalizeWorkflowContractText(absorbRunId, 160),
-    },
-    createdAt,
-    updatedAt: createdAt,
-  };
-}
+  const target = await getSession(resolvedTargetSessionId);
+  if (!target) {
+    throw new Error('Target session not found');
+  }
+  if (target.visitorId) {
+    throw new Error('Target session must be an owner session');
+  }
 
-function ensureWorkflowTaskTraceRoot(session, { mode = '' } = {}) {
-  const taskId = getWorkflowTraceTaskId(session);
-  if (!taskId || !session?.id) return null;
-  const now = nowIso();
-  const existing = cloneWorkflowTraceValue(session?.workflowTaskTrace) || {};
-  const rootTaskId = getWorkflowTraceRootTaskId(session) || taskId;
-  const rootSessionId = getWorkflowTraceRootSessionId(session) || session.id;
-  const trace = {
-    taskId,
-    rootTaskId,
-    rootSessionId,
-    mode: normalizeWorkflowLaunchMode(existing.mode || mode || session?.workflowMode || '') || '',
-    currentStageTraceId: normalizeWorkflowContractText(existing.currentStageTraceId || '', 160),
-    sessionLinks: Array.isArray(existing.sessionLinks) ? existing.sessionLinks.filter(Boolean).slice(-WORKFLOW_TASK_TRACE_SESSION_LIMIT) : [],
-    stageTraces: Array.isArray(existing.stageTraces) ? existing.stageTraces.filter(Boolean).slice(-WORKFLOW_TASK_TRACE_STAGE_LIMIT) : [],
-    decisionRecords: Array.isArray(existing.decisionRecords) ? existing.decisionRecords.filter(Boolean).slice(-WORKFLOW_TASK_TRACE_DECISION_LIMIT) : [],
-    reconcileRecords: Array.isArray(existing.reconcileRecords) ? existing.reconcileRecords.filter(Boolean).slice(-WORKFLOW_TASK_TRACE_RECONCILE_LIMIT) : [],
-    createdAt: typeof existing.createdAt === 'string' && existing.createdAt ? existing.createdAt : now,
-    updatedAt: now,
-  };
-  upsertWorkflowTraceSessionLink(trace, buildWorkflowTraceSessionLink(session, {
-    role: getCurrentWorkflowStage(session)?.role || 'mainline',
-    sessionKind: 'mainline',
-    status: 'active',
-    linkedAt: trace.createdAt,
-    updatedAt: now,
+  const history = await loadHistory(source.id, { includeBodies: true });
+  const latestConclusion = findLatestAssistantConclusion(history);
+  const latestConclusionText = typeof latestConclusion?.content === 'string'
+    ? latestConclusion.content.trim()
+    : '';
+  const sourceRunId = typeof payload?.sourceRunId === 'string' && payload.sourceRunId.trim()
+    ? payload.sourceRunId.trim()
+    : (typeof latestConclusion?.runId === 'string' ? latestConclusion.runId.trim() : '');
+  const requestedSummaryRaw = typeof payload?.summary === 'string' ? payload.summary.trim() : '';
+  const rawConclusionText = requestedSummaryRaw || latestConclusionText;
+  if (!rawConclusionText) {
+    throw new Error('No assistant conclusion available to hand off yet');
+  }
+
+  const handoffKind = getWorkflowHandoffKind(source);
+  const handoffType = normalizeWorkflowHandoffType(payload?.handoffType || '', handoffKind);
+  const extractedParallelTasks = handoffType === 'decision_result'
+    ? extractParallelTasksFromConclusionText(rawConclusionText)
+    : [];
+  const strippedConclusionText = stripParallelTasksFromConclusionText(rawConclusionText);
+  const conclusionText = strippedConclusionText
+    || buildParallelTasksConclusionSummary(extractedParallelTasks)
+    || rawConclusionText;
+  const handoffPayload = normalizeWorkflowConclusionPayload({
+    ...(payload?.payload && typeof payload.payload === 'object' && !Array.isArray(payload.payload)
+      ? payload.payload
+      : {}),
+    ...(extractedParallelTasks.length > 0 ? { parallelTasks: extractedParallelTasks } : {}),
+  }, handoffType);
+  const initialStatus = resolveWorkflowHandoffInitialStatus(handoffType, handoffPayload);
+  const content = buildWorkflowHandoffMessage({
+    source,
+    handoffKind,
+    handoffType,
+    conclusion: conclusionText,
+  });
+  const handoffEvent = await appendEvent(target.id, messageEvent('assistant', content, undefined, {
+    messageKind: 'workflow_handoff',
+    handoffKind,
+    handoffType,
+    handoffSourceSessionId: source.id,
+    handoffSourceSessionName: typeof source?.name === 'string' ? source.name.trim() : '',
+    handoffTargetSessionId: target.id,
   }));
-  return trace;
-}
+  let updatedTarget = await appendWorkflowPendingConclusion(target.id, {
+    sourceSessionId: source.id,
+    sourceSessionName: typeof source?.name === 'string' ? source.name.trim() : '',
+    handoffKind,
+    handoffType,
+    label: getWorkflowHandoffTypeLabel(handoffType),
+    summary: conclusionText,
+    status: initialStatus,
+    createdAt: nowIso(),
+    eventSeq: Number.isInteger(handoffEvent?.seq) ? handoffEvent.seq : undefined,
+    ...(Object.keys(handoffPayload).length > 0 ? { payload: handoffPayload } : {}),
+  }) || await getSession(target.id) || target;
+  const storedConclusion = findWorkflowPendingConclusion(updatedTarget, (entry) => (
+    entry.eventSeq === handoffEvent?.seq
+    || (
+      entry.sourceSessionId === source.id
+      && normalizeWorkflowHandoffType(entry.handoffType || '', entry.handoffKind || '') === handoffType
+    )
+  ));
+  let resolvedStatus = initialStatus;
 
-function ensureWorkflowTaskTraceCurrentStage(trace, session, definition, { runId = '' } = {}) {
-  if (!trace || !definition || trace.currentStageTraceId) return false;
-  const currentIndex = Number.isInteger(definition?.currentStageIndex) ? definition.currentStageIndex : 0;
-  const currentStage = getWorkflowMetricStageSnapshot(definition, currentIndex);
-  if (!currentStage) return false;
-  const record = buildWorkflowStageTraceRecord({
-    taskId: trace.taskId,
-    session,
-    stage: currentStage.stage,
-    stageRole: currentStage.role,
-    stageIndex: currentIndex,
-    sessionKind: 'mainline',
-    runId,
-    startedAt: nowIso(),
-  });
-  trace.stageTraces = [...trace.stageTraces.slice(-(WORKFLOW_TASK_TRACE_STAGE_LIMIT - 1)), record];
-  trace.currentStageTraceId = record.id;
-  return true;
-}
+  if (initialStatus === 'needs_decision' && storedConclusion?.id) {
+    updatedTarget = await markWorkflowWaitingUser(target.id, 'handoff_requires_decision', {
+      handoffType,
+      sourceSessionId: source.id,
+      conclusionId: storedConclusion.id,
+    }) || updatedTarget;
+  } else if (storedConclusion?.id) {
+    const runRiskSignals = await detectRunRiskSignals(source, sourceRunId);
+    const canAutoAccept = shouldWorkflowConclusionAutoAccept(handoffType, handoffPayload, {
+      initialStatus,
+      hasRiskSignals: runRiskSignals.hasRiskSignals,
+    });
+    if (canAutoAccept) {
+      updatedTarget = await updateWorkflowPendingConclusionStatus(target.id, storedConclusion.id, 'accepted')
+        || await getSession(target.id)
+        || updatedTarget;
+      resolvedStatus = 'accepted';
+    } else if (
+      shouldWorkflowConclusionAutoAccept(handoffType, handoffPayload, { initialStatus, hasRiskSignals: false })
+      && runRiskSignals.hasRiskSignals
+    ) {
+      await appendEvent(
+        target.id,
+        systemEvent(
+          'workflow_auto_absorb',
+          `检测到潜在风险（${summarizeWorkflowRiskSignals(runRiskSignals.matches)}），结论暂未自动吸收。`,
+        ),
+      );
+      broadcastSessionInvalidation(target.id);
+    }
+  }
 
-export function isWorkflowStatusLikeEventType(type = '') {
-  return ['status', 'workflow_auto_advance', 'workflow_auto_absorb'].includes(type);
-}
+  if (sourceRunId) {
+    await persistLastWorkflowHandoffRunId(source.id, sourceRunId);
+  }
+  broadcastSessionInvalidation(target.id);
 
-function parseWorkflowVerificationResult(content) {
-  const taggedPayloadText = extractTaggedBlock(content, 'verification_result');
-  const parsedPayload = taggedPayloadText ? parseJsonObjectText(taggedPayloadText) : null;
-  const summarySource = normalizeWorkflowConclusionSummary(
-    (parsedPayload && typeof parsedPayload.summary === 'string' ? parsedPayload.summary : '')
-    || stripTaggedBlock(content, 'verification_result'),
-  );
-  const payload = normalizeWorkflowConclusionPayload(parsedPayload || {}, 'verification_result');
   return {
-    summary: summarySource,
-    payload,
-  };
-}
-
-function parseWorkflowDecisionResult(content) {
-  const taggedPayloadText = extractTaggedBlock(content, 'decision_result');
-  const parsedPayload = taggedPayloadText ? parseJsonObjectText(taggedPayloadText) : null;
-  const payload = normalizeWorkflowConclusionPayload(parsedPayload || {}, 'decision_result');
-  const summarySource = normalizeWorkflowConclusionSummary(
-    (parsedPayload && typeof parsedPayload.summary === 'string' ? parsedPayload.summary : '')
-    || (parsedPayload && typeof parsedPayload.recommendation === 'string' ? parsedPayload.recommendation : '')
-    || stripTaggedBlock(content, 'decision_result'),
-  );
-  return {
-    summary: summarySource,
-    payload,
-  };
-}
-
-function parseWorkflowDeliverySummary(content) {
-  const taggedPayloadText = extractTaggedBlock(content, 'delivery_summary');
-  const parsedPayload = taggedPayloadText ? parseJsonObjectText(taggedPayloadText) : null;
-  const summary = normalizeWorkflowConclusionSummary(
-    (parsedPayload && typeof parsedPayload.summary === 'string' ? parsedPayload.summary : '')
-    || stripTaggedBlock(content, 'delivery_summary'),
-  );
-  const completed = normalizeWorkflowConclusionList(parsedPayload?.completed);
-  const remainingRisks = normalizeWorkflowConclusionList(parsedPayload?.remainingRisks || parsedPayload?.risks);
-  return {
-    summary,
-    payload: {
-      ...(summary ? { summary } : {}),
-      ...(completed.length > 0 ? { completed } : {}),
-      ...(remainingRisks.length > 0 ? { remainingRisks } : {}),
+    sourceSession: await getSession(source.id) || source,
+    targetSession: updatedTarget,
+    handoff: {
+      kind: handoffKind,
+      type: handoffType,
+      label: getWorkflowHandoffTypeLabel(handoffType),
+      summary: clipCompactionSection(conclusionText, 280),
+      status: resolvedStatus,
+      ...(storedConclusion?.id ? { conclusionId: storedConclusion.id } : {}),
+      ...(Object.keys(handoffPayload).length > 0 ? { payload: handoffPayload } : {}),
     },
   };
-}
-
-export function buildWorkflowPendingConclusionsPromptBlock(session) {
-  if (!isWorkflowMainlineSession(session)) {
-    return '';
-  }
-  const entries = normalizeWorkflowPendingConclusions(session?.workflowPendingConclusions || [])
-    .filter((entry) => ['pending', 'needs_decision'].includes(normalizeWorkflowConclusionStatus(entry.status)));
-  if (entries.length === 0) return 'No open workflow handoffs.';
-  const lines = entries.map((entry, index) => {
-    const label = entry.label || getWorkflowHandoffTypeLabel(entry.handoffType || entry.handoffKind || 'workflow');
-    const source = entry.sourceSessionName ? `来源：${entry.sourceSessionName}` : '来源：辅助会话';
-    const status = normalizeWorkflowConclusionStatus(entry.status) === 'needs_decision' ? '状态：待用户决策' : '状态：待处理';
-    const confidence = entry.handoffType === 'decision_result' && entry?.payload?.confidence
-      ? `\n   - 置信度：${entry.payload.confidence}`
-      : '';
-    return `${index + 1}. ${label}\n   - ${source}\n   - ${status}${confidence}\n   - 摘要：${entry.summary}`;
-  });
-  return [
-    'Open workflow conclusions requiring attention:',
-    ...lines,
-    'When relevant, explicitly absorb, reject, or defer these conclusions instead of silently ignoring them.',
-  ].join('\n');
-}
-
-export function buildWorkflowCurrentTaskPromptBlock(session) {
-  const currentTask = normalizeWorkflowCurrentTask(session?.workflowCurrentTask || '');
-  if (!currentTask) return '';
-  return `Current workflow task: ${currentTask}`;
-}
-
-function formatWorkflowStageLabel(stage = {}, fallbackIndex = 0) {
-  const explicitLabel = typeof stage?.label === 'string' ? stage.label.trim() : '';
-  if (explicitLabel) return explicitLabel;
-  if (stage?.role === 'execute') return fallbackIndex > 0 ? `执行 ${fallbackIndex + 1}` : '执行';
-  if (stage?.role === 'verify') return '验收';
-  if (stage?.role === 'deliberate') return '再议';
-  return `阶段 ${fallbackIndex + 1}`;
-}
-
-function getWorkflowStageStatusText(session, stage = null) {
-  if (!stage) return '';
-  if (stage.role === 'execute') {
-    return stage.terminal === true ? 'terminal closeout stage' : 'implementation in progress';
-  }
-  const expectedType = getWorkflowHandoffTypeForRole(stage.role);
-  if (!expectedType) return '';
-  const entries = normalizeWorkflowPendingConclusions(session?.workflowPendingConclusions || []);
-  const openEntry = entries.find((entry) => (
-    normalizeWorkflowHandoffType(entry?.handoffType || '', entry?.handoffKind || '') === expectedType
-    && ['pending', 'needs_decision'].includes(normalizeWorkflowConclusionStatus(entry?.status || ''))
-  ));
-  if (openEntry) {
-    return normalizeWorkflowConclusionStatus(openEntry.status) === 'needs_decision'
-      ? 'waiting for user decision on latest substage result'
-      : 'waiting for latest substage result to be handled';
-  }
-  if (stage.role === 'verify') return 'ready to launch verification';
-  if (stage.role === 'deliberate') return 'ready to launch deliberation';
-  return '';
-}
-
-export function buildWorkflowStagePromptBlock(session) {
-  if (!isWorkflowMainlineSession(session)) return '';
-  const definition = normalizeWorkflowDefinition(session?.workflowDefinition);
-  if (!definition) return '';
-  const currentIndex = Number.isInteger(definition.currentStageIndex) ? definition.currentStageIndex : 0;
-  const currentStage = definition.stages[currentIndex] || null;
-  const nextStage = definition.stages[currentIndex + 1] || null;
-  if (!currentStage) return '';
-  const currentStatus = getWorkflowStageStatusText(session, currentStage);
-  return [
-    `Current workflow: ${definition.mode || 'custom'} (stage ${currentIndex + 1} of ${definition.stages.length})`,
-    `Current stage: ${formatWorkflowStageLabel(currentStage, currentIndex)} (${currentStage.role})${currentStage.terminal === true ? ' — terminal' : ''}${currentStatus ? ` — ${currentStatus}` : ''}`,
-    nextStage
-      ? `Next stage: ${formatWorkflowStageLabel(nextStage, currentIndex + 1)} (${nextStage.role})${nextStage.terminal === true ? ', terminal' : ''}`
-      : 'Next stage: none',
-    `Gate policy: ${definition.gatePolicy || 'low_confidence_only'}`,
-  ].join('\n');
 }
 
 function inferRuntimeFamilyFromTool(toolId, toolDefinition) {
@@ -1014,663 +2080,37 @@ export async function resolveWorkflowExecutionRuntimeOptions(session, effectiveT
   return {};
 }
 
-function isInlineWorkflowWhitespace(char) {
-  return typeof char === 'string' && char.trim() === '';
-}
-
-function readInlineWorkflowDeclarationLabel(text, index) {
-  if (typeof text !== 'string') return '';
-  if (text.startsWith('工作流', index)) return '工作流';
-  if (text.startsWith('模式', index)) return '模式';
-  if (text.startsWith('策略', index)) return '策略';
-  if (text.slice(index).toLowerCase().startsWith('workflow')) return 'workflow';
-  return '';
-}
-
-function parseInlineWorkflowDeclarationLine(line) {
-  const text = typeof line === 'string' ? line.trim() : '';
-  if (!text) return [];
-
-  const declarations = [];
-  let cursor = 0;
-
-  while (cursor < text.length) {
-    while (cursor < text.length && isInlineWorkflowWhitespace(text[cursor])) {
-      cursor += 1;
-    }
-    if (cursor >= text.length) break;
-
-    const label = readInlineWorkflowDeclarationLabel(text, cursor);
-    if (!label) return [];
-    cursor += label.length;
-
-    while (cursor < text.length && isInlineWorkflowWhitespace(text[cursor])) {
-      cursor += 1;
-    }
-    const separator = text[cursor];
-    if (separator !== ':' && separator !== '：') return [];
-    cursor += 1;
-
-    while (cursor < text.length && isInlineWorkflowWhitespace(text[cursor])) {
-      cursor += 1;
-    }
-    const valueStart = cursor;
-    let nextDeclarationIndex = text.length;
-
-    for (let index = cursor; index < text.length; index += 1) {
-      if (!isInlineWorkflowWhitespace(text[index])) continue;
-      let probe = index;
-      while (probe < text.length && isInlineWorkflowWhitespace(text[probe])) {
-        probe += 1;
-      }
-      const nextLabel = readInlineWorkflowDeclarationLabel(text, probe);
-      if (!nextLabel) continue;
-      let separatorIndex = probe + nextLabel.length;
-      while (separatorIndex < text.length && isInlineWorkflowWhitespace(text[separatorIndex])) {
-        separatorIndex += 1;
-      }
-      if (text[separatorIndex] === ':' || text[separatorIndex] === '：') {
-        nextDeclarationIndex = index;
-        break;
-      }
-    }
-
-    const value = text.slice(valueStart, nextDeclarationIndex).trim();
-    if (!value) return [];
-    declarations.push({ label, value });
-    cursor = nextDeclarationIndex;
+export function scheduleSessionWorkflowStateSuggestion(session, run) {
+  if (!session?.id || !run || session.archived || isInternalSession(session)) {
+    return false;
   }
 
-  return declarations;
-}
-
-const INLINE_WORKFLOW_MODE_LABELS = Object.freeze({
-  快速执行: 'quick_execute',
-  标准交付: 'standard_delivery',
-  审慎模式: 'careful_deliberation',
-  并行拆分: 'parallel_split',
-});
-
-const INLINE_WORKFLOW_MODE_DISPLAY = Object.freeze({
-  quick_execute: '快速执行',
-  standard_delivery: '标准交付',
-  careful_deliberation: '审慎模式',
-  parallel_split: '并行拆分',
-});
-
-const INLINE_WORKFLOW_GATE_POLICY_LABELS = Object.freeze({
-  每步确认: 'always_manual',
-  有把握自动: 'low_confidence_only',
-  只看最终: 'final_confirm_only',
-});
-
-const INLINE_WORKFLOW_GATE_POLICY_DISPLAY = Object.freeze({
-  always_manual: '每步确认',
-  low_confidence_only: '有把握自动',
-  final_confirm_only: '只看最终',
-});
-
-function formatInlineWorkflowActivationStatus({
-  mode = '',
-  gatePolicy = 'low_confidence_only',
-  autoRouted = false,
-  reason = '',
-} = {}) {
-  const modeLabel = INLINE_WORKFLOW_MODE_DISPLAY[mode] || mode;
-  if (autoRouted) {
-    return `已自动激活工作流 · ${modeLabel}${reason ? `（原因：${reason}）` : ''}`;
-  }
-  const policyLabel = INLINE_WORKFLOW_GATE_POLICY_DISPLAY[gatePolicy] || gatePolicy;
-  return `已激活工作流 · ${modeLabel}（策略：${policyLabel}）`;
-}
-
-function summarizeInlineWorkflowActivationStatus(route) {
-  return formatInlineWorkflowActivationStatus(route).replace(/^已(?:自动)?激活工作流 · /u, '');
-}
-
-function normalizeInlineWorkflowMode(value) {
-  const normalized = typeof value === 'string' ? value.trim() : '';
-  if (!normalized) return '';
-  return normalizeWorkflowLaunchMode(INLINE_WORKFLOW_MODE_LABELS[normalized] || normalized);
-}
-
-function normalizeInlineWorkflowGatePolicy(value) {
-  const normalized = typeof value === 'string' ? value.trim() : '';
-  if (!normalized) return 'low_confidence_only';
-  return normalizeGatePolicy(INLINE_WORKFLOW_GATE_POLICY_LABELS[normalized] || normalized);
-}
-
-const WORKFLOW_EFFORT_RANKS = Object.freeze({
-  low: 1,
-  medium: 2,
-  high: 3,
-  xhigh: 4,
-});
-
-function resolvePreferredWorkflowEffort(...values) {
-  let best = '';
-  let bestRank = 0;
-  for (const value of values) {
-    const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-    const rank = WORKFLOW_EFFORT_RANKS[normalized] || 0;
-    if (rank > bestRank) {
-      best = normalized;
-      bestRank = rank;
-    }
-  }
-  return best;
-}
-
-function isInlineWorkflowAutoValue(value) {
-  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  return ['自动', 'auto', '默认'].includes(normalized);
-}
-
-export function parseInlineWorkflowDeclarations(text) {
-  const lines = String(text || '').split(/\r?\n/u);
-  let mode = '';
-  let gatePolicy = 'low_confidence_only';
-  let sawDeclaration = false;
-  let autoRequested = false;
-  let sawModeDeclaration = false;
-  let sawStrategyDeclaration = false;
-  let bodyStartIndex = lines.length;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = typeof lines[index] === 'string' ? lines[index].trim() : '';
-    if (!line) continue;
-
-    const declarations = parseInlineWorkflowDeclarationLine(line);
-    if (declarations.length === 0) {
-      if (!sawDeclaration) return null;
-      bodyStartIndex = index;
-      break;
-    }
-
-    sawDeclaration = true;
-    for (const declaration of declarations) {
-      if (declaration.label === '模式' || declaration.label === '工作流' || declaration.label === 'workflow') {
-        sawModeDeclaration = true;
-        const nextMode = normalizeInlineWorkflowMode(declaration.value);
-        if (nextMode) {
-          mode = nextMode;
-        } else if (isInlineWorkflowAutoValue(declaration.value)) {
-          autoRequested = true;
-        }
-      } else if (declaration.label === '策略') {
-        sawStrategyDeclaration = true;
-        gatePolicy = normalizeInlineWorkflowGatePolicy(declaration.value);
-      }
-    }
-  }
-
-  if (!sawDeclaration) return null;
-  const cleanedText = lines.slice(bodyStartIndex).join('\n').trim();
-  return {
-    mode,
-    gatePolicy: normalizeGatePolicy(gatePolicy),
-    cleanedText,
-    autoRouted: false,
-    autoRequested: autoRequested || (!mode && sawStrategyDeclaration && !sawModeDeclaration),
-  };
-}
-
-function normalizeWorkflowHandoffType(value, fallbackKind = '') {
-  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (['verification_result', 'decision_result', 'workflow_result'].includes(normalized)) {
-    return normalized;
-  }
-  const legacyKind = typeof fallbackKind === 'string' ? fallbackKind.trim().toLowerCase() : '';
-  if (legacyKind === 'risk_review') return 'verification_result';
-  if (legacyKind === 'pr_gate') return 'decision_result';
-  return 'workflow_result';
-}
-
-function getWorkflowHandoffTypeLabel(handoffType) {
-  const normalized = normalizeWorkflowHandoffType(handoffType);
-  if (normalized === 'verification_result') return '验收结果';
-  if (normalized === 'decision_result') return '再议结论';
-  return '结果转交';
-}
-
-function normalizeWorkflowConclusionSummary(value) {
-  if (typeof value !== 'string') return '';
-  const compact = value.replace(/\s+/g, ' ').trim();
-  return clipCompactionSection(compact, 280);
-}
-
-function normalizeWorkflowParallelTaskText(value, maxChars = 600) {
-  if (typeof value !== 'string') return '';
-  const compact = value.replace(/\s+/g, ' ').trim();
-  return compact ? clipCompactionSection(compact, maxChars) : '';
-}
-
-function normalizeWorkflowParallelTask(task = {}, index = 0) {
-  if (!task || typeof task !== 'object' || Array.isArray(task)) {
-    return null;
-  }
-  const title = normalizeWorkflowParallelTaskText(task.title || task.name || '', 120)
-    || `并行子任务 ${index + 1}`;
-  const taskText = normalizeWorkflowParallelTaskText(task.task || task.goal || task.summary || '', 600);
-  const boundary = normalizeWorkflowParallelTaskText(task.boundary || task.constraints || '', 400);
-  const repo = normalizeWorkflowParallelTaskText(task.repo || task.folder || task.project || '', 240);
-  if (!(title || taskText || boundary || repo)) {
-    return null;
-  }
-  return {
-    title,
-    ...(taskText ? { task: taskText } : {}),
-    ...(boundary ? { boundary } : {}),
-    ...(repo ? { repo } : {}),
-  };
-}
-
-function normalizeWorkflowParallelTasks(values = [], maxItems = 8) {
-  if (!Array.isArray(values)) return [];
-  return values
-    .map((value, index) => normalizeWorkflowParallelTask(value, index))
-    .filter(Boolean)
-    .slice(0, maxItems);
-}
-
-function extractParallelTasksFromConclusionText(value) {
-  if (typeof value !== 'string' || !value.trim()) return [];
-  const match = /<parallel_tasks>([\s\S]*?)<\/parallel_tasks>/iu.exec(value);
-  if (!match?.[1]) return [];
-  let raw = match[1].trim();
-  raw = raw.replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '').trim();
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    const tasks = Array.isArray(parsed)
-      ? parsed
-      : (Array.isArray(parsed?.parallelTasks)
-        ? parsed.parallelTasks
-        : (Array.isArray(parsed?.tasks) ? parsed.tasks : []));
-    return normalizeWorkflowParallelTasks(tasks);
-  } catch {
-    return [];
-  }
-}
-
-function stripParallelTasksFromConclusionText(value) {
-  if (typeof value !== 'string') return '';
-  return value
-    .replace(/<parallel_tasks>[\s\S]*?<\/parallel_tasks>/giu, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-function buildParallelTasksConclusionSummary(tasks = []) {
-  const normalized = normalizeWorkflowParallelTasks(tasks);
-  if (normalized.length === 0) return '';
-  const titles = normalized
-    .map((task) => task.title)
-    .filter(Boolean)
-    .slice(0, 3);
-  return `建议按 ${normalized.length} 条并行执行线推进${titles.length > 0 ? `：${titles.join('、')}` : ''}`;
-}
-
-function normalizeWorkflowConclusionList(values = [], maxItems = 12) {
-  if (!Array.isArray(values)) return [];
-  return values
-    .map((value) => normalizeWorkflowConclusionSummary(value))
-    .filter(Boolean)
-    .slice(0, maxItems);
-}
-
-function normalizeWorkflowDecisionConfidence(value) {
-  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (['high', 'medium', 'low'].includes(normalized)) return normalized;
-  return '';
-}
-
-function normalizeWorkflowVerificationRecommendation(value) {
-  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (['ok', 'needs_fix', 'needs_more_validation'].includes(normalized)) return normalized;
-  return '';
-}
-
-function normalizeWorkflowBooleanFlag(value) {
-  if (value === true) return true;
-  if (value === false) return false;
-  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (['true', 'yes', 'y', 'on', '1'].includes(normalized)) return true;
-  if (['false', 'no', 'n', 'off', '0'].includes(normalized)) return false;
-  return undefined;
-}
-
-function normalizeWorkflowConclusionPayload(payload = {}, handoffType = 'workflow_result') {
-  const normalizedType = normalizeWorkflowHandoffType(handoffType);
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return {};
-  }
-  if (normalizedType === 'verification_result') {
-    const summary = normalizeWorkflowConclusionSummary(payload.summary);
-    const recommendation = normalizeWorkflowVerificationRecommendation(payload.recommendation);
-    const confidence = normalizeWorkflowDecisionConfidence(payload.confidence);
-    const requiresHumanReview = normalizeWorkflowBooleanFlag(payload.requiresHumanReview);
-    const blockingIssues = normalizeWorkflowConclusionList(payload.blockingIssues || payload.blockers);
-    return {
-      ...(summary ? { summary } : {}),
-      validated: normalizeWorkflowConclusionList(payload.validated),
-      unverified: normalizeWorkflowConclusionList(payload.unverified),
-      findings: normalizeWorkflowConclusionList(payload.findings),
-      evidence: normalizeWorkflowConclusionList(payload.evidence),
-      ...(recommendation ? { recommendation } : {}),
-      ...(confidence ? { confidence } : {}),
-      ...(blockingIssues.length > 0 ? { blockingIssues } : {}),
-      ...(requiresHumanReview === true ? { requiresHumanReview: true } : {}),
-    };
-  }
-  if (normalizedType === 'decision_result') {
-    const confidence = normalizeWorkflowDecisionConfidence(payload.confidence);
-    const parallelTasks = normalizeWorkflowParallelTasks(
-      payload.parallelTasks || payload.parallel_tasks || payload.tasks || [],
-    );
-    return {
-      ...(normalizeWorkflowConclusionSummary(payload.recommendation || '')
-        ? { recommendation: normalizeWorkflowConclusionSummary(payload.recommendation || '') }
-        : {}),
-      rejectedOptions: normalizeWorkflowConclusionList(payload.rejectedOptions),
-      tradeoffs: normalizeWorkflowConclusionList(payload.tradeoffs),
-      decisionNeeded: normalizeWorkflowConclusionList(payload.decisionNeeded),
-      ...(parallelTasks.length > 0 ? { parallelTasks } : {}),
-      ...(confidence ? { confidence } : {}),
-    };
-  }
-  return {};
-}
-
-function isValidVerificationResultPayload(payload = {}) {
-  const normalized = normalizeWorkflowConclusionPayload(payload, 'verification_result');
-  const summary = typeof normalized.summary === 'string' ? normalized.summary.trim() : '';
-  const recommendation = normalizeWorkflowVerificationRecommendation(normalized.recommendation);
-  const confidence = normalizeWorkflowDecisionConfidence(normalized.confidence);
-  return summary.length > 0 && !!recommendation && !!confidence;
-}
-
-function shouldWorkflowVerificationRequireHumanReview(payload = {}, gatePolicy = 'low_confidence_only') {
-  const normalizedPolicy = normalizeGatePolicy(gatePolicy);
-  if (normalizedPolicy === 'always_manual') return true;
-  if (normalizedPolicy === 'final_confirm_only') return false;
-  const normalized = normalizeWorkflowConclusionPayload(payload, 'verification_result');
-  const confidence = normalizeWorkflowDecisionConfidence(normalized.confidence);
-  const recommendation = normalizeWorkflowVerificationRecommendation(normalized.recommendation);
-  if (normalized.requiresHumanReview === true) return true;
-  if (recommendation === 'needs_fix' || recommendation === 'needs_more_validation') return true;
-  if ((normalized.blockingIssues || []).length > 0) return true;
-  if ((normalized.unverified || []).length > 0) return true;
-  if ((normalized.findings || []).length > 0) return true;
-  if (confidence && confidence !== 'high') return true;
-  return false;
-}
-
-function canWorkflowVerificationAutoAbsorb(payload = {}, gatePolicy = 'low_confidence_only') {
-  const normalizedPolicy = normalizeGatePolicy(gatePolicy);
-  if (normalizedPolicy === 'always_manual') return false;
-  if (normalizedPolicy === 'final_confirm_only') return true;
-  const normalized = normalizeWorkflowConclusionPayload(payload, 'verification_result');
-  return !shouldWorkflowVerificationRequireHumanReview(normalized, normalizedPolicy)
-    && normalizeWorkflowDecisionConfidence(normalized.confidence) === 'high'
-    && normalizeWorkflowVerificationRecommendation(normalized.recommendation) === 'ok';
-}
-
-function shouldWorkflowDecisionRequireHumanReview(payload = {}, gatePolicy = 'low_confidence_only') {
-  const normalizedPolicy = normalizeGatePolicy(gatePolicy);
-  if (normalizedPolicy === 'always_manual') return true;
-  if (normalizedPolicy === 'final_confirm_only') return false;
-  const normalized = normalizeWorkflowConclusionPayload(payload, 'decision_result');
-  const confidence = normalizeWorkflowDecisionConfidence(normalized.confidence);
-  const recommendation = normalizeWorkflowConclusionSummary(normalized.recommendation || '');
-  if (!recommendation) return true;
-  if (!confidence || confidence !== 'high') return true;
-  return false;
-}
-
-function canWorkflowDecisionAutoAbsorb(payload = {}, gatePolicy = 'low_confidence_only') {
-  const normalizedPolicy = normalizeGatePolicy(gatePolicy);
-  if (normalizedPolicy === 'always_manual') return false;
-  if (normalizedPolicy === 'final_confirm_only') return true;
-  const normalized = normalizeWorkflowConclusionPayload(payload, 'decision_result');
-  return !shouldWorkflowDecisionRequireHumanReview(normalized, normalizedPolicy)
-    && normalizeWorkflowDecisionConfidence(normalized.confidence) === 'high'
-    && !!normalizeWorkflowConclusionSummary(normalized.recommendation || '');
-}
-
-function normalizeWorkflowRiskSignalKeywords(keywords = WORKFLOW_RISK_SIGNAL_KEYWORDS) {
-  return (Array.isArray(keywords) ? keywords : [])
-    .map((keyword) => (typeof keyword === 'string' ? keyword.trim() : ''))
-    .filter(Boolean);
-}
-
-function detectWorkflowRiskSignalMatches(text = '', keywords = WORKFLOW_RISK_SIGNAL_KEYWORDS) {
-  const content = typeof text === 'string' ? text.trim() : '';
-  if (!content) return [];
-  const haystack = content.toLowerCase();
-  const matches = [];
-  for (const keyword of normalizeWorkflowRiskSignalKeywords(keywords)) {
-    const needle = keyword.toLowerCase();
-    if (!needle || !haystack.includes(needle)) continue;
-    matches.push(keyword);
-  }
-  return matches;
-}
-
-function summarizeWorkflowRiskSignals(matches = []) {
-  const unique = [];
-  const seen = new Set();
-  for (const match of Array.isArray(matches) ? matches : []) {
-    const normalized = typeof match === 'string' ? match.trim() : '';
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    unique.push(normalized);
-  }
-  return unique.join('、');
-}
-
-export async function detectRunRiskSignals(session, runId) {
-  const sessionId = typeof session?.id === 'string' ? session.id.trim() : '';
-  const normalizedRunId = typeof runId === 'string' ? runId.trim() : '';
-  if (!sessionId || !normalizedRunId) {
-    return { hasRiskSignals: false, matches: [], content: '' };
-  }
-  const assistantMessage = await findLatestAssistantMessageForRun(sessionId, normalizedRunId);
-  const content = typeof assistantMessage?.content === 'string' ? assistantMessage.content.trim() : '';
-  const matches = detectWorkflowRiskSignalMatches(content);
-  return {
-    hasRiskSignals: matches.length > 0,
-    matches,
-    content,
-  };
-}
-
-function resolveWorkflowSuggestionStage(session, suggestionType) {
-  const executor = getWorkflowSubstageExecutorBySuggestionType(suggestionType);
-  if (!executor) return null;
-  const currentStage = getCurrentWorkflowStage(session);
-  if (currentStage?.role === executor.role) {
-    return currentStage;
-  }
-  const nextStage = getNextWorkflowStage(session);
-  if (nextStage?.stage?.role === executor.role) {
-    return nextStage.stage;
-  }
-  if (!normalizeWorkflowDefinition(session?.workflowDefinition) && executor.role === 'verify') {
-    return { role: 'verify', terminal: false };
-  }
-  return null;
-}
-
-export function shouldAutoAdvanceWorkflowStage(session, suggestionType, options = {}) {
-  const stage = resolveWorkflowSuggestionStage(session, suggestionType);
-  if (!stage) return false;
-  if (stage.terminal === true) return false;
-  if (options?.hasRiskSignals === true) return false;
-  const normalizedPolicy = normalizeGatePolicy(getWorkflowGatePolicy(session));
-  if (normalizedPolicy === 'always_manual') return false;
-  return normalizedPolicy === 'low_confidence_only' || normalizedPolicy === 'final_confirm_only';
-}
-
-function shouldWorkflowConclusionAutoAccept(handoffType, handoffPayload = {}, options = {}) {
-  if (normalizeWorkflowConclusionStatus(options.initialStatus || '') !== 'pending') return false;
-  if (options?.hasRiskSignals === true) return false;
-  const normalizedType = normalizeWorkflowHandoffType(handoffType || '');
-  if (normalizedType === 'verification_result') {
-    const normalized = normalizeWorkflowConclusionPayload(handoffPayload, normalizedType);
-    return normalizeWorkflowDecisionConfidence(normalized.confidence) === 'high'
-      && normalizeWorkflowVerificationRecommendation(normalized.recommendation) === 'ok';
-  }
-  if (normalizedType === 'decision_result') {
-    const normalized = normalizeWorkflowConclusionPayload(handoffPayload, normalizedType);
-    return normalizeWorkflowDecisionConfidence(normalized.confidence) === 'high'
-      && !!normalizeWorkflowConclusionSummary(normalized.recommendation || '');
-  }
-  return false;
-}
-
-function normalizeWorkflowPendingConclusion(conclusion = {}) {
-  const id = typeof conclusion?.id === 'string' && conclusion.id.trim()
-    ? conclusion.id.trim()
-    : generateId();
-  const sourceSessionId = typeof conclusion?.sourceSessionId === 'string'
-    ? conclusion.sourceSessionId.trim()
-    : '';
-  const sourceSessionName = typeof conclusion?.sourceSessionName === 'string'
-    ? conclusion.sourceSessionName.trim()
-    : '';
-  const handoffKind = typeof conclusion?.handoffKind === 'string' && conclusion.handoffKind.trim()
-    ? conclusion.handoffKind.trim()
-    : 'workflow';
-  const handoffType = normalizeWorkflowHandoffType(conclusion?.handoffType || '', handoffKind);
-  const label = typeof conclusion?.label === 'string' && conclusion.label.trim()
-    ? conclusion.label.trim()
-    : getWorkflowHandoffTypeLabel(handoffType);
-  const summary = normalizeWorkflowConclusionSummary(conclusion?.summary || '');
-  const status = normalizeWorkflowConclusionStatus(conclusion?.status || '');
-  const round = Number.isInteger(conclusion?.round) && conclusion.round > 0
-    ? conclusion.round
-    : 1;
-  const supersedesHandoffId = typeof conclusion?.supersedesHandoffId === 'string' && conclusion.supersedesHandoffId.trim()
-    ? conclusion.supersedesHandoffId.trim()
-    : '';
-  const createdAt = typeof conclusion?.createdAt === 'string' && conclusion.createdAt.trim()
-    ? conclusion.createdAt.trim()
-    : nowIso();
-  const handledAt = typeof conclusion?.handledAt === 'string' && conclusion.handledAt.trim()
-    ? conclusion.handledAt.trim()
-    : '';
-  const eventSeq = Number.isInteger(conclusion?.eventSeq) ? conclusion.eventSeq : undefined;
-  const payload = normalizeWorkflowConclusionPayload(conclusion?.payload || {}, handoffType);
-  return {
-    id,
-    sourceSessionId,
-    sourceSessionName,
-    handoffKind,
-    handoffType,
-    label,
-    summary,
-    status,
-    round,
-    createdAt,
-    ...(supersedesHandoffId ? { supersedesHandoffId } : {}),
-    ...(handledAt ? { handledAt } : {}),
-    ...(eventSeq !== undefined ? { eventSeq } : {}),
-    ...(Object.keys(payload).length > 0 ? { payload } : {}),
-  };
-}
-
-function normalizeWorkflowPendingConclusions(conclusions = []) {
-  if (!Array.isArray(conclusions)) return [];
-  return conclusions
-    .map((item) => normalizeWorkflowPendingConclusion(item))
-    .filter((item) => item.summary)
-    .slice(-20);
-}
-
-function normalizeWorkflowSuggestionType(value) {
-  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (normalized === 'suggest_verification') return normalized;
-  if (normalized === 'suggest_decision') return normalized;
-  return '';
-}
-
-function normalizeWorkflowSuggestionStatus(value) {
-  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (normalized === 'pending') return normalized;
-  return '';
-}
-
-function normalizeWorkflowSuggestion(suggestion = {}) {
-  if (!suggestion || typeof suggestion !== 'object' || Array.isArray(suggestion)) return null;
-  const type = normalizeWorkflowSuggestionType(suggestion.type || '');
-  if (!type) return null;
-  const status = normalizeWorkflowSuggestionStatus(suggestion.status || '');
-  if (!status) return null;
-  const runId = typeof suggestion.runId === 'string' ? suggestion.runId.trim() : '';
-  const createdAt = typeof suggestion.createdAt === 'string' && suggestion.createdAt.trim()
-    ? suggestion.createdAt.trim()
-    : nowIso();
-  return {
-    type,
-    status,
-    ...(runId ? { runId } : {}),
-    createdAt,
-  };
-}
-
-function getActiveWorkflowSuggestion(session) {
-  const normalized = normalizeWorkflowSuggestion(session?.workflowSuggestion || null);
-  if (!normalized || normalized.status !== 'pending') return null;
-  return normalized;
-}
-
-function hasOpenWorkflowConclusionOfType(session, handoffType) {
-  const normalizedType = normalizeWorkflowHandoffType(handoffType || '');
-  if (!normalizedType) return false;
-  const conclusions = normalizeWorkflowPendingConclusions(session?.workflowPendingConclusions || []);
-  return conclusions.some((entry) => {
-    const status = normalizeWorkflowConclusionStatus(entry?.status || '');
-    const type = normalizeWorkflowHandoffType(entry?.handoffType || '', entry?.handoffKind || '');
-    return ['pending', 'needs_decision'].includes(status) && type === normalizedType;
+  const suggestionDone = triggerSessionWorkflowStateSuggestion({
+    id: session.id,
+    folder: session.folder,
+    name: session.name || '',
+    group: session.group || '',
+    description: session.description || '',
+    workflowState: session.workflowState || '',
+    workflowPriority: session.workflowPriority || '',
+    tool: run.tool || session.tool,
+    model: run.model || undefined,
+    thinking: false,
+    runState: run.state,
+    queuedCount: getSessionQueueCount(session),
   });
-}
 
-export function isWorkflowAuxiliaryMessage(event) {
-  return event?.type === 'message'
-    && event?.role === 'assistant'
-    && ['session_delegate_notice', 'workflow_handoff_notice', 'workflow_handoff'].includes(event?.messageKind || '');
-}
+  suggestionDone.then(async (result) => {
+    const nextWorkflowState = normalizeSessionWorkflowState(result?.workflowState || '');
+    const nextWorkflowPriority = normalizeSessionWorkflowPriority(result?.workflowPriority || '');
+    if (!nextWorkflowState && !nextWorkflowPriority) return;
+    await updateSessionWorkflowClassification(session.id, {
+      workflowState: nextWorkflowState,
+      workflowPriority: nextWorkflowPriority,
+    });
+  }).catch((error) => {
+    console.error(`[workflow-state] Failed to update workflow state for ${session.id?.slice(0, 8)}: ${error.message}`);
+  });
 
-function findLatestAssistantConclusion(history = []) {
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    const event = history[index];
-    if (event?.type !== 'message' || event?.role !== 'assistant') continue;
-    if (isWorkflowAuxiliaryMessage(event)) continue;
-    if (typeof event?.content === 'string' && event.content.trim()) {
-      return event;
-    }
-  }
-  return null;
-}
-
-function buildWorkflowHandoffMessage({ source, handoffKind, handoffType, conclusion }) {
-  const sourceName = typeof source?.name === 'string' && source.name.trim()
-    ? source.name.trim()
-    : '辅助会话';
-  const sourceLink = `[${sourceName}](${buildSessionNavigationHref(source?.id || '')})`;
-  const resolvedType = normalizeWorkflowHandoffType(handoffType || '', handoffKind || '');
-  return [
-    `### ${getWorkflowHandoffTypeLabel(resolvedType)}`,
-    `- 来源会话：${sourceLink}`,
-    '',
-    getWorkflowHandoffTypeIntro(resolvedType),
-    '',
-    conclusion,
-  ].filter(Boolean).join('\n');
-}
-
-export function normalizeSessionAppName(value) {
-  if (typeof value !== 'string') return '';
-  return value.trim().replace(/\s+/g, ' ');
+  return true;
 }

@@ -391,11 +391,14 @@ async function main() {
     assert.equal(sessionHttpAsset.status, 200, 'session http asset should load');
     const chatIslandAsset = await request(port, 'GET', '/chat-island/chat-chrome.js');
     assert.equal(chatIslandAsset.status, 200, 'chat chrome island asset should load');
-    assert.match(chatIslandAsset.text, /remotelab:workflow-intake-open/);
-    assert.match(chatIslandAsset.text, /launchFromText/);
+    assert.match(chatIslandAsset.text, /remotelab:workflow-task-open/);
+    assert.match(chatIslandAsset.text, /openWorkflowTaskDialog/);
+    assert.doesNotMatch(chatIslandAsset.text, /remotelab:workflow-intake-open/);
+    assert.doesNotMatch(chatIslandAsset.text, /launchFromText/);
     const chatIslandStylesheet = await request(port, 'GET', '/chat-island/chat-chrome.css');
     assert.equal(chatIslandStylesheet.status, 200, 'chat chrome island stylesheet should load');
     assert.doesNotMatch(chatIslandStylesheet.text, /workflowTaskEntryRoot/);
+    assert.doesNotMatch(chatIslandStylesheet.text, /workflowIntakePanelRoot/);
     const bootstrapCatalogAsset = await request(port, 'GET', '/chat/bootstrap-session-catalog.js');
     assert.equal(bootstrapCatalogAsset.status, 200, 'bootstrap session catalog asset should load');
     assert.match(bootstrapCatalogAsset.text, /function getEffectiveSessionAppId\(/);

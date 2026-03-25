@@ -57,18 +57,10 @@ const normalizeWorkflowTaskTextSource = extractFunctionSource(bootstrapSource, '
 const buildWorkflowTaskSessionNameSource = extractFunctionSource(bootstrapSource, 'buildWorkflowTaskSessionName');
 const createWorkflowTaskSessionSource = extractFunctionSource(bootstrapSource, 'createWorkflowTaskSession');
 const classifyWorkflowTaskSource = extractFunctionSource(bootstrapSource, 'classifyWorkflowTask');
-const normalizeWorkflowTaskInputSource = extractFunctionSource(bootstrapSource, 'normalizeWorkflowTaskInput');
-const buildWorkflowAssessmentSignalSource = extractFunctionSource(bootstrapSource, 'buildWorkflowAssessmentSignal');
-const normalizeWorkflowModeKeySource = extractFunctionSource(bootstrapSource, 'normalizeWorkflowModeKey');
-const mapWorkflowModeToComplexityLevelSource = extractFunctionSource(bootstrapSource, 'mapWorkflowModeToComplexityLevel');
-const shouldWorkflowAutoConfirmSimpleTaskSource = extractFunctionSource(bootstrapSource, 'shouldWorkflowAutoConfirmSimpleTask');
-const buildWorkflowIntakeQuestionSource = extractFunctionSource(bootstrapSource, 'buildWorkflowIntakeQuestion');
-const assessWorkflowTaskCompletenessSource = extractFunctionSource(bootstrapSource, 'assessWorkflowTaskCompleteness');
+const getWorkflowTaskSeedInputSource = extractFunctionSource(bootstrapSource, 'getWorkflowTaskSeedInput');
+const ensureWorkflowTaskAppsLoadedSource = extractFunctionSource(bootstrapSource, 'ensureWorkflowTaskAppsLoaded');
 const canStartWorkflowOnAttachedSessionSource = extractFunctionSource(bootstrapSource, 'canStartWorkflowOnAttachedSession');
-const canStartWorkflowFromComposerContextSource = extractFunctionSource(bootstrapSource, 'canStartWorkflowFromComposerContext');
 const startWorkflowOnAttachedSessionSource = extractFunctionSource(bootstrapSource, 'startWorkflowOnAttachedSession');
-const confirmWorkflowIntakeOnAttachedSessionSource = extractFunctionSource(bootstrapSource, 'confirmWorkflowIntakeOnAttachedSession');
-const cancelWorkflowIntakeOnAttachedSessionSource = extractFunctionSource(bootstrapSource, 'cancelWorkflowIntakeOnAttachedSession');
 const workflowBridgeSource = sliceBetween(
   bootstrapSource,
   'window.remotelabWorkflowBridge = {',
@@ -79,7 +71,6 @@ function createContext({ currentSession = null, responses = {} } = {}) {
   const fetchCalls = [];
   const attachCalls = [];
   const renderCalls = [];
-  const toastCalls = [];
   const upsertedSessions = new Map();
   const localStorage = {
     values: new Map(),
@@ -103,7 +94,6 @@ function createContext({ currentSession = null, responses = {} } = {}) {
     fetchCalls,
     attachCalls,
     renderCalls,
-    toastCalls,
     availableApps: [],
     preferredTool: 'codex',
     selectedTool: 'claude',
@@ -116,9 +106,7 @@ function createContext({ currentSession = null, responses = {} } = {}) {
     closeSidebarFn() {
       throw new Error('closeSidebarFn should not be used in this test');
     },
-    showAppToast(message, tone) {
-      toastCalls.push({ message, tone });
-    },
+    showAppToast() {},
     resolveSelectedSessionPrincipal() {
       return { kind: 'admin', userId: 'admin-user' };
     },
@@ -164,18 +152,10 @@ async function main() {
     buildWorkflowTaskSessionNameSource,
     createWorkflowTaskSessionSource,
     classifyWorkflowTaskSource,
-    normalizeWorkflowTaskInputSource,
-    buildWorkflowAssessmentSignalSource,
-    normalizeWorkflowModeKeySource,
-    mapWorkflowModeToComplexityLevelSource,
-    shouldWorkflowAutoConfirmSimpleTaskSource,
-    buildWorkflowIntakeQuestionSource,
-    assessWorkflowTaskCompletenessSource,
+    getWorkflowTaskSeedInputSource,
+    ensureWorkflowTaskAppsLoadedSource,
     canStartWorkflowOnAttachedSessionSource,
-    canStartWorkflowFromComposerContextSource,
     startWorkflowOnAttachedSessionSource,
-    confirmWorkflowIntakeOnAttachedSessionSource,
-    cancelWorkflowIntakeOnAttachedSessionSource,
     workflowBridgeSource,
   ].join('\n\n');
 
@@ -209,16 +189,10 @@ async function main() {
     JSON.parse(attachedContext.fetchCalls[0].options.body),
     {
       input: { goal: '修复移动端登录按钮', project: '/repo/app' },
-      workflowCurrentTask: '修复移动端登录按钮',
+      currentTask: '修复移动端登录按钮',
       kickoffMessage: '开始执行',
     },
-    'attached-session workflow starts should only send generic kickoff fields to the server',
-  );
-  assert.ok(
-    !attachedContext.fetchCalls[0].options.body.includes('careful_deliberation')
-      && !attachedContext.fetchCalls[0].options.body.includes('always_pause')
-      && !attachedContext.fetchCalls[0].options.body.includes('再议'),
-    'frontend preview data should not leak into the server-authoritative workflow start payload',
+    'attached-session workflow starts should only send currentTask and kickoff fields to the server',
   );
   assert.equal(attachedResult?.session?.id, 'session-current');
   assert.equal(attachedContext.attachCalls.length, 1, 'attached sessions should re-attach the updated session once');
@@ -234,7 +208,7 @@ async function main() {
         session: { id: 'session-new', name: '任务 · 修复移动端登录按钮', folder: '/repo/app' },
       },
       '/api/sessions/session-new/workflow/start': {
-        session: { id: 'session-new', name: '任务 · 修复移动端登录按钮', appName: '再议' },
+        session: { id: 'session-new', name: '任务 · 修复移动端登录按钮', appName: '执行' },
         run: { id: 'run-new' },
       },
     },
@@ -264,158 +238,81 @@ async function main() {
       worktree: true,
       userId: 'admin-user',
     },
-    'new task sessions should be created with a generic task shell before the server picks a workflow route',
+    'new task sessions should still be created as generic task shells',
   );
   assert.equal(createdContext.fetchCalls[1].url, '/api/sessions/session-new/workflow/start');
   assert.deepEqual(
     JSON.parse(createdContext.fetchCalls[1].options.body),
     {
       input: { goal: '修复移动端登录按钮', project: '/repo/app' },
-      workflowCurrentTask: '修复移动端登录按钮',
+      currentTask: '修复移动端登录按钮',
       kickoffMessage: '开始执行',
     },
-    'new-session workflow starts should also defer route selection to the backend',
+    'new-session workflow starts should also send currentTask instead of legacy workflowCurrentTask',
   );
   assert.equal(createdContext.attachCalls.length, 2, 'new task sessions should attach once after creation and once after workflow start');
   assert.equal(createdContext.renderCalls.length, 2, 'new task sessions should refresh the list after creation and workflow start');
   assert.equal(createdResult?.run?.id, 'run-new');
 
-  const classifyContext = createContext({
-    responses: {
-      '/api/workflow/classify?text=%E6%A0%B9%E6%8D%AE+Figma+%E8%AE%BE%E8%AE%A1%E7%A8%BF%E9%87%8D%E6%9E%84%E6%90%9C%E7%B4%A2%E9%A1%B5&folder=%2Frepo%2Fapp': {
-        mode: 'careful_deliberation',
-        confidence: 'high',
-        reason: '检测到设计稿输入，适合先收敛方向',
-      },
-    },
-  });
+  const classifyContext = createContext();
   vm.runInNewContext(script, classifyContext, { filename: 'static/chat/bootstrap.js' });
-
   const classified = await classifyContext.window.remotelabWorkflowBridge.classifyTask({
     text: '根据 Figma 设计稿重构搜索页',
     folder: '/repo/app',
   });
-  assert.deepEqual(classified, {
-    mode: 'careful_deliberation',
-    confidence: 'high',
-    reason: '检测到设计稿输入，适合先收敛方向',
-  }, 'workflow bridge classifyTask should proxy the server classification response');
-  assert.equal(
-    classifyContext.fetchCalls[0]?.url,
-    '/api/workflow/classify?text=%E6%A0%B9%E6%8D%AE+Figma+%E8%AE%BE%E8%AE%A1%E7%A8%BF%E9%87%8D%E6%9E%84%E6%90%9C%E7%B4%A2%E9%A1%B5&folder=%2Frepo%2Fapp',
-    'workflow bridge classifyTask should call the unified server-side route preview endpoint',
-  );
-
-  const assessmentContext = createContext({
-    responses: {
-      '/api/workflow/classify?text=%E9%87%8D%E6%9E%84%E8%AE%A4%E8%AF%81%E6%A8%A1%E5%9D%97&folder=%2Frepo%2Fapp': {
-        mode: 'careful_deliberation',
-        confidence: 'high',
-        reason: '涉及核心鉴权链路',
-      },
-    },
-  });
-  vm.runInNewContext(script, assessmentContext, { filename: 'static/chat/bootstrap.js' });
-  const assessment = await assessmentContext.window.remotelabWorkflowBridge.assessCompleteness({
-    input: { goal: '重构认证模块', project: '/repo/app' },
-  });
-  assert.equal(assessment.complete, false, 'workflow bridge assessCompleteness should block incomplete high-complexity tasks');
-  assert.deepEqual([...assessment.missingFields], ['constraints'], 'high-complexity tasks should require explicit constraints');
-  assert.equal(assessment.complexityLevel, 'high');
-  assert.equal(assessment.reason, '涉及核心鉴权链路');
-  assert.equal(assessment.autoConfirm, false);
   assert.deepEqual(
-    JSON.parse(JSON.stringify(assessment.classification)),
+    JSON.parse(JSON.stringify(classified)),
     {
-      mode: 'careful_deliberation',
+      mode: 'standard_delivery',
       confidence: 'high',
-      reason: '涉及核心鉴权链路',
+      reason: '',
     },
-    'workflow bridge assessCompleteness should preserve the server classification payload',
+    'workflow bridge classifyTask should use the local simplified default classifier',
   );
-  assert.equal(
-    assessment.suggestedQuestion,
-    '这件事看起来复杂度较高（涉及核心鉴权链路）。开始前请补一句边界/不能动的地方；如无特殊要求可直接回复“无”。',
-    'workflow bridge assessCompleteness should return a user-facing follow-up question',
-  );
+  assert.equal(classifyContext.fetchCalls.length, 0, 'simplified classifyTask should not hit a server route');
 
-  const lowIntentAssessmentContext = createContext({
-    responses: {
-      '/api/workflow/classify?text=%E4%BD%A0%E5%A5%BD': {
-        mode: '',
-        confidence: 'low',
-        reason: '',
-      },
-    },
-  });
-  vm.runInNewContext(script, lowIntentAssessmentContext, { filename: 'static/chat/bootstrap.js' });
-  const lowIntentAssessment = await lowIntentAssessmentContext.window.remotelabWorkflowBridge.assessCompleteness({
-    input: { goal: '你好' },
-  });
-  assert.equal(lowIntentAssessment.intentConfident, false, 'low-confidence non-task messages should not count as workflow intent');
-  assert.equal(lowIntentAssessment.autoConfirm, false, 'low-confidence non-task messages should never auto-confirm');
-  assert.equal(lowIntentAssessment.classification, null, 'low-confidence non-task messages should not retain a workflow classification');
-
-  const intakeActionContext = createContext({
+  const bridgeShapeContext = createContext({
     currentSession: {
-      id: 'session-current',
+      id: 'session-seed',
       archived: false,
+      folder: '/repo/app',
+      name: '修复移动端登录按钮',
       activity: { run: { state: 'idle' } },
     },
-    responses: {
-      '/api/sessions/session-current/workflow/intake/confirm': {
-        session: { id: 'session-current', name: '当前会话', pendingIntake: false, appName: '执行' },
-        run: { id: 'run-intake-confirm' },
-      },
-      '/api/sessions/session-current/workflow/intake/cancel': {
-        session: { id: 'session-current', name: '当前会话', pendingIntake: false },
-      },
-    },
   });
-  vm.runInNewContext(script, intakeActionContext, { filename: 'static/chat/bootstrap.js' });
-  const confirmed = await intakeActionContext.window.remotelabWorkflowBridge.confirmIntake({
-    input: { goal: '重构认证模块', constraints: '不改数据库 schema' },
-  });
-  assert.equal(
-    intakeActionContext.fetchCalls[0]?.url,
-    '/api/sessions/session-current/workflow/intake/confirm',
-    'workflow bridge confirmIntake should use the dedicated intake confirm endpoint',
-  );
+  vm.runInNewContext(script, bridgeShapeContext, { filename: 'static/chat/bootstrap.js' });
   assert.deepEqual(
-    JSON.parse(intakeActionContext.fetchCalls[0].options.body),
+    JSON.parse(JSON.stringify(bridgeShapeContext.window.remotelabWorkflowBridge.getSeedInput())),
     {
-      input: { goal: '重构认证模块', project: '', constraints: '不改数据库 schema', progress: '', concern: '', preference: '' },
+      goal: '修复移动端登录按钮',
+      project: '/repo/app',
     },
-    'workflow bridge confirmIntake should normalize and submit the edited intake payload',
+    'workflow bridge should still expose the explicit task-form seed input',
   );
-  assert.equal(confirmed?.run?.id, 'run-intake-confirm');
-
-  const cancelled = await intakeActionContext.window.remotelabWorkflowBridge.cancelIntake();
   assert.equal(
-    intakeActionContext.fetchCalls[1]?.url,
-    '/api/sessions/session-current/workflow/intake/cancel',
-    'workflow bridge cancelIntake should use the dedicated intake cancel endpoint',
+    typeof bridgeShapeContext.window.remotelabWorkflowBridge.assessCompleteness,
+    'undefined',
+    'simplified workflow bridge should no longer expose intake completeness helpers',
   );
-  assert.equal(cancelled?.pendingIntake, false);
-
   assert.equal(
-    assessmentContext.window.remotelabWorkflowBridge.canStartFromComposer(),
-    true,
-    'composer intake should be allowed when there is no attached session',
+    typeof bridgeShapeContext.window.remotelabWorkflowBridge.canStartFromComposer,
+    'undefined',
+    'simplified workflow bridge should no longer expose composer auto-start helpers',
   );
-
-  const busyComposerContext = createContext({
-    currentSession: {
-      id: 'session-running',
-      archived: false,
-      activity: { run: { state: 'running' } },
-    },
-  });
-  vm.runInNewContext(script, busyComposerContext, { filename: 'static/chat/bootstrap.js' });
   assert.equal(
-    busyComposerContext.window.remotelabWorkflowBridge.canStartFromComposer(),
-    false,
-    'composer intake should not hijack sessions that already have a running workflow',
+    typeof bridgeShapeContext.window.remotelabWorkflowBridge.getSimpleTaskAutoConfirm,
+    'undefined',
+    'simplified workflow bridge should no longer expose intake auto-confirm flags',
+  );
+  assert.equal(
+    typeof bridgeShapeContext.window.remotelabWorkflowBridge.confirmIntake,
+    'undefined',
+    'simplified workflow bridge should no longer expose legacy intake confirm actions',
+  );
+  assert.equal(
+    typeof bridgeShapeContext.window.remotelabWorkflowBridge.cancelIntake,
+    'undefined',
+    'simplified workflow bridge should no longer expose legacy intake cancel actions',
   );
 
   console.log('test-chat-workflow-bridge: ok');

@@ -83,20 +83,6 @@ function renderEvent(evt, autoScroll) {
     case "message":
       rendered = true;
       renderMessage(evt);
-      if (
-        evt?.role === "assistant"
-        && evt?.metadata?.workflowIntake
-        && typeof window !== "undefined"
-        && typeof window.dispatchEvent === "function"
-        && typeof CustomEvent === "function"
-      ) {
-        window.dispatchEvent(new CustomEvent("remotelab:workflow-intake-message", {
-          detail: {
-            message: evt,
-            metadata: evt.metadata,
-          },
-        }));
-      }
       break;
     case "workflow_metric":
       rendered = false;

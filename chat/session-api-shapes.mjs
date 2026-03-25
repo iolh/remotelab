@@ -19,20 +19,35 @@ function stripSessionShape(session, {
 export function createSessionListItem(session) {
   const item = stripSessionShape(session, { includeQueuedMessages: false });
   if (!item) return null;
-  item.workflowAutoTriggerDisabled = item.workflowAutoTriggerDisabled === true;
-  item.pendingIntake = item.pendingIntake === true;
+  item.currentTask = typeof item.currentTask === 'string'
+    ? item.currentTask
+    : (typeof item.workflowCurrentTask === 'string' ? item.workflowCurrentTask : '');
+  delete item.workflowCurrentTask;
+  delete item.workflowDefinition;
+  delete item.workflowTaskContract;
+  delete item.workflowAutoRoute;
+  delete item.workflowTaskTrace;
+  delete item.workflowTraceBridge;
+  delete item.workflowMode;
+  delete item.workflowAutoTriggerDisabled;
+  delete item.pendingIntake;
   return item;
 }
 
 export function createSessionDetail(session) {
   const detail = stripSessionShape(session, { includeQueuedMessages: true });
   if (!detail) return null;
-  detail.workflowDefinition = detail.workflowDefinition || null;
-  detail.workflowTaskContract = detail.workflowTaskContract || null;
-  detail.workflowAutoRoute = detail.workflowAutoRoute || null;
-  detail.workflowTaskTrace = detail.workflowTaskTrace || null;
-  detail.workflowTraceBridge = detail.workflowTraceBridge || null;
-  detail.workflowAutoTriggerDisabled = detail.workflowAutoTriggerDisabled === true;
-  detail.pendingIntake = detail.pendingIntake === true;
+  detail.currentTask = typeof detail.currentTask === 'string'
+    ? detail.currentTask
+    : (typeof detail.workflowCurrentTask === 'string' ? detail.workflowCurrentTask : '');
+  delete detail.workflowCurrentTask;
+  delete detail.workflowDefinition;
+  delete detail.workflowTaskContract;
+  delete detail.workflowAutoRoute;
+  delete detail.workflowTaskTrace;
+  delete detail.workflowTraceBridge;
+  delete detail.workflowMode;
+  delete detail.workflowAutoTriggerDisabled;
+  delete detail.pendingIntake;
   return detail;
 }

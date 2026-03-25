@@ -106,11 +106,11 @@ console.log(JSON.stringify({ type: 'turn.started' }));
 setTimeout(() => {
   console.log(JSON.stringify({
     type: 'item.completed',
-    item: { type: 'agent_message', text: 'done' }
+    item: { type: 'agent_message', text: 'done' },
   }));
   console.log(JSON.stringify({
     type: 'turn.completed',
-    usage: { input_tokens: 1, output_tokens: 1 }
+    usage: { input_tokens: 1, output_tokens: 1 },
   }));
 }, 30);
 `,
@@ -131,7 +131,9 @@ async function startServer({ home, port }) {
   await waitFor(async () => {
     try {
       return (await request(port, 'GET', '/api/auth/me')).status === 200;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }, 'server startup');
   return { child, getStderr: () => stderr };
 }
@@ -144,7 +146,9 @@ async function stopServer(server) {
 
 async function createSession(port, name) {
   const res = await request(port, 'POST', '/api/sessions', {
-    folder: repoRoot, tool: 'fake-codex', name,
+    folder: repoRoot,
+    tool: 'fake-codex',
+    name,
   });
   assert.equal(res.status, 201);
   return res.json.session;
@@ -158,7 +162,11 @@ async function patchSession(port, sessionId, patch) {
 
 async function submitMessage(port, sessionId, requestId, text) {
   const res = await request(port, 'POST', `/api/sessions/${sessionId}/messages`, {
-    requestId, text, tool: 'fake-codex', model: 'fake-model', effort: 'low',
+    requestId,
+    text,
+    tool: 'fake-codex',
+    model: 'fake-model',
+    effort: 'low',
   });
   assert.ok(res.status === 200 || res.status === 202);
   return res;
@@ -190,8 +198,8 @@ async function main() {
   const server = await startServer({ home, port });
 
   try {
-    // ---- Test 1: managed ON → prompt should be wrapped ----
-    const session = await createSession(port, 'Managed ON');
+    const session = await createSession(port, 'Managed prompt');
+
     const managedRes = await submitMessage(port, session.id, 'req-managed', 'hello managed');
     const managedRun = await waitForRunTerminal(port, managedRes.json?.run?.id);
     assert.ok(managedRun, 'managed run should complete');
@@ -211,50 +219,40 @@ async function main() {
     );
 
     const managedEvents = await getEvents(port, session.id);
-    const managedManagerCtx = managedEvents.filter((e) => e.type === 'manager_context');
-    assert.ok(
-      managedManagerCtx.length > 0,
-      'managed mode should record manager_context events',
+    const managedManagerCtx = managedEvents.filter((event) => event.type === 'manager_context');
+    assert.ok(managedManagerCtx.length > 0, 'managed mode should record manager_context events');
+
+    const ignoredPatch = await patchSession(port, session.id, { workflowAutoTriggerDisabled: true });
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(ignoredPatch, 'workflowAutoTriggerDisabled'),
+      false,
+      'workflowAutoTriggerDisabled should no longer persist on session detail',
     );
 
-    // ---- Test 2: managed OFF → prompt should be bare ----
-    const optOut = await patchSession(port, session.id, { workflowAutoTriggerDisabled: true });
-    assert.equal(optOut.workflowAutoTriggerDisabled, true);
+    const stillManagedRes = await submitMessage(port, session.id, 'req-still-managed', 'hello still managed');
+    const stillManagedRun = await waitForRunTerminal(port, stillManagedRes.json?.run?.id);
+    assert.ok(stillManagedRun, 'follow-up run should complete');
 
-    const bareRes = await submitMessage(port, session.id, 'req-bare', 'hello bare');
-    const bareRun = await waitForRunTerminal(port, bareRes.json?.run?.id);
-    assert.ok(bareRun, 'bare run should complete');
-
-    const bareManifest = readRunManifest(configDir, bareRun.id);
+    const stillManagedManifest = readRunManifest(configDir, stillManagedRun.id);
     assert.ok(
-      !bareManifest.prompt.includes('Turn activation'),
-      'bare prompt must NOT contain turn activation card',
+      stillManagedManifest.prompt.includes('Turn activation'),
+      'ignored workflowAutoTriggerDisabled patches must not disable managed prompt wrapping',
     );
     assert.ok(
-      !bareManifest.prompt.includes('Manager note'),
-      'bare prompt must NOT contain manager note',
+      stillManagedManifest.prompt.includes('hello still managed'),
+      'managed prompt should still include the user text after ignored patches',
     );
-    assert.ok(
-      !bareManifest.prompt.includes('Memory System'),
-      'bare prompt must NOT contain system context sections',
+
+    const stillManagedEvents = await getEvents(port, session.id);
+    const stillManagedManagerCtx = stillManagedEvents.filter(
+      (event) => event.type === 'manager_context' && event.requestId === 'req-still-managed',
     );
     assert.equal(
-      bareManifest.prompt.trim(),
-      'hello bare',
-      'bare prompt should be exactly the user text',
+      stillManagedManagerCtx.length,
+      1,
+      'manager_context events should continue to be emitted after ignored opt-out patches',
     );
 
-    const bareEvents = await getEvents(port, session.id);
-    const postOptOutManagerCtx = bareEvents.filter(
-      (e) => e.type === 'manager_context' && e.requestId === 'req-bare',
-    );
-    assert.equal(
-      postOptOutManagerCtx.length,
-      0,
-      'bare mode must NOT record manager_context events',
-    );
-
-    // ---- Test 3: inline workflow declaration preserved when managed OFF ----
     const inlineText = '模式：标准交付\n修个 typo';
     const inlineRes = await submitMessage(port, session.id, 'req-inline', inlineText);
     const inlineRun = await waitForRunTerminal(port, inlineRes.json?.run?.id);
@@ -262,35 +260,13 @@ async function main() {
 
     const inlineManifest = readRunManifest(configDir, inlineRun.id);
     assert.ok(
-      inlineManifest.prompt.includes('模式：标准交付'),
-      'when managed OFF, inline workflow declaration must be preserved in user text',
+      inlineManifest.prompt.includes(inlineText),
+      'inline workflow declarations should now pass through as plain user text',
     );
     assert.equal(
-      inlineManifest.prompt.trim(),
-      inlineText,
-      'when managed OFF, prompt should be exactly the original text including declarations',
-    );
-    assert.equal(
-      inlineRes.json?.session?.workflowDefinition ?? null,
-      null,
-      'when managed OFF, inline declaration must not activate a workflow',
-    );
-
-    // ---- Test 4: re-enable managed → prompt wrapping restored ----
-    await patchSession(port, session.id, { workflowAutoTriggerDisabled: false });
-
-    const restoredRes = await submitMessage(port, session.id, 'req-restored', 'hello restored');
-    const restoredRun = await waitForRunTerminal(port, restoredRes.json?.run?.id);
-    assert.ok(restoredRun, 'restored run should complete');
-
-    const restoredManifest = readRunManifest(configDir, restoredRun.id);
-    assert.ok(
-      restoredManifest.prompt.includes('Turn activation'),
-      're-enabled managed mode should restore prompt wrapping',
-    );
-    assert.ok(
-      restoredManifest.prompt.includes('hello restored'),
-      're-enabled managed prompt should contain user text',
+      Object.prototype.hasOwnProperty.call(inlineRes.json?.session || {}, 'workflowDefinition'),
+      false,
+      'inline declarations should not materialize legacy workflowDefinition metadata',
     );
 
     console.log('test-managed-mode-prompt-passthrough: ok');
