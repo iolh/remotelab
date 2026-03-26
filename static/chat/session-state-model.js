@@ -1,66 +1,26 @@
 "use strict";
 
 (function attachRemoteLabSessionStateModel(root) {
-  const defaultBoardColumn = {
-    key: "open",
-    label: "Open",
-    title: "Sessions that are ready for more work.",
-    emptyText: "No open sessions",
-    order: 20,
-  };
-
-  const sessionBoardColumnSpecs = [
-    {
-      key: "active_now",
-      label: "Active",
-      title: "Running, queued, or compacting sessions.",
-      emptyText: "No active sessions",
-      order: 0,
-    },
-    {
-      key: "waiting_user",
-      label: "Waiting",
-      title: "Sessions blocked on your input or approval.",
-      emptyText: "Nothing waiting on you",
-      order: 10,
-    },
-    { ...defaultBoardColumn },
-    {
-      key: "parked",
-      label: "Parked",
-      title: "Sessions intentionally paused for later.",
-      emptyText: "Nothing parked",
-      order: 30,
-    },
-    {
-      key: "done",
-      label: "Done",
-      title: "Completed sessions kept for reference.",
-      emptyText: "No completed sessions",
-      order: 40,
-    },
-  ];
-
   const workflowPrioritySpecs = {
     high: {
       key: "high",
       label: "High",
       rank: 3,
-      className: "board-priority-high",
+      className: "priority-high",
       title: "Needs user attention soon.",
     },
     medium: {
       key: "medium",
       label: "Medium",
       rank: 2,
-      className: "board-priority-medium",
+      className: "priority-medium",
       title: "Worth checking soon, but not urgent.",
     },
     low: {
       key: "low",
       label: "Low",
       rank: 1,
-      className: "board-priority-low",
+      className: "priority-low",
       title: "Safe to leave for later.",
     },
   };
@@ -91,6 +51,39 @@
       title: "Parked for later",
     },
   };
+
+  const attentionStateRanks = Object.freeze({
+    needs_you_now: 0,
+    blocked: 1,
+    done: 2,
+    still_running: 3,
+    idle: 4,
+  });
+
+  const attentionPriorityRanks = Object.freeze({
+    high: 3,
+    medium: 2,
+    low: 1,
+  });
+
+  const attentionTypeLabels = Object.freeze({
+    needs_approval: "待批准",
+    needs_decision: "需要决策",
+    blocked_by_env: "环境阻塞",
+    needs_credentials: "缺少凭证",
+    needs_input: "需要输入",
+    fyi: "运行中",
+    completed: "已完成",
+    failed_needs_review: "需要复核",
+  });
+
+  const attentionStateClassNames = Object.freeze({
+    needs_you_now: "status-attention-action",
+    blocked: "status-attention-blocked",
+    still_running: "status-attention-running",
+    done: "status-attention-complete",
+    idle: "status-attention-idle",
+  });
 
   function createEmptyStatus() {
     return {
@@ -148,6 +141,36 @@
     return "";
   }
 
+  function normalizeAttentionState(value) {
+    const normalized = typeof value === "string"
+      ? value.trim().toLowerCase().replace(/[\s-]+/g, "_")
+      : "";
+    if (!normalized || !Object.prototype.hasOwnProperty.call(attentionStateRanks, normalized)) {
+      return "";
+    }
+    return normalized;
+  }
+
+  function normalizeAttentionPriority(value) {
+    const normalized = typeof value === "string"
+      ? value.trim().toLowerCase().replace(/[\s-]+/g, "_")
+      : "";
+    if (!normalized || !Object.prototype.hasOwnProperty.call(attentionPriorityRanks, normalized)) {
+      return "";
+    }
+    return normalized;
+  }
+
+  function normalizeAttentionType(value) {
+    const normalized = typeof value === "string"
+      ? value.trim().toLowerCase().replace(/[\s-]+/g, "_")
+      : "";
+    if (!normalized || !Object.prototype.hasOwnProperty.call(attentionTypeLabels, normalized)) {
+      return "";
+    }
+    return normalized;
+  }
+
   function getWorkflowPriorityInfo(value) {
     const normalized = normalizeSessionWorkflowPriority(value);
     if (!normalized || !workflowPrioritySpecs[normalized]) return null;
@@ -170,12 +193,26 @@
     return parseSessionTime(stamp);
   }
 
-  function getSessionReviewTime(session) {
-    return Math.max(
-      parseSessionTime(session?.lastReviewedAt),
-      parseSessionTime(session?.localReviewedAt),
-      parseSessionTime(session?.reviewBaselineAt),
-    );
+  function getEffectiveSessionReviewedAt(session) {
+    const candidates = [
+      typeof session?.lastReviewedAt === "string" ? session.lastReviewedAt : "",
+      typeof session?.localReviewedAt === "string" ? session.localReviewedAt : "",
+      typeof session?.reviewBaselineAt === "string" ? session.reviewBaselineAt : "",
+    ];
+    let best = "";
+    let bestTime = 0;
+    for (const candidate of candidates) {
+      const time = parseSessionTime(candidate);
+      if (time > bestTime) {
+        best = candidate;
+        bestTime = time;
+      }
+    }
+    return best;
+  }
+
+  function getEffectiveSessionReviewedTime(session) {
+    return parseSessionTime(getEffectiveSessionReviewedAt(session));
   }
 
   function getSessionSortTime(session) {
@@ -185,14 +222,6 @@
       if (startedAt > 0) return startedAt;
     }
     return getSessionLatestChangeTime(session);
-  }
-
-  function cloneBoardColumn(column) {
-    return { ...(column || defaultBoardColumn) };
-  }
-
-  function getBoardColumnSpec(key) {
-    return sessionBoardColumnSpecs.find((column) => column.key === key) || defaultBoardColumn;
   }
 
   function normalizeSessionActivity(session) {
@@ -242,23 +271,6 @@
     return activity.run.state === "running"
       || activity.queue.state === "queued"
       || activity.compact.state === "pending";
-  }
-
-  function deriveSessionBoardColumnKey(session) {
-    const activity = normalizeSessionActivity(session);
-    if (
-      activity.run.state === "running"
-      || activity.queue.state === "queued"
-      || activity.compact.state === "pending"
-    ) {
-      return "active_now";
-    }
-
-    const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
-    if (workflowState === "waiting_user") return "waiting_user";
-    if (workflowState === "done") return "done";
-    if (workflowState === "parked") return "parked";
-    return defaultBoardColumn.key;
   }
 
   function getSessionPrimaryStatus(session, options = {}) {
@@ -326,31 +338,7 @@
     return getSessionStatusSummary(session, options).primary;
   }
 
-  function getBoardColumns(_layout, sessions = []) {
-    const sessionList = Array.isArray(sessions) ? sessions : [];
-    const counts = new Map(sessionBoardColumnSpecs.map((column) => [column.key, 0]));
-    for (const session of sessionList) {
-      const key = deriveSessionBoardColumnKey(session);
-      counts.set(key, (counts.get(key) || 0) + 1);
-    }
-
-    const columns = sessionBoardColumnSpecs
-      .filter((column) => sessionList.length === 0 ? column.key === defaultBoardColumn.key : (counts.get(column.key) || 0) > 0)
-      .map(cloneBoardColumn);
-
-    return columns.length > 0 ? columns : [cloneBoardColumn(defaultBoardColumn)];
-  }
-
-  function getSessionBoardColumn(session, layout, sessions = []) {
-    const columns = getBoardColumns(layout, sessions);
-    const derivedKey = deriveSessionBoardColumnKey(session);
-    return columns.find((column) => column.key === derivedKey)
-      || cloneBoardColumn(getBoardColumnSpec(derivedKey))
-      || columns[0]
-      || cloneBoardColumn(defaultBoardColumn);
-  }
-
-  function getSessionBoardPriority(session) {
+  function getSessionWorkflowPriority(session) {
     const explicitPriority = getWorkflowPriorityInfo(session?.workflowPriority);
     if (explicitPriority) return explicitPriority;
     const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
@@ -359,14 +347,32 @@
     return getWorkflowPriorityInfo("medium");
   }
 
+  function isSessionCompleted(session) {
+    const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
+    return workflowState === "done" && !isSessionBusy(session);
+  }
+
   function hasSessionUnreadUpdate(session) {
     if (!session) return false;
     if (isSessionBusy(session)) return false;
-    return getSessionLatestChangeTime(session) > getSessionReviewTime(session);
+    return getSessionLatestChangeTime(session) > getEffectiveSessionReviewedTime(session);
+  }
+
+  function hasSessionUnreadCompletion(session) {
+    return isSessionCompleted(session) && hasSessionUnreadUpdate(session);
+  }
+
+  function shouldSurfaceCompletedAttention(session) {
+    if (!hasSessionUnreadCompletion(session)) return false;
+    const raw = session?.attention;
+    if (raw && typeof raw === "object" && raw.reason === "completion_tool_only") {
+      return false;
+    }
+    return true;
   }
 
   function getSessionReviewStatusInfo(session) {
-    if (!hasSessionUnreadUpdate(session)) return null;
+    if (!shouldSurfaceCompletedAttention(session)) return null;
     return createStatus(
       "unread",
       "new",
@@ -377,11 +383,12 @@
     );
   }
 
+  function isSessionCompletedAndReviewed(session) {
+    return isSessionCompleted(session) && !hasSessionUnreadCompletion(session);
+  }
+
   function isSessionCompleteAndReviewed(session) {
-    const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
-    return workflowState === "done"
-      && !isSessionBusy(session)
-      && !hasSessionUnreadUpdate(session);
+    return isSessionCompletedAndReviewed(session);
   }
 
   function hasSessionPendingWorkflowAction(session) {
@@ -397,15 +404,38 @@
     return false;
   }
 
+  function getAttentionTypeLabel(value, fallback = "") {
+    const normalized = normalizeAttentionType(value);
+    return normalized ? (attentionTypeLabels[normalized] || fallback) : fallback;
+  }
+
+  function getAttentionStateRank(value) {
+    const normalized = normalizeAttentionState(value);
+    return normalized ? attentionStateRanks[normalized] : Number.MAX_SAFE_INTEGER;
+  }
+
+  function getAttentionPriorityRank(value) {
+    const normalized = normalizeAttentionPriority(value);
+    return normalized ? attentionPriorityRanks[normalized] : 0;
+  }
+
+  function isWaitingUserReviewDismissible(session) {
+    const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
+    if (workflowState !== "waiting_user") return false;
+    if (hasSessionUnreadUpdate(session)) return false;
+    if (hasSessionPendingWorkflowAction(session)) return false;
+    return true;
+  }
+
   function getSessionAttentionBand(session) {
     const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
     const busy = isSessionBusy(session);
     const unread = hasSessionUnreadUpdate(session);
+    const completedUnread = shouldSurfaceCompletedAttention(session);
 
     if (unread && workflowState === "waiting_user") return 0;
-    if (unread) return 1;
-    if (workflowState === "waiting_user") return 2;
-    if (hasSessionPendingWorkflowAction(session)) return 3;
+    if (completedUnread) return 1;
+    if (hasSessionPendingWorkflowAction(session)) return 2;
     if (!busy && workflowState !== "done" && workflowState !== "parked") return 4;
     if (busy) return 5;
     if (workflowState === "parked") return 6;
@@ -413,28 +443,170 @@
     return 4;
   }
 
-  function compareSessionListSessions(a, b) {
-    const attentionBandDiff = getSessionAttentionBand(a) - getSessionAttentionBand(b);
-    if (attentionBandDiff) return attentionBandDiff;
+  function buildLegacySessionAttention(session) {
+    const workflowState = normalizeSessionWorkflowState(session?.workflowState || "");
+    const busy = isSessionBusy(session);
+    const unread = hasSessionUnreadUpdate(session);
+    const completedUnread = hasSessionUnreadCompletion(session);
+    const completedReviewed = isSessionCompletedAndReviewed(session);
+    const pendingWorkflowAction = hasSessionPendingWorkflowAction(session);
+    const legacyBand = getSessionAttentionBand(session);
 
-    const priorityDiff = (getSessionBoardPriority(b)?.rank || 0) - (getSessionBoardPriority(a)?.rank || 0);
-    if (priorityDiff) return priorityDiff;
+    let state = "idle";
+    let type = "fyi";
+    let priority = "medium";
+    let reason = "";
+    let reasonLabel = "";
+    let title = "";
 
-    const pinDiff = (b?.pinned === true ? 1 : 0) - (a?.pinned === true ? 1 : 0);
-    if (pinDiff) return pinDiff;
+    if (unread && workflowState === "waiting_user") {
+      state = "needs_you_now";
+      type = "needs_input";
+      priority = "high";
+      reason = "waiting_for_input";
+      reasonLabel = "需要你的输入";
+      title = "待处理";
+    } else if (completedUnread) {
+      state = "done";
+      type = "completed";
+      priority = "high";
+      reason = "completion_with_conclusion";
+      reasonLabel = "查看结果";
+      title = "已完成";
+    } else if (pendingWorkflowAction) {
+      state = "needs_you_now";
+      type = "needs_decision";
+      priority = "high";
+      reason = "needs_decision";
+      reasonLabel = "需要你的确认";
+      title = "待处理";
+    } else if (workflowState === "waiting_user") {
+      state = "idle";
+      type = "needs_input";
+      priority = "low";
+      reason = "waiting_reviewed";
+      reasonLabel = "";
+      title = "";
+    } else if (busy) {
+      state = "still_running";
+      type = "fyi";
+      priority = "medium";
+      reason = "run_in_progress";
+      reasonLabel = "仍在运行";
+      title = "运行中";
+    } else if (completedReviewed) {
+      state = "idle";
+      type = "completed";
+      priority = "low";
+      reason = "completed_viewed";
+      reasonLabel = "";
+      title = "已完成";
+    } else if (unread) {
+      state = "idle";
+      type = "fyi";
+      priority = "low";
+      reason = "unread_update";
+      reasonLabel = "有更新";
+      title = workflowState === "parked" ? "已暂停" : "有更新";
+    } else if (workflowState === "parked") {
+      state = "idle";
+      type = "fyi";
+      priority = "low";
+      reasonLabel = "已暂停";
+      title = "已暂停";
+    }
 
-    return getSessionSortTime(b) - getSessionSortTime(a);
+    return {
+      state,
+      type,
+      priority,
+      reason,
+      reasonLabel,
+      title,
+      summary: "",
+      actionKind: "",
+      actionLabel: "",
+      observedAt: "",
+      source: {},
+      typeLabel: getAttentionTypeLabel(type, ""),
+      className: attentionStateClassNames[state] || "",
+      fallback: true,
+      legacyBand,
+    };
   }
 
-  function getSessionBoardOrder(_session) {
+  function getSessionAttention(session) {
+    const raw = session?.attention;
+    if (raw && typeof raw === "object") {
+      const state = normalizeAttentionState(raw.state);
+      const type = normalizeAttentionType(raw.type);
+      if (state && type) {
+        const reason = typeof raw.reason === "string" ? raw.reason.trim() : "";
+        if (state === "done" && type === "completed" && !shouldSurfaceCompletedAttention(session)) {
+          const passiveCompleted = buildLegacySessionAttention(session);
+          passiveCompleted.state = "idle";
+          passiveCompleted.priority = "low";
+          passiveCompleted.reason = reason || passiveCompleted.reason;
+          passiveCompleted.reasonLabel = "";
+          passiveCompleted.className = attentionStateClassNames.idle || "";
+          passiveCompleted.legacyBand = getSessionAttentionBand(session);
+          return passiveCompleted;
+        }
+        if (isWaitingUserReviewDismissible(session) && (state === "needs_you_now" || state === "blocked")) {
+          return buildLegacySessionAttention(session);
+        }
+        return {
+          ...raw,
+          state,
+          type,
+          priority: normalizeAttentionPriority(raw.priority) || "medium",
+          reason,
+          reasonLabel: typeof raw.reasonLabel === "string" ? raw.reasonLabel.trim() : "",
+          title: typeof raw.title === "string" ? raw.title.trim() : "",
+          summary: typeof raw.summary === "string" ? raw.summary.trim() : "",
+          actionKind: typeof raw.actionKind === "string" ? raw.actionKind.trim() : "",
+          actionLabel: typeof raw.actionLabel === "string" ? raw.actionLabel.trim() : "",
+          observedAt: typeof raw.observedAt === "string" ? raw.observedAt : "",
+          source: raw.source && typeof raw.source === "object" ? { ...raw.source } : {},
+          typeLabel: getAttentionTypeLabel(type, ""),
+          className: attentionStateClassNames[state] || "",
+          fallback: false,
+          legacyBand: null,
+        };
+      }
+    }
+    return buildLegacySessionAttention(session);
+  }
+
+  function compareSessionAttention(a, b) {
+    const aAttention = getSessionAttention(a);
+    const bAttention = getSessionAttention(b);
+
+    if (aAttention?.fallback && bAttention?.fallback) {
+      return (aAttention.legacyBand || 0) - (bAttention.legacyBand || 0);
+    }
+
+    const stateDiff = getAttentionStateRank(aAttention?.state) - getAttentionStateRank(bAttention?.state);
+    if (stateDiff) return stateDiff;
+
+    const priorityDiff = getAttentionPriorityRank(bAttention?.priority) - getAttentionPriorityRank(aAttention?.priority);
+    if (priorityDiff) return priorityDiff;
+
+    if (aAttention?.fallback || bAttention?.fallback) {
+      const aBand = Number.isInteger(aAttention?.legacyBand) ? aAttention.legacyBand : getSessionAttentionBand(a);
+      const bBand = Number.isInteger(bAttention?.legacyBand) ? bAttention.legacyBand : getSessionAttentionBand(b);
+      const bandDiff = aBand - bBand;
+      if (bandDiff) return bandDiff;
+    }
+
     return 0;
   }
 
-  function compareBoardSessions(a, b) {
-    const boardOrderDiff = getSessionBoardOrder(a) - getSessionBoardOrder(b);
-    if (boardOrderDiff) return boardOrderDiff;
+  function compareSessionListSessions(a, b) {
+    const attentionDiff = compareSessionAttention(a, b);
+    if (attentionDiff) return attentionDiff;
 
-    const priorityDiff = (getSessionBoardPriority(b)?.rank || 0) - (getSessionBoardPriority(a)?.rank || 0);
+    const priorityDiff = (getSessionWorkflowPriority(b)?.rank || 0) - (getSessionWorkflowPriority(a)?.rank || 0);
     if (priorityDiff) return priorityDiff;
 
     const pinDiff = (b?.pinned === true ? 1 : 0) - (a?.pinned === true ? 1 : 0);
@@ -454,14 +626,18 @@
     getSessionPrimaryStatus,
     getSessionStatusSummary,
     getSessionVisualStatus,
+    getEffectiveSessionReviewedAt,
     hasSessionUnreadUpdate,
+    hasSessionUnreadCompletion,
     getSessionReviewStatusInfo,
+    isSessionCompleted,
+    isSessionCompletedAndReviewed,
     isSessionCompleteAndReviewed,
-    getBoardColumns,
-    getSessionBoardColumn,
-    getSessionBoardPriority,
-    getSessionBoardOrder,
+    shouldSurfaceCompletedAttention,
+    isWaitingUserReviewDismissible,
+    getSessionAttention,
+    getAttentionTypeLabel,
+    getSessionWorkflowPriority,
     compareSessionListSessions,
-    compareBoardSessions,
   };
 })(typeof globalThis !== "undefined" ? globalThis : window);

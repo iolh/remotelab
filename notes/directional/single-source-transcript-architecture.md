@@ -7,7 +7,7 @@
 
 ## Why This Note Exists
 
-RemoteLab currently has a real consistency failure mode during active runs:
+Cue currently has a real consistency failure mode during active runs:
 
 - one raw runtime record can be normalized more than once
 - the same assistant message can therefore be appended to durable session history more than once
@@ -50,7 +50,7 @@ This note records a simpler rule:
 
 ## Target Model
 
-RemoteLab should treat transcript state as two different phases with different canonical sources.
+Cue should treat transcript state as two different phases with different canonical sources.
 
 ### 1. Committed history
 
@@ -251,9 +251,9 @@ This alone should already remove the duplicate-history race surface.
 
 ---
 
-## Why This Is A Better Fit For RemoteLab
+## Why This Is A Better Fit For Cue
 
-This direction matches the broader RemoteLab philosophy:
+This direction matches the broader Cue philosophy:
 
 - thin WS invalidation
 - HTTP as canonical read surface

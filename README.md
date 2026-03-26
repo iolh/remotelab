@@ -1,25 +1,21 @@
-# RemoteLab
+# Cue
 
 [中文](README.zh.md) | English
 
-**The AI workbench for super-individuals.**
+**The AI work control plane that makes the human show up less often, more precisely, and more at ease.**
 
-RemoteLab exists to maximize the efficiency of human-AI collaboration for people who already use AI seriously — and for the larger class of AI-native super-individuals that will emerge next.
+Cue is not a product that makes AI work better. It is a nearly invisible dispatch surface: AI threads run autonomously on a real machine for extended periods; the system continuously persists state, organizes context, and maintains cross-thread visibility. The human is absent by default and surfaces only at rare moments that genuinely require value judgment, direction choice, risk approval, or delivery acceptance.
 
-It does not care much whether the control surface is a phone, tablet, or desktop. The point is to give the human the highest-leverage way to direct AI work while strong executors like `codex`, `claude`, and compatible local tools do the heavy lifting on a real machine.
+![Cue across surfaces](docs/readme-multisurface-demo.png)
 
-![RemoteLab across surfaces](docs/readme-multisurface-demo.png)
-
-> Current baseline: `v0.3` — owner-first session orchestration, durable on-disk history, executor adapters, App-based workflow packaging, and a no-build web UI that works across phone and desktop.
-
-> Reach the same system from desktop, phone, and integration surfaces like Feishu or email-driven flows.
+> Current baseline: `v0.3` — owner-first session orchestration, durable on-disk history, executor adapters, typed attention contract, and a no-build web UI that works across phone and desktop.
 
 ## Quick install
 
 If the demo makes sense, do not keep reading. Open a fresh terminal on the host machine, start Codex, Claude Code, or another coding agent, and paste this:
 
 ```text
-I want to set up RemoteLab on this machine so I can control AI workers from any device and keep long-running AI work organized.
+I want to set up Cue on this machine so I can control AI workers from any device and keep long-running AI work organized.
 
 Network mode: [cloudflare | tailscale]
 
@@ -47,9 +43,9 @@ Need the longer version first? Jump to [Setup details](#setup-details) or open `
 
 ### Vision
 
-If you want the blunt version, RemoteLab is an AI IDE workbench for future super-individuals: people who can use AI so well that their personal leverage compounds far beyond that of a normal individual.
+Cue’s ideal shape is not “a smarter AI product” but “an AI work control plane that disturbs the human as little as possible.”
 
-The goal is simple: find the most effective interaction shape between humans and increasingly autonomous agents, then turn that interaction shape into a product that materially increases real-world productivity.
+It serves a specific scenario: one single owner pushes many long tasks in the real world at the same time. Several AI threads write code, verify, research, run scripts, fix environments, organize docs — all on the owner’s machine. The owner walks away — meeting, commuting, eating — and occasionally glances at their phone: which thread is stuck, where is a call needed, which delivery is ready to accept, which direction needs changing. The phone is not a mobile IDE; it is a pocket judgment and approval surface. The desktop is not for manual re-operation; it is for the rare moments that need deeper engagement and then leaving again.
 
 ### Core judgments
 
@@ -57,27 +53,27 @@ The goal is simple: find the most effective interaction shape between humans and
 - Concurrency becomes default: to fully use AI, people will run many agents in parallel.
 - Human memory becomes a bottleneck: when a task finishes hours later, the human needs fast context recovery, not raw logs.
 - Project orchestration becomes personal infrastructure: people need help managing priority, blockers, and follow-ups across many concurrent threads.
-- Super-individuals will want distribution: once a workflow works, they will want to package it and let other people use it too.
+- Distribution is a downstream direction, not the starting point: only after a workflow has been repeatedly validated by the owner should it be packaged as an App or thin external adapter — as distribution of an already-validated collaboration protocol, not an initial platform play.
 
-### What RemoteLab is
+### What Cue is
 
-- an AI workbench that sits above strong executors running on a real machine
-- a project and orchestration layer for concurrent agent work
+- a nearly invisible AI work dispatch surface, sitting above strong executors on a real machine
+- an attention management and orchestration layer for concurrent AI threads
 - an external memory / context-recovery system for long-running sessions
-- a packaging and distribution layer for agentic-native apps
-- an endpoint-flexible web product rather than a phone-only or desktop-only experience
+- an endpoint-flexible web control surface for judgment and approval, not a phone-only or desktop-only experience
 
-### What RemoteLab is not
+### What Cue is not
 
 - a terminal emulator
 - a traditional editor-first IDE
 - a generic multi-user chat SaaS
 - a closed all-in-one executor stack trying to out-execute `codex` or `claude`
 
-### Two core product layers
+### Main product line and extension direction
 
-1. **Orchestration above single-task executors.** RemoteLab helps the user manage the full portfolio of ongoing work above tools like `Codex` or `Claude Code`: more concurrency, clearer progress, faster context recovery, better attention allocation, and better final quality.
-2. **Agentic-native app building and distribution.** RemoteLab gives super-individuals a low-friction way to turn their own SOPs into distributable agentic-native workflows — whether the surface is a built-in web UI, an external bot, or another frontend.
+**Main line: attention management and task orchestration above single-task executors.** Cue helps the owner manage the full portfolio of ongoing AI work threads: more concurrency, faster context recovery, better attention allocation, and surfacing the human only at high-value judgment points. Cue does not sell execution — it sells judgment timing, context recovery, and interruption economy.
+
+**Extension direction (downstream, not current main line):** Once a workflow has been repeatedly validated by the owner, Cue may allow it to be packaged as an App or exposed through a thin external adapter. But this is distribution of an already-validated collaboration protocol, not an initial platform play.
 
 ### Product grammar
 
@@ -96,14 +92,18 @@ The architectural assumptions behind that model:
 - the product is single-owner first, with visitor access scoped through `Apps`
 - the frontend stays framework-light and endpoint-flexible
 
-### Why this boundary matters
+### Product boundaries
 
-RemoteLab is opinionated in a few ways:
+Cue’s boundaries are hard:
 
-- **Do not rebuild the executor layer.** RemoteLab should not spend most of its energy optimizing single-task agent internals.
-- **Recover context, do not dump logs.** Durable sessions matter more than raw terminal continuity.
-- **Package workflows, do not just share prompts.** `Apps` are reusable operating shapes, not just copy-pasted text.
-- **Integrate the strongest tools, keep them replaceable.** The point is a stable abstraction layer so better executors can be adopted quickly as the ecosystem evolves.
+- **Do not rebuild the executor layer.** Cue should not spend energy optimizing single-task agent internals.
+- **No terminal emulator, heavy editor, or heavy dashboard.** The browser is a control surface and judgment surface, not a workstation.
+- **Do not default to creating new attention sources.** Do not reach out proactively “to be more helpful,” do not silently make decisions “to be more automated,” do not sprawl into a collection of external connector product lines “to have more entry points.”
+- **External entry surfaces may exist, but only as thin adapters.** They must not reverse-define the product’s center.
+- **Automation may exist, but only to extend AI’s autonomous runtime and reduce human appearance frequency.** Never to push the system toward an engagement machine.
+- **Integrate the strongest tools, keep them replaceable.** Better executors can be adopted quickly; Cue does not become a closed runtime.
+
+When evaluating any feature, ask one question: **is this reducing how often and how expensively the owner needs to appear, or is it creating a new world the owner must continuously manage?** The former is Cue. The latter is not.
 
 ### What you can do
 
@@ -118,16 +118,16 @@ RemoteLab is opinionated in a few ways:
 
 ### Provider note
 
-- RemoteLab treats `Codex` (`codex`) as the default built-in tool and shows it first in the picker.
-- That is not because executor choice is the product. The opposite is true: RemoteLab should stay adapter-first and integrate the strongest executors available locally.
+- Cue treats `Codex` (`codex`) as the default built-in tool and shows it first in the picker.
+- That is not because executor choice is the product. The opposite is true: Cue should stay adapter-first and integrate the strongest executors available locally.
 - API-key / local-CLI style integrations are usually a cleaner fit for a self-hosted control plane than consumer-login-based remote wrappers.
-- `Claude Code` still works in RemoteLab, and any other compatible local tool can fit as long as its auth and terms work for your setup.
+- `Claude Code` still works in Cue, and any other compatible local tool can fit as long as its auth and terms work for your setup.
 - Over time, the goal is portability across executors, not loyalty to one closed runtime.
 - In practice, the main risk is usually the underlying provider auth / terms, not the binary name by itself. Make your own call based on the provider and account type behind that tool.
 
 ### Setup details
 
-The fastest path is still to paste a setup prompt into Codex, Claude Code, or another capable coding agent on the machine that will host RemoteLab. It can handle almost everything automatically and stop only for truly manual steps such as Cloudflare login when that mode is in play.
+The fastest path is still to paste a setup prompt into Codex, Claude Code, or another capable coding agent on the machine that will host Cue. It can handle almost everything automatically and stop only for truly manual steps such as Cloudflare login when that mode is in play.
 
 Configuration and feature-rollout docs in this repo are model-first and prompt-first: the human copies a prompt into their own AI coding agent, the agent gathers the needed context up front in as few rounds as possible, and the rest of the work stays inside that conversation except for explicit `[HUMAN]` steps.
 
@@ -144,7 +144,7 @@ The best pattern is one early handoff: the agent asks for everything it needs in
 **Open a fresh terminal on the host machine, start Codex or another coding agent, and paste this:**
 
 ```text
-I want to set up RemoteLab on this machine so I can control AI workers from any device and keep long-running AI work organized.
+I want to set up Cue on this machine so I can control AI workers from any device and keep long-running AI work organized.
 
 Network mode: [cloudflare | tailscale]
 
@@ -168,7 +168,7 @@ If you want the full setup contract and the human-only checkpoints, use `docs/se
 
 ### What you'll have when done
 
-Open your RemoteLab URL on the device you want to use:
+Open your Cue URL on the device you want to use:
 - **Cloudflare**: `https://[subdomain].[domain]/?token=YOUR_TOKEN`
 - **Tailscale**: `http://[hostname].[tailnet].ts.net:7690/?token=YOUR_TOKEN`
 
@@ -188,7 +188,6 @@ Once set up, the service can auto-start on boot (macOS LaunchAgent / Linux syste
 ```bash
 remotelab start
 remotelab stop
-remotelab release
 remotelab restart chat
 ```
 
@@ -201,13 +200,13 @@ If you are refreshing yourself after several architecture iterations, use this r
 3. `docs/README.md` — documentation taxonomy and sync rules
 4. `notes/current/core-domain-contract.md` — current domain/refactor baseline
 5. `notes/README.md` — note buckets and cleanup policy
-6. focused guides such as `docs/setup.md`, `docs/external-message-protocol.md`, `docs/creating-apps.md`, and `docs/feishu-bot-setup.md`
+6. focused guides such as `docs/setup.md` and `docs/creating-apps.md`
 
 ---
 
 ## Architecture at a glance
 
-RemoteLab’s shipped architecture is now centered on a stable chat control plane, detached runners, and durable on-disk state.
+Cue’s shipped architecture is now centered on a stable chat control plane, detached runners, and durable on-disk state.
 
 | Service | Port | Role |
 |---------|------|------|
@@ -240,7 +239,7 @@ Key architectural rules:
 
 For the full code map and flow breakdown, read `docs/project-architecture.md`.
 
-For the canonical contract that external channels should follow, read `docs/external-message-protocol.md`.
+For the optional integration contract for thin external adapters, see `docs/external-message-protocol.md` (opt-in extension, not mainline default).
 
 ---
 
@@ -251,14 +250,12 @@ remotelab setup                Run interactive setup wizard
 remotelab start                Start all services
 remotelab stop                 Stop all services
 remotelab restart [service]    Restart: chat | tunnel | all
-remotelab release              Run tests, snapshot the runtime, restart, and health-check the active release
 remotelab chat                 Run chat server in foreground (debug)
 remotelab generate-token       Generate a new access token
 remotelab set-password         Set username & password login
 remotelab --help               Show help
 ```
 
-Production updates should go through `remotelab release` rather than live-editing the running `7690` surface. The release command snapshots the shipped runtime, restarts only after the test gate passes, and automatically restores the previous active release if the health check fails.
 
 ## Configuration
 
@@ -294,17 +291,17 @@ These are the default paths when no instance overrides are set.
 
 ## Storage growth and manual cleanup
 
-- RemoteLab is durability-first: session history, run output, artifacts, and logs accumulate on disk over time.
+- Cue is durability-first: session history, run output, artifacts, and logs accumulate on disk over time.
 - Archiving a session is organizational only. It hides the session from the active list, but it does **not** delete the stored history or run data behind it.
 - On long-lived installs, storage can grow materially, especially if you keep long conversations, large tool outputs, heavy reasoning traces, or generated artifacts.
-- RemoteLab does **not** automatically delete old data and does **not** currently ship a one-click cleanup feature. This is intentional: keeping user data is safer than guessing what is safe to remove.
+- Cue does **not** automatically delete old data and does **not** currently ship a one-click cleanup feature. This is intentional: keeping user data is safer than guessing what is safe to remove.
 - If you want to reclaim disk space, periodically review old archived sessions and prune them manually from the terminal, or ask an AI operator to help you clean them up carefully.
 - In practice, most storage growth lives under `~/.config/remotelab/chat-history/` and `~/.config/remotelab/chat-runs/`.
 
 ## Ad-hoc extra instances
 
 - `scripts/chat-instance.sh` now supports `--instance-root`, `--config-dir`, and `--memory-dir` in addition to the older `--home` mode.
-- Use `--instance-root` when you want a second instance to keep the same machine `HOME` (so provider auth keeps working) while isolating RemoteLab's own runtime data and memory.
+- Use `--instance-root` when you want a second instance to keep the same machine `HOME` (so provider auth keeps working) while isolating Cue's own runtime data and memory.
 - Example: `scripts/chat-instance.sh start --port 7692 --name companion --instance-root ~/.remotelab/instances/companion --secure-cookies 1`
 
 ## Security

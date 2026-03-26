@@ -18,7 +18,7 @@ Superseded by `notes/current/session-main-flow-next-push.md` and `notes/current/
 
 ## Demo we should be able to show
 
-1. Open RemoteLab and land on `Board`.
+1. Open Cue and land on `Board`.
 2. Enter one manager-style request such as “把这个需求拆成 3 个并行子任务，并汇总结果”.
 3. The manager session spawns multiple parallel sessions.
 4. `Board` shows those sessions in sensible columns like `Active`, `Waiting`, `Open`, `Done`.

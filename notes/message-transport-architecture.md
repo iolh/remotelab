@@ -1,6 +1,6 @@
 # Message Transport Architecture
 
-> Created 2026-03-09 as the historical rationale behind RemoteLab's HTTP-first, detached-runner direction.
+> Created 2026-03-09 as the historical rationale behind Cue's HTTP-first, detached-runner direction.
 > This is not the current architecture spec.
 > For shipped behavior, use `docs/project-architecture.md`.
 > For the concrete landed implementation contract, use `notes/archive/http-runtime-phase1.md`.
@@ -21,7 +21,7 @@ The old version had a lot of overlapping architecture discussion. The durable pa
 
 The important promise is **logical continuity**, not transport continuity.
 
-RemoteLab should optimize for:
+Cue should optimize for:
 
 - durable session state
 - replayable completed work
@@ -29,7 +29,7 @@ RemoteLab should optimize for:
 - restart-safe recovery when possible
 - thin realtime hints over canonical HTTP reads
 
-RemoteLab should **not** optimize for pretending that:
+Cue should **not** optimize for pretending that:
 
 - WebSocket continuity is the product
 - child process identity is the same thing as session identity
@@ -93,7 +93,7 @@ This architecture also implies a clean rule for external channels:
 
 > email, GitHub, bots, Feishu, and other external sources should act as clients of the same durable session protocol.
 
-RemoteLab should not learn every upstream thread/reply model.
+Cue should not learn every upstream thread/reply model.
 It should accept normalized session/message/run operations and expose the same canonical state back out.
 
 That is why this note still matters even after the runtime refactor landed: it explains the architectural stance behind the connector model.

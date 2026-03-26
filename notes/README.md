@@ -51,7 +51,7 @@ Current examples:
 
 ### `local/`
 
-Use for notes that capture machine/operator-specific state and should not be mistaken for general RemoteLab architecture.
+Use for notes that capture machine/operator-specific state and should not be mistaken for general Cue architecture.
 
 Current example:
 

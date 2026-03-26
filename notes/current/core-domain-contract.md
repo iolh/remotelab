@@ -1,6 +1,6 @@
 # Core Domain Contract
 
-> Status: current baseline for the next RemoteLab refactor cycle.
+> Status: current baseline for the next Cue refactor cycle.
 > Purpose: freeze the product/domain model so route, storage, and UI work stop drifting between overlapping abstractions.
 >
 > For the current shipped architecture and code map, read `docs/project-architecture.md` first.
@@ -10,7 +10,7 @@
 
 ## One-Screen Model
 
-RemoteLab should be understood through five durable objects:
+Cue should be understood through five durable objects:
 
 ```text
 Principal -> App -> Session -> many Runs
@@ -26,16 +26,16 @@ Everything else is downstream UI or compatibility detail.
 
 ---
 
-## What RemoteLab Is Optimizing For
+## What Cue Is Optimizing For
 
-RemoteLab is not primarily:
+Cue is not primarily:
 
 - a terminal emulator
 - a mobile IDE
 - a generalized multi-user SaaS
 - a share-first publishing product
 
-RemoteLab is primarily:
+Cue is primarily:
 
 - a control plane for AI workers running on one machine
 - centered around durable conversation threads
@@ -158,7 +158,7 @@ Why `Principal` matters:
 
 - it prevents “visitor” from hardening into the final product abstraction
 - it avoids prematurely committing to a full user-account system
-- it keeps access control in the domain without turning RemoteLab into multi-tenant SaaS
+- it keeps access control in the domain without turning Cue into multi-tenant SaaS
 
 ### 5. ShareSnapshot
 
@@ -212,7 +212,7 @@ That means:
 - app policy can inform the server’s access decision surface
 - the server remains the final authority for ownership, session scope, app scope, and share scope
 
-RemoteLab should not evolve toward “permissions are mostly prompt-level conventions.”
+Cue should not evolve toward “permissions are mostly prompt-level conventions.”
 
 ---
 

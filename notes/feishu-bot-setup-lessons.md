@@ -1,6 +1,6 @@
 # Feishu Bot Setup Lessons
 
-> Purpose: capture the practical setup lessons from a real RemoteLab + Feishu bot rollout so future operators do not repeat the same mistakes.
+> Purpose: capture the practical setup lessons from a real Cue + Feishu bot rollout so future operators do not repeat the same mistakes.
 
 ---
 
@@ -128,10 +128,10 @@ So the connector should:
 - accept the event immediately
 - log / normalize it
 - decide whether the sender is allowed
-- do the RemoteLab run in the background
+- do the Cue run in the background
 - send the final reply later
 
-This matters because RemoteLab / Codex response generation naturally takes longer than Feishu's event callback budget.
+This matters because Cue / Codex response generation naturally takes longer than Feishu's event callback budget.
 
 ---
 
@@ -165,11 +165,11 @@ This matters because RemoteLab / Codex response generation naturally takes longe
 
 ---
 
-## RemoteLab-specific behavior to remember
+## Cue-specific behavior to remember
 
 In our setup:
 
-- one Feishu bot identity maps to one RemoteLab connector
+- one Feishu bot identity maps to one Cue connector
 - p2p chat behaves like a direct session
 - group chat behaves like a shared session surface
 - sender whitelist is enforced **in our connector**, not in Feishu itself

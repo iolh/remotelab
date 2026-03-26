@@ -10,7 +10,7 @@ The prototype is a separate local service that:
 
 - watches high-frequency local signals,
 - decides when a moment is meaningful enough to escalate,
-- creates one RemoteLab session per triggered episode,
+- creates one Cue session per triggered episode,
 - and then lets the normal agent/runtime do the substantive work.
 
 For the first prototype, the target flow is:
@@ -25,14 +25,14 @@ For the first prototype, the target flow is:
 
 ## Architecture
 
-The implementation lives in `scripts/proactive-observer.mjs` and is intentionally decoupled from the main RemoteLab server process.
+The implementation lives in `scripts/proactive-observer.mjs` and is intentionally decoupled from the main Cue server process.
 
 Layers:
 
 - `Provider layer` — camera snapshots, speech capture, optional manual HTTP event injection
 - `Trigger layer` — detects meaningful transitions such as `arrival`
-- `Episode layer` — creates one durable RemoteLab session per trigger firing
-- `Agent layer` — uses a normal RemoteLab session/run flow to greet and fulfill requests
+- `Episode layer` — creates one durable Cue session per trigger firing
+- `Agent layer` — uses a normal Cue session/run flow to greet and fulfill requests
 - `Actuator layer` — local TTS speaks the assistant reply aloud
 
 ## Current prototype contract
@@ -144,7 +144,7 @@ curl -sS -X POST http://127.0.0.1:7960/events \
 
 ## Design stance
 
-- keep RemoteLab as the durable session/runtime substrate
+- keep Cue as the durable session/runtime substrate
 - keep this observer as a separate local service with its own logic and state
 - use minimal deterministic logic only for transition detection, cooldown, and dedupe
 - push meaning, greeting style, and action choice into the model/session layer

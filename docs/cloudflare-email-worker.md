@@ -1,13 +1,13 @@
 # Cloudflare Email Worker (Prompt-First Deploy Contract)
 
-This document is the operator contract for asking an AI agent to deploy the thin Cloudflare email edge while keeping RemoteLab's business logic local.
+This document is the operator contract for asking an AI agent to deploy the thin Cloudflare email edge while keeping Cue's business logic local.
 
 The human should ideally provide one early packet of Cloudflare and mailbox context, let the AI do the rest, and only step back in for real browser-only or approval-only tasks.
 
 ## Copy this prompt
 
 ```text
-I want you to deploy or update the RemoteLab Cloudflare Email Worker.
+I want you to deploy or update the Cue Cloudflare Email Worker.
 
 Follow `docs/cloudflare-email-worker.md` in this repository as the deployment contract.
 Keep the workflow inside this chat.
@@ -31,12 +31,12 @@ If any Cloudflare dashboard action is still needed, the AI should batch those as
 
 ## Architecture
 
-`Cloudflare Email Routing -> Cloudflare Email Worker(email) -> mailbox bridge -> local agent-mail-worker -> RemoteLab -> completion target -> Cloudflare Email Worker(fetch) -> Cloudflare send_email`
+`Cloudflare Email Routing -> Cloudflare Email Worker(email) -> mailbox bridge -> local agent-mail-worker -> Cue -> completion target -> Cloudflare Email Worker(fetch) -> Cloudflare send_email`
 
 ## Thin-edge rule
 
 - Cloudflare only does inbound receive and outbound send.
-- RemoteLab and the local mailbox stack keep filtering, review, automation, session routing, and replies.
+- Cue and the local mailbox stack keep filtering, review, automation, session routing, and replies.
 - Edge config stays thin so provider migration remains easy.
 
 ## [HUMAN] steps
@@ -66,7 +66,7 @@ Secrets uploaded during deploy:
 - `OUTBOUND_API_TOKEN`
 - `MAILBOX_BRIDGE_TOKEN`
 
-The Worker should not carry RemoteLab login or session-orchestration config. That logic stays in the local mailbox stack.
+The Worker should not carry Cue login or session-orchestration config. That logic stays in the local mailbox stack.
 
 ## Local outbound config contract
 
@@ -82,7 +82,7 @@ The Worker should not carry RemoteLab login or session-orchestration config. Tha
 ## Success state
 
 - inbound routing sends the mailbox alias to the Worker
-- RemoteLab completion targets can call `POST /api/send-email`
+- Cue completion targets can call `POST /api/send-email`
 - `curl https://.../healthz` succeeds
 - mailbox bridge and reply tests pass when the AI runs them
 

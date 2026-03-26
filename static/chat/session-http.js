@@ -64,7 +64,7 @@ function notifyCompletion(session) {
   if (document.visibilityState === "visible") return;
   const folder = (session?.folder || "").split("/").pop() || "Session";
   const name = session?.name || folder;
-  const n = new Notification("RemoteLab", {
+  const n = new Notification("Cue", {
     body: `${name} — task completed`,
     tag: "remotelab-done",
   });
@@ -192,7 +192,11 @@ function getEffectiveSessionReviewedAt(session) {
 
 function rememberSessionReviewedLocally(session, { render = false } = {}) {
   if (!session?.id) return "";
-  const stamp = getSessionReviewStamp(session);
+  const sessionStamp = getSessionReviewStamp(session);
+  const nowStamp = normalizeSessionReviewStamp(new Date().toISOString());
+  const stamp = sessionStamp && getSessionReviewStampTime(sessionStamp) > getSessionReviewStampTime(nowStamp)
+    ? sessionStamp
+    : (nowStamp || sessionStamp);
   if (!stamp) return "";
   if (getSessionReviewStampTime(stamp) <= getSessionReviewStampTime(getEffectiveSessionReviewedAt(session))) {
     return getEffectiveSessionReviewedAt(session);
@@ -312,6 +316,12 @@ function upsertSession(session) {
   }
   sortSessionsInPlace();
   refreshAppCatalog();
+  if (typeof maybeRecordAttentionReopened === "function") {
+    maybeRecordAttentionReopened(normalized, previous);
+  }
+  if (typeof maybeRecordCompletedResurfacedWithoutNewEvent === "function") {
+    maybeRecordCompletedResurfacedWithoutNewEvent(normalized, previous);
+  }
   return normalized;
 }
 
@@ -468,7 +478,7 @@ async function fetchSessionsList() {
   return sessions;
 }
 
-function applyAttachedSessionState(id, session) {
+function applyAttachedSessionState(id, session, { renderList = true } = {}) {
   currentSessionId = id;
   hasAttachedSession = true;
   currentTokens = 0;
@@ -478,7 +488,7 @@ function applyAttachedSessionState(id, session) {
 
   const displayName = typeof getSessionDisplayName === "function"
     ? getSessionDisplayName(session)
-    : (session?.name || session?.description || session?.tool || "RemoteLab");
+    : (session?.name || session?.description || session?.tool || "Cue");
   headerTitle.textContent = displayName;
   if (typeof shareSnapshotMode !== "undefined" && shareSnapshotMode) {
     const titleSuffix = getShareSnapshotViewValue("titleSuffix", "共享快照");
@@ -516,7 +526,9 @@ function applyAttachedSessionState(id, session) {
   }
 
   restoreDraft();
-  renderSessionList();
+  if (renderList) {
+    renderSessionList();
+  }
   syncBrowserState();
   syncForkButton();
   syncShareButton();

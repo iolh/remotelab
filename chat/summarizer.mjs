@@ -16,6 +16,7 @@ import {
   normalizeSessionWorkflowPriority,
   normalizeSessionWorkflowState,
 } from './session-workflow-state.mjs';
+import { resolveRuntimeOverrideForTier } from './models.mjs';
 
 function clipPromptText(value, maxChars) {
   const text = typeof value === 'string' ? value.trim() : '';
@@ -83,31 +84,36 @@ function formatHistoryForPrompt(events) {
   });
 }
 
-async function runToolJsonPrompt(sessionMeta, prompt) {
+async function runToolJsonPrompt(sessionMeta, prompt, taskType = 'auxiliary') {
   const {
     id: sessionId,
     folder,
     tool,
     model,
     effort,
-    thinking,
   } = sessionMeta;
 
   if (!tool) {
     throw new Error('Session label suggestion requires an explicit tool');
   }
 
-  const { command, adapter, args } = await createToolInvocation(tool, prompt, {
+  const runtimeOverride = resolveRuntimeOverrideForTier('efficient', tool);
+  const effectiveTool = tool;
+  const effectiveModel = runtimeOverride?.model || model;
+  const effectiveEffort = runtimeOverride?.effort || effort;
+  const effectiveThinking = false;
+
+  const { command, adapter, args } = await createToolInvocation(effectiveTool, prompt, {
     dangerouslySkipPermissions: true,
-    model,
-    effort,
-    thinking,
+    model: effectiveModel,
+    effort: effectiveEffort,
+    thinking: effectiveThinking,
     systemPrefix: '',
   });
   const resolvedCmd = await resolveCommand(command);
   const resolvedFolder = resolveCwd(folder);
   console.log(
-    `[summarizer] Calling tool=${tool} cmd=${resolvedCmd} model=${model || 'default'} effort=${effort || 'default'} thinking=${!!thinking} for session ${sessionId.slice(0, 8)}`
+    `[summarizer] Calling tool=${effectiveTool} cmd=${resolvedCmd} model=${effectiveModel || 'default'} effort=${effectiveEffort || 'default'} thinking=${!!effectiveThinking} task=${taskType} for session ${sessionId.slice(0, 8)}`
   );
 
   const subEnv = buildToolProcessEnv();
@@ -273,7 +279,7 @@ async function runSessionLabelSuggestion(sessionMeta, onRename, options = {}) {
     'Respond with ONLY valid JSON. No markdown, no explanation.',
   ].filter((line) => line !== '').join('\n');
 
-  const modelText = await runToolJsonPrompt(sessionMeta, prompt);
+  const modelText = await runToolJsonPrompt(sessionMeta, prompt, 'session_label');
   const labelResult = parseJsonObject(modelText);
   if (shouldGenerateTitle && !labelResult?.title) {
     console.error(`[summarizer] Unexpected title output for ${sessionId.slice(0, 8)}: ${modelText.slice(0, 200)}`);
@@ -408,7 +414,7 @@ async function runSessionWorkflowStateSuggestion(sessionMeta, _options = {}) {
     'Respond with ONLY valid JSON. No markdown, no explanation.',
   ].filter((line) => line !== '').join('\n');
 
-  const modelText = await runToolJsonPrompt(sessionMeta, prompt);
+  const modelText = await runToolJsonPrompt(sessionMeta, prompt, 'workflow_state');
   const stateResult = parseJsonObject(modelText);
   const nextWorkflowState = inferSessionWorkflowStateFromText(
     stateResult?.workflowState

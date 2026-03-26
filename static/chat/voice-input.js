@@ -1429,7 +1429,7 @@ function renderVoiceInputSettings() {
 
   const note = document.createElement("div");
   note.className = "settings-section-note";
-  note.textContent = "服务端中继会让语音识别走 RemoteLab 已配置的 ASR 路径，并支持可选的原始音频附件。浏览器直连则是一个更快的可选模式，适合你明确想使用浏览器原生识别器时启用。";
+  note.textContent = "服务端中继会让语音识别走 Cue 已配置的 ASR 路径，并支持可选的原始音频附件。浏览器直连则是一个更快的可选模式，适合你明确想使用浏览器原生识别器时启用。";
 
   const form = document.createElement("div");
   form.className = "settings-inline-form";
@@ -1516,11 +1516,11 @@ function renderVoiceInputSettings() {
   status.className = "settings-app-empty inline-status";
   status.textContent = captureMode === VOICE_CAPTURE_MODE_BROWSER_DIRECT
     ? (browserDirectSupported
-      ? "当前启用的是浏览器直连模式。你说话时的实时识别会留在当前浏览器中，停止后只会把最终转写结果发回 RemoteLab。"
+      ? "当前启用的是浏览器直连模式。你说话时的实时识别会留在当前浏览器中，停止后只会把最终转写结果发回 Cue。"
       : "当前浏览器没有提供可直接使用的语音识别 API，因此在可用时会自动回退到服务端中继。")
     : (config.configured
-      ? `${config.providerLabel || "服务提供方"} 中继已启用。识别会通过 RemoteLab 配置好的语音路径处理。当前模型：${config.modelLabel || "voice"}。`
-      : "服务端中继尚未配置。如果你希望由 RemoteLab 处理语音识别和音频上传，请在下方保存 provider 详情。");
+      ? `${config.providerLabel || "服务提供方"} 中继已启用。识别会通过 Cue 配置好的语音路径处理。当前模型：${config.modelLabel || "voice"}。`
+      : "服务端中继尚未配置。如果你希望由 Cue 处理语音识别和音频上传，请在下方保存 provider 详情。");
 
   const diagnosticsSummary = document.createElement("div");
   diagnosticsSummary.className = "settings-app-empty voice-input-diagnostics-summary";

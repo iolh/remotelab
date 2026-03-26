@@ -2,7 +2,7 @@
 
 ## Why this exists
 
-RemoteLab's prompt stack had started to mix policy, routing, memory activation, continuity, and turn-level execution nudges into one increasingly prescriptive bundle.
+Cue's prompt stack had started to mix policy, routing, memory activation, continuity, and turn-level execution nudges into one increasingly prescriptive bundle.
 
 That shape is fragile. It makes the system read like a hidden SOP instead of a reusable cognitive scaffold, and it blurs several different questions:
 
@@ -15,7 +15,7 @@ This note records the cleaner principle-first topology.
 
 ## Core stance
 
-RemoteLab should behave like an agent-native system.
+Cue should behave like an agent-native system.
 
 - Code owns capability primitives, state persistence, permissions, and hard invariants.
 - Prompts own principles, assembly rules, and default preferences.

@@ -208,7 +208,7 @@ If we want truly dynamic group approval, the better long-term control surface is
 
 - owner-only admin chat command, or
 - small local admin CLI, or
-- tiny RemoteLab API endpoint
+- tiny Cue API endpoint
 
 All of those can update memory first, then persist.
 

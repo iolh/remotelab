@@ -766,6 +766,25 @@ function getWorkflowHandoffEventLabel(evt) {
   return "结果转交";
 }
 
+function buildFileChangeSummary(fileChanges) {
+  if (!Array.isArray(fileChanges) || fileChanges.length === 0) return null;
+  const summary = document.createElement("div");
+  summary.className = "thinking-file-changes";
+  const heading = document.createElement("div");
+  heading.className = "thinking-file-changes-heading";
+  heading.textContent = `变更了 ${fileChanges.length} 个文件`;
+  summary.appendChild(heading);
+  for (const change of fileChanges) {
+    const item = document.createElement("div");
+    item.className = "thinking-file-change-item";
+    const basename = (change.filePath || "").split("/").pop() || change.filePath;
+    const dir = (change.filePath || "").slice(0, (change.filePath || "").length - basename.length);
+    item.innerHTML = `<span class="file-change-dir">${esc(dir)}</span>${esc(basename)}`;
+    summary.appendChild(item);
+  }
+  return summary;
+}
+
 function renderThinkingBlockEvent(evt) {
   if (inThinkingBlock) {
     finalizeThinkingBlock();
@@ -783,6 +802,14 @@ function renderThinkingBlockEvent(evt) {
   thinking.body.dataset.blockRange = "";
   thinking.body.dataset.blockStartSeq = thinking.block.dataset.blockStartSeq;
   thinking.body.dataset.blockEndSeq = thinking.block.dataset.blockEndSeq;
+
+  if (evt?.isTurnTerminal && Array.isArray(evt?.fileChanges) && evt.fileChanges.length > 0) {
+    const summary = buildFileChangeSummary(evt.fileChanges);
+    if (summary) {
+      thinking.block.classList.add("turn-terminal");
+      thinking.block.insertBefore(summary, thinking.body);
+    }
+  }
 
   if (running && typeof setRunningEventBlockExpanded === "function") {
     setRunningEventBlockExpanded(sessionId, expandedByDefault);

@@ -1,8 +1,8 @@
 # Micro Agent
 
-`Micro Agent` is now a very thin `codex`-backed preset inside RemoteLab.
+`Micro Agent` is now a very thin `codex`-backed preset inside Cue.
 
-The key shift is intentional: instead of maintaining a separate mini runtime, custom handoff protocol, and upgrade rules, we reuse the primitives RemoteLab already has.
+The key shift is intentional: instead of maintaining a separate mini runtime, custom handoff protocol, and upgrade rules, we reuse the primitives Cue already has.
 
 That means:
 
@@ -10,7 +10,7 @@ That means:
 - no extra `request_upgrade` protocol
 - no extra routing rules inside the executor
 - no separate OpenAI-compatible API wrapper runtime to maintain
-- delegation and orchestration happen through ordinary RemoteLab APIs / CLI calls
+- delegation and orchestration happen through ordinary Cue APIs / CLI calls
 
 ## What gets installed
 
@@ -22,15 +22,15 @@ The installer writes one custom tool record into `~/.config/remotelab/tools.json
 - `reasoning.kind: none`
 
 So the UI treats it like a lightweight preset, while the actual runtime stays the normal Codex CLI.
-Unlike the earlier bare-user version, it now follows RemoteLab's normal session prompt/context chain so memory activation, manager policy, and continuation behavior stay aligned with the built-in `codex` tool.
+Unlike the earlier bare-user version, it now follows Cue's normal session prompt/context chain so memory activation, manager policy, and continuation behavior stay aligned with the built-in `codex` tool.
 
 When `micro-agent` is installed and available, the chat UI now prefers it as the default agent for new sessions and app tool pickers. Explicit per-session or per-app tool choices still win.
 
 ## Why this is lighter
 
-The previous direction added a new control protocol so the micro-agent could ask RemoteLab to switch runtimes for the next turn.
+The previous direction added a new control protocol so the micro-agent could ask Cue to switch runtimes for the next turn.
 
-That works technically, but it also adds a second control plane on top of capabilities RemoteLab already has:
+That works technically, but it also adds a second control plane on top of capabilities Cue already has:
 
 - opening another session
 - choosing another tool/model
@@ -40,7 +40,7 @@ This version removes that extra layer. If the model wants to branch work, it can
 
 ## The local API CLI
 
-RemoteLab now exposes a small authenticated CLI wrapper around its own HTTP surface:
+Cue now exposes a small authenticated CLI wrapper around its own HTTP surface:
 
 ```bash
 node cli.js api GET /api/tools
@@ -85,7 +85,7 @@ This setup does **not** turn Codex into a pure raw-completion API; Codex CLI is 
 
 But in practice it is close to the lightweight mode we want because:
 
-- it inherits the same RemoteLab session context, memory activation, and manager-layer prompt shaping as `codex`
+- it inherits the same Cue session context, memory activation, and manager-layer prompt shaping as `codex`
 - it can answer directly without tool use when the task is simple
 - it can still use shell when the task genuinely needs it
 - it can call `remotelab api` or `remotelab session-spawn` explicitly instead of relying on hidden product-specific control messages
@@ -99,7 +99,7 @@ Minimal text-only check:
 codex exec --json --skip-git-repo-check --sandbox read-only -C "$(mktemp -d)" 'Reply exactly micro-ok. Do not run shell commands. Do not inspect files. Do not explain.'
 ```
 
-RemoteLab integration check:
+Cue integration check:
 
 ```bash
 node cli.js api POST /api/sessions --body '{"folder":"~/code/remotelab","tool":"micro-agent","name":"micro smoke"}'

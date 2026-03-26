@@ -1,4 +1,4 @@
-# AGENTS.md — RemoteLab Project Context
+# AGENTS.md — Cue Project Context
 
 > Canonical repo-local AI context lives here. Keep tool-specific files like `CLAUDE.md` only as thin compatibility shims that point back to this file.
 
@@ -7,15 +7,78 @@
 
 ---
 
-## What Is RemoteLab
+## What Is Cue
 
-A web app that gives super-individuals an AI workbench for orchestrating AI work across phone and desktop. Strong executors run on the owner’s macOS/Linux machine; the human manages goals, projects, and decisions from whichever endpoint is most convenient.
+Cue is not a product that makes AI work better. It is a product that makes the human show up less often, more precisely, and more at ease.
 
-**Not** a terminal emulator, a traditional editor-first IDE, or a chatbot. It's an **AI workbench / control console for human-AI collaboration** — the user sets direction, the executors do the work, and RemoteLab keeps orchestration and context coherent.
+One person runs many AI work threads on a real machine. AI executors run autonomously; the system continuously persists state, maintains context, and manages cross-thread attention. The human is absent by default and present only at moments that genuinely need judgment — from phone or desktop.
+
+**Not** a terminal emulator, an editor-first IDE, a chatbot, an agent framework, or an engagement machine. Cue is a **human attention interface** — it does not sell execution, it sells judgment timing, context recovery, and interruption economy.
 
 - Single owner, not multi-user
 - Node.js, no external frameworks (only `ws` for WebSocket)
 - Vanilla JS frontend, no build tools
+
+## Product Design Center (Non-Negotiable)
+
+Cue’s ideal shape is not “a smarter AI product” but “an AI work control plane that disturbs the human as little as possible.” At its best it should feel like a nearly invisible dispatch surface. AI threads run autonomously on the real machine for extended periods; the system continuously persists state, organizes context, and maintains cross-thread visibility. The human is absent by default and surfaces only at the rare moments that genuinely require value judgment, direction choice, risk approval, or delivery acceptance. Every surfacing should be high-signal, low-friction, decidable in seconds — not a drag back into logs, dashboards, and process.
+
+### Core Philosophy: 依乎天理，因其固然
+
+The analogy is the Cook Ding parable (庖丁解牛). Cook Ding’s blade stayed sharp for nineteen years — not because it was a better blade, but because it never touched bone. It moved only through the natural seams of the ox. The blade’s wear approached zero because it never appeared where it shouldn’t.
+
+Human attention is that blade. Most AI products try to sharpen the blade — better dashboards, richer logs, more configuration panels, making you “more efficient at watching.” But watching itself is the wear. The real solution is not helping the human watch more efficiently; it is making the human not need to watch at all.
+
+This also explains a counterintuitive throughput result: **maximum reduction of human intervention yields maximum AI output.** When the human is absent, AI runs at full speed. Every unnecessary interruption — even two minutes — compounds into massive AI productivity loss. When the system only calls the human at genuine decision points, AI’s continuous execution window is longest, each human intervention carries highest value, and total system throughput is maximized.
+
+### Ideal Use Case
+
+One single owner pushes many long tasks in the real world at the same time. Several AI threads write code, verify, research, run scripts, fix environments, organize docs — all on the owner’s real machine. The owner walks away — meeting, commuting, eating — and occasionally glances at their phone: which thread is stuck, where is a call needed, which delivery is ready to accept, which direction needs changing. The phone is not a mobile IDE; it is a pocket judgment and approval surface. The desktop is not for manual re-operation; it is for the rare moments that need deeper engagement and then leaving again.
+
+Later, when a particular workflow has been repeatedly validated by the owner, Cue may allow it to be packaged as an App or exposed through a thin external adapter — as distribution of an already-validated collaboration protocol, not as an initial platform play.
+
+### Product Grammar
+
+The core grammar is deliberately simple: `Session` is the durable work thread, `App` is reusable policy/package, the browser is a control surface, and the machine plus its persistent state is the true continuity. Cue’s value is not in how smart any single turn is — it is in letting the owner hold more concurrent AI work threads without needing to carry more state in their head. It does not sell execution. It sells judgment timing, context recovery, and interruption economy.
+
+### Hard Boundaries
+
+Cue must not become a terminal emulator, a heavy editor, a heavy dashboard, a generic chat SaaS, a multi-tenant bot platform, or yet another closed agent runtime. It must not default to creating new attention sources: reaching out proactively “to be more helpful,” silently making decisions “to be more automated,” or sprawling into a collection of external connector product lines “to have more entry points.”
+
+External entry surfaces may exist, but only as thin adapters around the same session grammar. They must not reverse-define the product’s center. Automation may exist, but only to extend AI’s autonomous runtime and reduce human appearance frequency — never to push the system toward an engagement machine. Any feature that gives the owner a new system to monitor has already crossed the boundary.
+
+### The One-Sentence Test
+
+When evaluating any feature, ask one question: **is this reducing how often and how expensively the owner needs to appear, or is it creating a new world the owner must continuously manage?** The former is Cue. The latter is not.
+
+### Decision Rules
+
+**What Cue optimizes**: the timing, quality, and economy of human attention. The system’s core output is not “better AI output” — it is “better human decision moments.” When the system surfaces the human, the information must be sufficient, the required action must be clear, and the interruption must be worth the context-switch cost.
+
+**What Cue does NOT compete on**: model routing sophistication, skill/MCP chaining, prompt engineering quality, or dashboard richness. These are machine-side concerns. Users cannot perceive and do not care whether the system cleverly switched models behind the scenes. Users perceive whether they were interrupted at the right moment with the right information.
+
+**Competitive frame**: Cue’s competitors are not AI infrastructure tools (LangChain, CrewAI, AutoGen) but human attention interfaces (Linear, Slack, email). The question is not “who orchestrates agents better” but “who wastes less human attention while achieving more.”
+
+### Design Validation Gate
+
+Every product, UX, workflow, connector, and automation change must pass these questions before it is treated as core Cue direction:
+
+1. Does this reduce how often the owner needs to appear, or does it create another thing the owner must monitor?
+2. Does this make each human interruption shorter, clearer, and more self-contained?
+3. Does this preserve `session + app + principal` as the core grammar, or does it invent another product species?
+4. If this is a connector or automation, is it staying a thin adapter around Cue’s session grammar, or is it becoming its own product line?
+5. If we removed this, would Cue become more true to its design center? If yes, the default bias should be to cut, demote, or keep it experimental.
+
+## Engineering Principles (Non-Negotiable)
+
+These principles govern every feature, refactor, and architectural decision. They are not aspirational — they are enforceable constraints with the same weight as Hard Constraints below.
+
+1. **Proven benefit only in defaults** — only ship behavior with demonstrated, concrete value as a product default. Weak hypotheses, speculative optimizations, and "sounds smart" abstractions stay out of the default path until real usage data justifies them. When in doubt, leave it out.
+2. **Cut, don't add (游刃有余)** — when the system feels complex, the first response is to remove unnecessary layers, not to add a cleverer one. Each cut reduces resistance; the goal is a system that moves through seams, not one that powers through bone. Every layer of indirection must justify its existence against the cost of the complexity it introduces. Prefer fewer moving parts over more "flexible" architecture.
+3. **Human-side over machine-side** — prioritize work that visibly improves the human's experience (fewer unnecessary interruptions, better decision context, faster comprehension) over work that only improves machine-side efficiency (smarter model routing, cheaper inference, faster tool execution). Machine-side optimization is acceptable only when it produces a clear human-perceptible benefit such as reduced latency or reduced cost passed through to the user.
+4. **Overhead self-awareness** — the system must not waste expensive resources on cheap tasks. Auxiliary operations (labeling, classification, state inference) should use the cheapest adequate model/configuration. The mainline user-chosen runtime is never silently overridden by heuristics.
+5. **App/user explicit config always wins** — when the user or an App has explicitly configured tool, model, effort, or thinking, no heuristic or automatic policy may override that choice. Automatic policies only fill gaps where the user has not expressed a preference.
+6. **Validate with observation, not speculation** — new orchestration behaviors must be validated with logs, metrics, or user feedback before being promoted from experimental to default. "It should theoretically be better" is not sufficient justification for shipping.
 
 ## Documentation Rule
 
@@ -48,7 +111,7 @@ Browser / app surface ──HTTPS──→ Cloudflare Tunnel ──→ chat-serv
 |---------|------|--------|------|
 | `chat-server.mjs` | **7690** | production chat domain | **Primary** — the shipped owner chat/control plane |
 
-**Dev workflow**: use the normal `7690` service as the single chat/control plane. RemoteLab now relies on clean restart recovery rather than a separate permanent validation plane.
+**Dev workflow**: use the normal `7690` service as the single chat/control plane. Cue now relies on clean restart recovery rather than a separate permanent validation plane.
 
 **Self-hosting rule**: restarting the active chat server is acceptable when needed because runs reconcile back from durable state. Treat restart as a transport interruption with logical recovery, not as a reason to maintain a second permanent chat plane. Manual extra instances remain optional ad-hoc debugging tools only. See `notes/current/self-hosting-dev-restarts.md`.
 
@@ -176,17 +239,10 @@ Additional instances can override this with `REMOTELAB_INSTANCE_ROOT`, `REMOTELA
 ### Sessions
 Unit of work = one chat conversation with one AI tool. Persisted across disconnects. Resume IDs (`claudeSessionId`, `codexThreadId`) stored in metadata so AI context survives server restarts.
 
-### Event-Driven Workflow
-RemoteLab no longer uses a stage-based `workflowDefinition` / intake / inline-declaration state machine.
+### Workflow Metadata
+Sessions carry lightweight workflow signals — `currentTask`, `workflowState`, `workflowPriority` — that help the owner see what each thread is doing and how important it is. These are presentation metadata, not a workflow state machine.
 
-- A mainline session keeps a lightweight `currentTask`.
-- When a mainline run completes, the system may attach a lightweight `workflowSuggestion`.
-- Accepting a suggestion spawns a focused auxiliary session such as verification or deliberation.
-- Auxiliary sessions return typed handoffs (`verification_result`, `decision_result`) into `workflowPendingConclusions`.
-- Handoffs move through `pending`, `needs_decision`, `accepted`, `ignored`, or `superseded`.
-- `workflowState` and `workflowPriority` remain as lightweight session-level signals, not a stage engine.
-
-The shipped orchestration model is event-driven suggestion + typed handoff, not predeclared workflow stages.
+Multi-session fan-out is supported: a control session can spawn focused parallel sessions. But the system does not automatically route work between sessions, auto-absorb conclusions, or decide on behalf of the owner whether a result is acceptable. Those are human judgment calls.
 
 ### Apps (Templates)
 Reusable AI workflows shareable via link. Each App defines: name, systemPrompt, skills, tool. When a Visitor clicks the share link → auto-creates a scoped Session with the App's system prompt injected.
@@ -196,7 +252,7 @@ Reusable AI workflows shareable via link. Each App defines: name, systemPrompt, 
 - **Visitor**: Accesses only a specific App via share link. Sees chat-only UI (no sidebar). Each Visitor gets an independent Session. This is NOT multi-user — Visitors are scoped guests.
 
 ### Session Labeling
-`summarizer.mjs` now exists to suggest canonical session presentation metadata — `title`, `group`, and hidden `description` — without owning any separate Progress state. The `Progress` tab remains only as an empty UI shell reserved for future surfaces.
+`summarizer.mjs` suggests canonical session presentation metadata — `title`, `group`, and hidden `description` — to help the owner quickly reorient when returning to a session.
 
 ### Memory System (Pointer-First)
 - **Storage tiers** still matter:
@@ -233,6 +289,8 @@ Reusable AI workflows shareable via link. Each App defines: name, systemPrompt, 
 7. **Agent-driven first** — new features prefer conversation/Skill over dedicated UI
 8. **ES Modules** — `"type": "module"`, all `.mjs` files
 9. **Template style** — `{{PLACEHOLDER}}` substitution, nonce-injected scripts
+10. **Mainline does not generate external demand flows** — the shipped default does not run external connectors, inbound automation, or proactive outreach. External entry surfaces exist only as opt-in thin adapters, not as default product behavior
+11. **No hidden machine-side judgment replacement** — the system must not silently decide on behalf of the owner whether a conclusion is acceptable, whether a workflow should close out, or whether the human is needed. Automatic policies may extend AI autonomy but must not replace human judgment calls
 
 ---
 
@@ -335,37 +393,39 @@ Both layers **must** share the same CSS custom property tokens from `chat-base.c
 
 ## Current Priorities
 
-Current operating rule: prefer capability-first shipping slices that validate the target product shape before another broad refactor round. Keep refactors limited to the work directly required by those slices or to regressions they expose.
+Operating rule: prefer capability-first shipping slices that validate "less human attention, more AI throughput" before any broad refactor. Every item must pass the one-sentence test: is it reducing how often and how expensively the owner needs to appear?
 
 ### Done (recent)
 - [x] Owner/Visitor dual-role identity
 - [x] App system (CRUD API, share tokens, visitor flow)
 - [x] Resume ID persistence (survives server restarts)
 - [x] Web push notifications
+- [x] Board removal — session-first main flow is now the only owner surface
+- [x] Typed attention contract — event-sourced state, checkpoint-based resume, typed attention with state/type/reason/action
+- [x] Triage inbox as primary surface — session list consumes backend attention for sorting, badges, and action strips
+- [x] Completed attention lifecycle — "completed alerts once, action alerts continuously"; unified `shouldSurfaceCompletedAttention` predicate; `completed_read` drops to passive
+- [x] Tool-only completed turn visibility — `isTurnTerminal` + `fileChanges` summary on thinking blocks so completed turns always have a minimal visible result
+- [x] Product boundary audit — confirmed mainline product center as single-owner attention interface; demoted external connectors, workflow auto-routing, and machine-side judgment replacement from the default product path
 
-### P1 — Next Up
-- [ ] Remove the current `Board` product surface from the active owner flow and rewrite the session-first main flow from scratch instead of iterating inside board constraints
-- [ ] Multi-session fan-out from one owner turn — let a manager/control session intentionally spawn several focused parallel sessions, keep hierarchy light, and rely on concise aggregation plus session-level navigation rather than heavy parent-side handoff UI
-- [ ] Cross-session context freshness — let a new or sibling session pick up recent relevant context from adjacent work without requiring the user to restate everything, while keeping imports bounded and inspectable
-- [ ] Context carry/cache confirmation — validate and tune compaction, prepared fork context, summary/refs reuse, and any cross-session handoff packet so session-first multi-session flows stay fast and bounded
-- [ ] Expose AI-controlled session presentation (`title`, `group`, `description`) via session APIs, then validate the AI-owned session-list / inbox UX as the primary owner surface after board removal
-- [ ] Universal control inbox / dispatcher session — a default high-trust intake surface layered on top of the session-first + multi-session contract, not one giant always-growing work thread
-- [ ] Revisit board/grouping/task-like workflow surfaces only if the rewritten main flow later proves a board-like view is truly needed; keep the owner-facing surface single-layer and session-first unless lived use disproves that default
+### P0 — Product Boundary Enforcement
+- [ ] Mainline reduction — remove proactive observer, workflow auto-absorb/closeout/magic-name routing, session-routing regex, Progress Tab shell; downgrade request-log and release-tooling from product defaults
+- [ ] Connector separation — move Agent Mailbox, Feishu connector, GitHub auto-triage/CI-auto-repair, wake-word voice connector, Doubao fast agent, remote capability monitor out of mainline into `contrib/` or separate packages
+- [ ] Workflow engine simplification — retain lightweight session metadata (`currentTask`, `workflowState`, `workflowPriority`) and fan-out primitives; remove auto-absorb, typed-conclusion lifecycle, magic app-name routing, and final closeout automation
+
+### P1 — Next Up (human-side, attention-reducing)
+- [ ] Attention reason granularity — split `completed` into `completion_with_conclusion` (surfaces once) and `completion_tool_only` (passive, no attention); inbox only shows completions with decision value
+- [ ] Signal-driven attention accuracy — use acted/skipped signals to iteratively tighten `deriveSessionAttention` rules; only promote validated improvements to defaults
+- [ ] Multi-session fan-out — let a control session spawn focused parallel sessions with light hierarchy and concise aggregation; the human sees one inbox, not N session details
+- [ ] Cross-session context freshness — let sibling sessions pick up recent relevant context without requiring the user to restate; keep imports bounded and inspectable
+- [ ] Context carry/cache confirmation — validate compaction, fork context, summary/refs reuse so multi-session flows stay fast and bounded
+- [ ] Deferred triggers — AI-initiated scheduled follow-ups so the human doesn’t need to remember to check back
+
+### P2 — Future (only when P1 validates the need)
 - [ ] Skills framework (file storage + loading mechanism)
-- [ ] Provider registry abstraction — open model selection, local JS/JSON provider config, no more Claude/Codex-only model wiring
-- [ ] Provider management UX — setup/settings should support preset enablement, simple GUI JSON providers, and advanced code mode
-- [ ] Session metadata enrichment beyond presentation (`project`, `status`, `priority`, `tags`)
-- [ ] Produce a precise file-level concept→implementation guide so future sessions can route directly to the right files with less repo spelunking
-
-### P2 — Future
-- [ ] Deferred triggers (AI-initiated actions, scheduled follow-ups)
-- [ ] First-run onboarding App/session — on a fresh RemoteLab Live launch, seed a built-in guide App and intro session so the owner sees capabilities and suggested next actions instead of an empty session list; decide whether it should behave like a persistent default surface, a dismissible starter, or the same object as the control inbox
-- [ ] Queued follow-up composer buffer — while a session is still streaming a reply, let the user stage another message in a buffer and auto-submit it as a fresh turn immediately after the active response finishes; external connectors like Feishu should share the same staged-turn contract and later define an interrupt/replace policy
-- [ ] Session fork follow-ups — extend the shipped hard-clone head-fork with optional `Fork from here`, lightweight lineage navigation, and exact historical fork support when compaction-safe snapshots exist
-- [ ] Broaden theming beyond system light/dark — keep v1 system-driven, then add optional explicit theme selection and more color palettes, preferably reusing VS Code-style open theme configs/tokens where that fits cleanly
+- [ ] First-run onboarding App/session — seed a built-in guide so new owners see capabilities instead of an empty session list
+- [ ] Queued follow-up composer buffer — stage another message while a session is still streaming; auto-submit as next turn after the active response finishes
 - [ ] Post-LLM output processing (layered output: decision / summary / details)
-- [ ] Revisit product naming/brand and possible repo rename after the product philosophy is more mature; treat this as intentionally deferred while the product itself is still taking shape
-
+- [ ] Session fork follow-ups — extend hard-clone head-fork with optional lineage navigation
 ---
 
 ## Reference Docs (for deep dives)
@@ -375,12 +435,12 @@ Current operating rule: prefer capability-first shipping slices that validate th
 | Documentation Map | `docs/README.md` | Repo doc taxonomy: what lives in `docs/` vs `notes/` |
 | Notes Map | `notes/README.md` | Note taxonomy: `current` vs `directional` vs `archive` vs `local` |
 | Project Architecture | `docs/project-architecture.md` | Top-down map of the shipped system, code locations, runtime flows, and current-vs-direction split |
-| Remove Board + Rewrite Main Flow | `notes/current/remove-board-and-rewrite-main-flow.md` | Current decision record for deleting the shipped board surface and restarting main-flow design from a session-first baseline |
+| Remove Board + Rewrite Main Flow | `notes/current/remove-board-and-rewrite-main-flow.md` | Historical decision record — board removal is complete; session-first main flow is now the shipped baseline |
 | Capability-First Shipping Plan | `notes/current/capability-first-shipping-plan.md` | Current near-term product-shape note for session-first main flow, multi-session fan-out, and bounded context freshness |
 | Session Main Flow + Context Freshness Next Push | `notes/current/session-main-flow-next-push.md` | Concrete execution pack for the current post-board product slice |
 | Core Domain Contract | `notes/current/core-domain-contract.md` | Current domain/refactor baseline when deciding which product objects are canonical |
 | Product Surface Lifecycle | `notes/current/product-surface-lifecycle.md` | Current rule for keep/iterate/retire decisions on shipped feature surfaces |
-| External Message Protocol | `docs/external-message-protocol.md` | Canonical connector contract for email/GitHub/bot integrations using sessions, messages, runs, and events |
+| External Message Protocol | `docs/external-message-protocol.md` | Opt-in integration contract for thin external adapters; not part of the mainline default |
 | Core Philosophy | `notes/directional/core-philosophy.md` | Historical philosophy note; use it for framing, not as the current implementation checklist |
 | App-Centric Architecture | `notes/directional/app-centric-architecture.md` | Historical/consolidated direction note for treating default chat and shared Apps as one policy model |
 | Provider Architecture | `notes/directional/provider-architecture.md` | Open provider/model abstraction, local JS/JSON extension path, migration plan |

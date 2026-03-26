@@ -33,6 +33,16 @@ function applySessionListState(nextSessions, {
   if (Number.isInteger(nextArchivedCount) && nextArchivedCount >= 0) {
     archivedSessionCount = nextArchivedCount;
   }
+  if (typeof maybeRecordAttentionReopened === "function") {
+    for (const session of activeSessions) {
+      maybeRecordAttentionReopened(session, previousMap.get(session?.id) || null);
+    }
+  }
+  if (typeof maybeRecordCompletedResurfacedWithoutNewEvent === "function") {
+    for (const session of activeSessions) {
+      maybeRecordCompletedResurfacedWithoutNewEvent(session, previousMap.get(session?.id) || null);
+    }
+  }
   refreshAppCatalog();
   renderSessionList();
   if (currentSessionId && !sessions.some((session) => session.id === currentSessionId)) {
@@ -63,6 +73,16 @@ function applyArchivedSessionListState(nextSessions, {
   archivedSessionCount = Number.isInteger(nextArchivedCount) && nextArchivedCount >= 0
     ? nextArchivedCount
     : archivedSessions.length;
+  if (typeof maybeRecordAttentionReopened === "function") {
+    for (const session of archivedSessions) {
+      maybeRecordAttentionReopened(session, previousMap.get(session?.id) || null);
+    }
+  }
+  if (typeof maybeRecordCompletedResurfacedWithoutNewEvent === "function") {
+    for (const session of archivedSessions) {
+      maybeRecordCompletedResurfacedWithoutNewEvent(session, previousMap.get(session?.id) || null);
+    }
+  }
   refreshAppCatalog();
   renderSessionList();
   return archivedSessions;

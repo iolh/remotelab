@@ -2,7 +2,7 @@
 
 ## Overview
 
-RemoteLab's workflow layer is now event-driven.
+Cue's workflow layer is now event-driven.
 
 What remains:
 

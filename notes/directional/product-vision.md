@@ -1,4 +1,4 @@
-# RemoteLab Product Vision
+# Cue Product Vision
 
 _Last updated: 2026-03-10_
 
@@ -10,7 +10,7 @@ _Last updated: 2026-03-10_
 
 ## 核心判断
 
-RemoteLab 不是“远程和模型聊天”的工具。
+Cue 不是“远程和模型聊天”的工具。
 
 它更像：
 
@@ -75,7 +75,7 @@ App 不只是 prompt 分享。
 
 - 一套已经在真实机器上验证过的 workflow
 - 一套可复用、可分享的 agent SOP
-- RemoteLab 作为“能力分发工具”的自然载体
+- Cue 作为“能力分发工具”的自然载体
 
 ### 5. 增长关键是反馈密度，不是先做商业包装
 

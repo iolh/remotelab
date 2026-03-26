@@ -293,7 +293,7 @@ assert.equal(attachReused, true, 'attach should succeed when the session is alre
 assert.equal(attachReuseContext.currentSessionId, 'session-attach-existing', 'attach should still update the current session id');
 assert.equal(attachReuseContext.hasAttachedSession, true, 'attach should still mark the UI as attached');
 assert.equal(attachEventCalls, 1, 'attach should fetch visible events for an already-known session');
-assert.equal(attachStateCalls, 0, 'attach should skip the redundant detail fetch when the sidebar metadata is already present');
+assert.equal(attachStateCalls, 1, 'attach should still refresh the latest session state even when sidebar metadata already exists');
 assert.equal(attachRefreshCalls, 0, 'attach should avoid the full refresh path when local metadata is already sufficient');
 assert.equal(attachRequested?.sessionId, 'session-attach-existing', 'attach should request events for the selected session');
 assert.equal(attachRequested?.options?.runState, 'idle', 'attach should carry the existing run state into the event refresh path');
@@ -334,7 +334,7 @@ vm.runInNewContext(dispatchActionSnippet, attachQueuedContext, {
 const attachQueued = await attachQueuedContext.dispatchAction({ action: 'attach', sessionId: 'session-attach-queued' });
 assert.equal(attachQueued, true, 'attach should succeed for queued sessions');
 assert.equal(queuedAttachEventCalls, 1, 'attach should still fetch events for queued sessions');
-assert.equal(queuedAttachStateCalls, 1, 'attach should fetch detail only when queued follow-up bodies are actually needed');
+assert.equal(queuedAttachStateCalls, 1, 'attach should fetch the latest session state for queued sessions as well');
 assert.equal(queuedAttachRefreshCalls, 0, 'queued attach should still avoid the older full refresh path');
 
 const archiveContext = createBaseContext();

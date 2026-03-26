@@ -1,4 +1,4 @@
-# RemoteLab Setup Contract (Prompt-First)
+# Cue Setup Contract (Prompt-First)
 
 This document is the setup contract for an AI agent running on the target machine.
 The canonical public copy is `https://raw.githubusercontent.com/Ninglo/remotelab/main/docs/setup.md`, so the setup flow can start from a clean terminal even before the repo exists locally.
@@ -8,7 +8,7 @@ The human's default job is simple: open a fresh terminal on the target machine, 
 ## Copy this prompt
 
 ```text
-I want you to set up RemoteLab on this machine so I can control AI coding tools from my phone.
+I want you to set up Cue on this machine so I can control AI coding tools from my phone.
 
 Network mode: [cloudflare | tailscale]
 
@@ -46,7 +46,7 @@ If multiple tools are installed and the user has no strong preference, prefer `C
 
 ## Runtime configuration principle
 
-RemoteLab setup is the primary configuration UX.
+Cue setup is the primary configuration UX.
 
 - the AI should ask which installed tool(s) the user wants enabled
 - the AI should ask for default model and reasoning preferences where the tool supports them
@@ -58,7 +58,7 @@ RemoteLab setup is the primary configuration UX.
 
 1. Cloudflare authentication via browser if `cloudflared tunnel login` requires it (Cloudflare mode only).
 2. Any OS, package-manager, or provider auth the AI cannot finish alone, such as a sudo password, Homebrew install approval, or external login.
-3. Opening the final RemoteLab URL on the phone and confirming the first successful login.
+3. Opening the final Cue URL on the phone and confirming the first successful login.
 
 The AI should minimize how often it interrupts the human for these checkpoints and should batch requests whenever one human visit can unblock multiple downstream steps.
 
@@ -104,7 +104,7 @@ The AI should do the rest inside the conversation:
 - the local logs show the chat server is listening
 - **Cloudflare**: the tunnel validates and the public hostname resolves; the AI returns the final phone URL as `https://[subdomain].[domain]/?token=...`
 - **Tailscale**: the MagicDNS hostname is reachable; the AI returns the final phone URL as `http://[hostname].[tailnet].ts.net:7690/?token=...`
-- the human confirms the phone can open RemoteLab successfully
+- the human confirms the phone can open Cue successfully
 
 ## Repair rule
 

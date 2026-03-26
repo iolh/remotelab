@@ -213,8 +213,6 @@ async function main() {
     assert.match(page.text, /id="userFilterSelect"/);
     assert.match(page.text, /id="newAppBtn"/);
     assert.match(page.text, /id="settingsAppsList"/);
-    assert.match(page.text, /id="tabBoard"/);
-    assert.match(page.text, /id="boardPanel"/);
     assert.match(page.text, /id="settingsUsersList"/);
     assert.match(page.text, /id="newUserNameInput"/);
     assert.match(page.text, /id="createUserBtn"/);
@@ -238,7 +236,11 @@ async function main() {
     assert.doesNotMatch(page.text, /id="saveTemplateBtn"/);
     assert.doesNotMatch(page.text, /id="sessionTemplateSelect"/);
     assert.match(page.text, /<div class="app-shell">/, 'chat page should render inside a dedicated app shell');
-    assert.match(page.text, /\/chat\/chat\.css\?v=/, 'chat page should fingerprint the split chat stylesheet');
+    assert.match(page.text, /\/chat\/chat-base\.css\?v=/, 'chat page should fingerprint the base chat stylesheet');
+    assert.match(page.text, /\/chat\/chat-sidebar\.css\?v=/, 'chat page should fingerprint the sidebar stylesheet');
+    assert.match(page.text, /\/chat\/chat-messages\.css\?v=/, 'chat page should fingerprint the messages stylesheet');
+    assert.match(page.text, /\/chat\/chat-input\.css\?v=/, 'chat page should fingerprint the input stylesheet');
+    assert.match(page.text, /\/chat\/chat-responsive\.css\?v=/, 'chat page should fingerprint the responsive stylesheet');
     const chatStylesheet = await request(port, 'GET', '/chat/chat.css');
     assert.equal(chatStylesheet.status, 200, 'chat stylesheet should load');
     assert.equal(
@@ -278,15 +280,17 @@ async function main() {
     assert.match(combinedChatStyles, /--app-height:\s*100dvh/);
     assert.match(combinedChatStyles, /--keyboard-inset-height:\s*0px/);
     assert.match(combinedChatStyles, /--sidebar-width-expanded:\s*min\(80vw, calc\(100vw - 240px\)\);/);
-    assert.match(combinedChatStyles, /body\.board-tab-expanded\s*\{[\s\S]*?--sidebar-width:\s*var\(--sidebar-width-expanded\);/, 'desktop board hover mode should widen the sidebar via CSS variables');
-    assert.match(combinedChatStyles, /\.board-column-attention\s*\{[\s\S]*?border-radius:\s*999px;/, 'board columns should surface a compact high-priority count');
-    assert.match(combinedChatStyles, /\.board-priority-pill\s*\{[\s\S]*?border-radius:\s*999px;/, 'board cards should render compact priority pills');
+    assert.match(combinedChatStyles, /\.session-item\.needs-attention:not\(\.active\)\s*\{[\s\S]*?border-color:/, 'attention-first list items should visually surface sessions that need action');
+    assert.match(combinedChatStyles, /\.session-item-meta \.status-attention-action\s*\{[\s\S]*?color:\s*var\(--warning\);/, 'attention badges should expose a dedicated urgent tone');
     assert.match(combinedChatStyles, /\.app-shell\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?grid-template-rows:\s*auto minmax\(0, 1fr\);/, 'app shell should reserve a fixed header row and a flexible body row');
+    assert.match(combinedChatStyles, /\.header\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?overflow:\s*hidden;/, 'header row should allow child flex items to shrink without horizontal overflow');
+    assert.match(combinedChatStyles, /\.header h1\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?max-width:\s*100%;[\s\S]*?text-overflow:\s*ellipsis;/, 'header title should ellipsize long session names on narrow screens');
     assert.match(combinedChatStyles, /\.app-container\s*\{[\s\S]*?min-height:\s*0;/);
     assert.match(combinedChatStyles, /\.chat-area\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0, 1fr\) auto auto;[\s\S]*?min-height:\s*0;/, 'chat area should keep content, queued panel, and composer as explicit rows without adding a content-blocking summary strip');
     assert.match(combinedChatStyles, /\.chat-area > \*\s*\{[\s\S]*?min-width:\s*0;/, 'chat-area grid children should be allowed to shrink horizontally instead of expanding the column');
     assert.match(combinedChatStyles, /\.messages\s*\{[\s\S]*?min-height:\s*0;/);
     assert.match(combinedChatStyles, /\.messages-inner\s*\{[\s\S]*?width:\s*100%;[\s\S]*?min-width:\s*0;[\s\S]*?max-width:\s*100%;/, 'message column should stay bound to the available chat width');
+    assert.match(combinedChatStyles, /\.msg-system\s*\{[\s\S]*?max-width:\s*100%;[\s\S]*?white-space:\s*nowrap;[\s\S]*?text-overflow:\s*ellipsis;/, 'single-line system meta text should ellipsize instead of clipping on mobile');
     assert.match(combinedChatStyles, /\.input-resize-handle\s*\{[\s\S]*?margin:\s*0 calc\(var\(--chat-gutter\) \* -1\) 8px;/, 'resize handle should mirror the current chat gutter so it does not create horizontal overflow on mobile');
     assert.doesNotMatch(combinedChatStyles, /\.sidebar-overlay\.collapsed/, 'desktop sidebar should no longer render a collapsed state');
     assert.match(combinedChatStyles, /\.modal-backdrop\s*\{[\s\S]*?padding-left:\s*calc\(var\(--sidebar-width\) \+ 24px\);/, 'desktop modals should offset against the fixed-width sidebar');
@@ -392,6 +396,7 @@ async function main() {
     const chatIslandAsset = await request(port, 'GET', '/chat-island/chat-chrome.js');
     assert.equal(chatIslandAsset.status, 200, 'chat chrome island asset should load');
     assert.match(chatIslandAsset.text, /remotelab:workflow-task-open/);
+    assert.match(chatIslandAsset.text, /remotelab:chrome-status-open/);
     assert.match(chatIslandAsset.text, /openWorkflowTaskDialog/);
     assert.doesNotMatch(chatIslandAsset.text, /remotelab:workflow-intake-open/);
     assert.doesNotMatch(chatIslandAsset.text, /launchFromText/);
@@ -514,6 +519,8 @@ async function main() {
     assert.equal(sessionSurfaceUiAsset.status, 200, 'session surface ui asset should load');
     assert.match(sessionSurfaceUiAsset.text, /function createActiveSessionItem\(/);
     assert.match(sessionSurfaceUiAsset.text, /function buildSessionMetaParts\(/);
+    assert.match(sessionSurfaceUiAsset.text, /\/api\/attention-signals/);
+    assert.match(sessionSurfaceUiAsset.text, /session-item-attention-strip/);
 
     const sessionListUiAsset = await request(port, 'GET', '/chat/session-list-ui.js');
     assert.equal(sessionListUiAsset.status, 200, 'session list ui asset should load');

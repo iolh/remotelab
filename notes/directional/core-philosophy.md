@@ -1,4 +1,4 @@
-# RemoteLab Core Philosophy & Design Principles
+# Cue Core Philosophy & Design Principles
 
 > 形成于 2026-03-05。
 > 本文档只保留稳定的产品哲学，不再重复实现细节、阶段性 TODO 或当前状态表。
@@ -9,13 +9,13 @@
 
 ## 核心定位
 
-RemoteLab 不是：
+Cue 不是：
 
 - 终端模拟器
 - 手机版 IDE
 - 普通聊天机器人
 
-RemoteLab 是：
+Cue 是：
 
 - 一个让人类远程指挥 AI worker 的控制台
 - 一个把“AI 在真实电脑上工作”变成长期协作关系的产品
@@ -67,7 +67,7 @@ Skills 可以是：
 
 ### 5. 单 Owner 是默认前提
 
-RemoteLab 不是多租户 SaaS。
+Cue 不是多租户 SaaS。
 
 - Owner 是默认中心
 - 非 Owner 访问通过 App scope 暴露
@@ -76,6 +76,12 @@ RemoteLab 不是多租户 SaaS。
 ### 6. App 是 workflow packaging，而不是另一套产品物种
 
 默认 owner chat 和被分享的 App，本质上都在表达“同一个 agent 在不同 policy 下工作”。
+
+### 7. 设计改动必须先过 attention gate
+
+Cue 的理想状态应该是一个安静的控制面：AI 线程在真实机器上持续推进，系统负责维持上下文、状态和 attention 信号，而人默认不在场，只在高价值判断点被精准唤起。理想使用场景是一个 single owner 同时跑很多长任务，主要通过手机或桌面做判断、审批、改向和收口，而不是长期盯盘。
+
+因此每次设计变动都要先问五个问题：它是否减少 owner 出现次数；是否让每次打断更短更清楚；是否维持 `session + app + principal` 这套核心语法；如果是外部入口，它是否只是薄适配器；如果删掉它，Cue 是否更接近自己的设计中心。只要答案主要落在“新增注意力负担”这一边，就不该进入默认主线。
 
 ---
 

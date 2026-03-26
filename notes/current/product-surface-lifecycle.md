@@ -1,12 +1,12 @@
 # Product Surface Lifecycle
 
-This note captures a simple rule for keeping RemoteLab small, useful, and honest as model capability changes.
+This note captures a simple rule for keeping Cue small, useful, and honest as model capability changes.
 
 ## Core Rule
 
 Shipping a feature does **not** mean committing to keep that feature forever.
 
-RemoteLab should prefer a clean, high-leverage surface over a large, accumulated one.
+Cue should prefer a clean, high-leverage surface over a large, accumulated one.
 
 That means a shipped feature remains under review:
 
@@ -39,9 +39,9 @@ When a feature task is distilled, keep only the parts that still matter long-ter
 
 Do **not** keep the full implementation-era speculation if it no longer helps future decisions.
 
-## Why This Matters For RemoteLab
+## Why This Matters For Cue
 
-RemoteLab is not trying to become a large, rigid feature framework around the model.
+Cue is not trying to become a large, rigid feature framework around the model.
 
 The product should increasingly act as a set of clean tools and durable primitives that help a stronger model work better. As model capability improves, some older UI affordances or manual workflows may become transitional rather than permanent.
 

@@ -36,9 +36,6 @@ function getSafeShortFolder(folder) {
 }
 
 function renderSessionList() {
-  if (typeof renderSessionBoard === "function") {
-    renderSessionBoard();
-  }
   sessionList.innerHTML = "";
   const pinnedSessions = getVisiblePinnedSessions();
   const visibleSessions = getVisibleActiveSessions();
@@ -232,10 +229,11 @@ function attachSession(id, session) {
     clearMessages();
     dispatchAction({ action: "attach", sessionId: id });
   }
-  applyAttachedSessionState(id, session);
+  applyAttachedSessionState(id, session, { renderList: false });
   if (typeof markSessionReviewed === "function") {
-    Promise.resolve(markSessionReviewed(session, { sync: shouldReattach, render: true })).catch(() => {});
+    Promise.resolve(markSessionReviewed(session, { sync: shouldReattach, render: false })).catch(() => {});
   }
+  renderSessionList();
   if (typeof focusComposer === "function") {
     focusComposer({ preventScroll: true });
   } else {

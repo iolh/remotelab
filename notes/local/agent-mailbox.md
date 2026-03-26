@@ -17,7 +17,7 @@ The mailbox is now live on the Cloudflare-native path.
 - The public webhook is reachable through the `agent-mailbox` Cloudflare Tunnel.
 - The local bridge accepts authenticated Cloudflare Worker traffic and routes mail into the review/quarantine queues.
 - Real external inbound delivery from an allowlisted sender is validated.
-- Approved messages can open normal RemoteLab sessions and deliver the final assistant turn back by email.
+- Approved messages can open normal Cue sessions and deliver the final assistant turn back by email.
 
 The point is not to make email a generic support inbox.
 The point is to give the agent a stable internet-facing identity that can receive operator-forwarded material like WeChat-exported chat records, long-form notes, and attachments that are awkward to paste into chat.
@@ -85,12 +85,12 @@ Runtime path:
 
 Key design choices:
 
-- The worker creates a normal RemoteLab chat session through the same session API the UI uses.
+- The worker creates a normal Cue chat session through the same session API the UI uses.
 - The session carries a one-shot completion target bound to that specific request ID.
 - When the run finishes, the completion target reads the final assistant message for that run and sends it through the configured outbound email provider.
 - Delivery state is written back into the mailbox item, so `approved/` items can show `processing_for_reply`, `reply_sent`, or `reply_failed`.
 - The preferred outbound path is the Cloudflare Worker fetch endpoint backed by Cloudflare `send_email`, with `apple_mail` still available for local fallback testing.
-- The preferred inbound path is Cloudflare Email Routing -> thin Worker ingress -> local mailbox bridge -> local agent-mail-worker, so provider logic stays thin and business logic stays in RemoteLab-owned code.
+- The preferred inbound path is Cloudflare Email Routing -> thin Worker ingress -> local mailbox bridge -> local agent-mail-worker, so provider logic stays thin and business logic stays in Cue-owned code.
 
 ## Public ingress architecture configured on this machine
 

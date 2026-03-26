@@ -12,7 +12,7 @@ Historical board-first hypothesis: `notes/archive/board-fanout-next-push.md`
 
 ## Product shape for the next push
 
-- The owner can operate RemoteLab cleanly from session-first surfaces after the shipped `Board` surface is removed.
+- The owner can operate Cue cleanly from session-first surfaces after the shipped `Board` surface is removed.
 - One manager/control session can take a single user request and fan it out into several focused parallel sessions when useful.
 - A new or sibling session can pick up recent relevant context learned elsewhere so the user does not need to restate everything in every chat.
 - Imported context stays bounded and inspectable; prefer summaries, refs, and explicit continuation packets over replaying entire transcripts.
@@ -20,7 +20,7 @@ Historical board-first hypothesis: `notes/archive/board-fanout-next-push.md`
 
 ## Demo we should be able to show
 
-1. Open RemoteLab after `Board` has been removed from the active owner flow.
+1. Open Cue after `Board` has been removed from the active owner flow.
 2. Start or continue from a main session, session list, or lightweight dispatcher-style surface.
 3. Ask something that assumes recent context from another session, such as “continue the approach we just settled elsewhere and split it into three parallel tasks”.
 4. The system can either pull the right recent context automatically or make the linkage explicit in a lightweight way.
@@ -157,7 +157,7 @@ Historical board-first hypothesis: `notes/archive/board-fanout-next-push.md`
 - Open questions:
   - How should related sessions be discovered: explicit linking, recency, shared app/group, manual pickers, or heuristics?
   - What is the minimal reusable unit: summary, decisions, refs, diff since last read, or a prepared context packet?
-  - When should RemoteLab auto-import context versus suggest it versus ask the user?
+  - When should Cue auto-import context versus suggest it versus ask the user?
   - How does the operator inspect or trim imported context before it bloats the prompt?
   - How do we avoid turning many bounded sessions into one hidden giant transcript?
 

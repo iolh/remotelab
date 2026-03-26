@@ -35,7 +35,7 @@ Historical board-first hypothesis: `notes/archive/board-fanout-next-push.md`
 - Do not introduce a separate durable `Task` object.
 - Remove the current `Board` implementation instead of keeping it around as a half-live planning anchor.
 - If a board-like view ever returns later, it must be re-earned as a derived surface rather than inherited from the current implementation.
-- Judge the next push by whether the owner can operate RemoteLab cleanly through session-first surfaces after the current board is gone.
+- Judge the next push by whether the owner can operate Cue cleanly through session-first surfaces after the current board is gone.
 
 ### 2. Multi-session fan-out remains important
 
@@ -80,7 +80,7 @@ Historical board-first hypothesis: `notes/archive/board-fanout-next-push.md`
 
 ## Shipping candidate for the next push
 
-- The owner can operate RemoteLab cleanly after the shipped `Board` surface is removed.
+- The owner can operate Cue cleanly after the shipped `Board` surface is removed.
 - A manager/control session can fan one user turn out into several focused independent sessions and report back with a light summary when useful.
 - A new or sibling session can receive recent relevant context from adjacent work without the user manually replaying everything.
 - Context carry remains bounded and observable so continued or spawned sessions are not silently replaying too much history.

@@ -1,6 +1,6 @@
 # External Message Protocol
 
-This document is the canonical integration contract for any external tool that wants to use RemoteLab as a **local agent runtime**.
+This document is the canonical integration contract for any external tool that wants to use Cue as a **local agent runtime**.
 
 Use it when integrating things like:
 
@@ -12,17 +12,17 @@ Use it when integrating things like:
 
 The key product stance is simple:
 
-> RemoteLab does **not** care how another system models threads, issues, emails, bots, or replies.
+> Cue does **not** care how another system models threads, issues, emails, bots, or replies.
 > The connector normalizes that source into a standard message flow.
-> RemoteLab accepts the message, runs the local agent, and exposes normalized session/run/event state back out.
+> Cue accepts the message, runs the local agent, and exposes normalized session/run/event state back out.
 
-That means platform-specific wrapping stays outside RemoteLab.
+That means platform-specific wrapping stays outside Cue.
 
 ---
 
-## 1. What RemoteLab is responsible for
+## 1. What Cue is responsible for
 
-RemoteLab owns only the shared conversation/runtime layer:
+Cue owns only the shared conversation/runtime layer:
 
 - authenticate the caller
 - create or reuse a session
@@ -32,7 +32,7 @@ RemoteLab owns only the shared conversation/runtime layer:
 - expose status and events over HTTP
 - optionally send lightweight realtime invalidation over WebSocket
 
-RemoteLab does **not** need to know:
+Cue does **not** need to know:
 
 - whether the source was email, GitHub, Slack, Discord, WeChat export, or something else
 - how the upstream system renders threads or replies
@@ -47,12 +47,12 @@ If the connector can turn an upstream update into “a new user message in an ex
 
 Every integration should reduce its own model to this mapping:
 
-| External concept | RemoteLab concept | Notes |
+| External concept | Cue concept | Notes |
 |---|---|---|
-| upstream thread / issue / email chain / DM | session | usually one RemoteLab session per external thread |
+| upstream thread / issue / email chain / DM | session | usually one Cue session per external thread |
 | one upstream inbound update | message submission | one `requestId` per update |
 | upstream thread key | `externalTriggerId` | stable session dedupe key |
-| upstream actor metadata | optional light context inside `text` | keep source-specific structure outside RemoteLab and avoid turning each message into a connector-specific prompt |
+| upstream actor metadata | optional light context inside `text` | keep source-specific structure outside Cue and avoid turning each message into a connector-specific prompt |
 | local agent reply | assistant events in session history | connector decides how to render or deliver them |
 | source-side follow-up | another message submission | same session, new `requestId` |
 
@@ -60,7 +60,7 @@ This is the main simplification:
 
 > Even something non-chat-like, such as a GitHub issue comment, is still just a user message.
 
-The connector can add a short preface such as actor, source, URL, or thread title when that context is genuinely needed, then pass the normalized text to RemoteLab. Prefer the thinnest possible wrapper around the real user message.
+The connector can add a short preface such as actor, source, URL, or thread title when that context is genuinely needed, then pass the normalized text to Cue. Prefer the thinnest possible wrapper around the real user message.
 
 ---
 
@@ -68,15 +68,15 @@ The connector can add a short preface such as actor, source, URL, or thread titl
 
 An external connector should follow this loop:
 
-1. Authenticate to RemoteLab and obtain an owner session cookie.
-2. Resolve or create the RemoteLab session for the external thread.
+1. Authenticate to Cue and obtain an owner session cookie.
+2. Resolve or create the Cue session for the external thread.
 3. Submit the new inbound update as a user message.
 4. Watch the resulting run until it reaches a terminal state.
 5. Read normalized events from the session.
 6. Decide how to publish the assistant reply back to the external platform.
 7. When the external platform changes again, submit another message to the same session.
 
-RemoteLab is therefore the **shared agent conversation engine**, while connectors stay as thin source adapters.
+Cue is therefore the **shared agent conversation engine**, while connectors stay as thin source adapters.
 
 ---
 
@@ -133,20 +133,20 @@ Useful optional fields for connectors:
 
 Backend-owned source/runtime policy:
 
-- prefer setting `sourceId` / `sourceName` so RemoteLab can apply one shared backend prompt policy for that connector type
+- prefer setting `sourceId` / `sourceName` so Cue can apply one shared backend prompt policy for that connector type
 - do not treat per-connector `systemPrompt` as the primary place for core business logic
 - keep connector overrides narrowly about runtime constraints or local quirks, not the main product semantics
 
 Naming policy for connector-created sessions:
 
-- prefer letting RemoteLab auto-rename after the actual inbound message lands
+- prefer letting Cue auto-rename after the actual inbound message lands
 - only send `name` when it already contains clear thread-specific context
 - do not repeat provider/app/group words already stored in `group`, `appName`, or other metadata
 - generic names such as `Feishu group`, `GitHub issue`, or `Mail reply` are treated as temporary and may be discarded
 
 For recurring owner-side automations, prefer treating the connector as an Automation App:
 
-- create a normal RemoteLab App for the automation's identity and prompt
+- create a normal Cue App for the automation's identity and prompt
 - use that App's `id`, `name`, and `systemPrompt` when creating/reusing the review session
 - keep one stable `externalTriggerId` per automation thread so review stays in one durable session
 
@@ -166,16 +166,16 @@ curl -sS \
     "appId": "github",
     "appName": "GitHub",
     "group": "GitHub",
-    "description": "External GitHub thread bridged into RemoteLab.",
+    "description": "External GitHub thread bridged into Cue.",
     "externalTriggerId": "github:owner/repo#123"
   }'
 ```
 
 Important behavior:
 
-- if an unarchived session with the same `externalTriggerId` already exists, RemoteLab returns that session instead of creating a new one
-- this is the main dedupe mechanism for “one external thread → one RemoteLab session”
-- if the provided `name` is generic or only repeats connector/app/group metadata, RemoteLab keeps the session auto-renameable instead of locking that title in
+- if an unarchived session with the same `externalTriggerId` already exists, Cue returns that session instead of creating a new one
+- this is the main dedupe mechanism for “one external thread → one Cue session”
+- if the provided `name` is generic or only repeats connector/app/group metadata, Cue keeps the session auto-renameable instead of locking that title in
 - the owner sidebar app filter derives its options from session metadata rather than a hardcoded frontend list; if every session is still in the default `chat` app, the filter stays hidden
 
 ---
@@ -313,7 +313,7 @@ The response includes:
 
 - `events` — normalized events in sequence order
 
-Legacy pagination-style query parameters such as `afterSeq` or `limit` are ignored. RemoteLab intentionally loads the full event list and keeps heavy thinking/tool bodies behind explicit body fetches.
+Legacy pagination-style query parameters such as `afterSeq` or `limit` are ignored. Cue intentionally loads the full event list and keeps heavy thinking/tool bodies behind explicit body fetches.
 
 Large or deferred event bodies can be fetched with:
 
@@ -331,7 +331,7 @@ Current normalized event types include:
 - `file_change`
 - `usage`
 
-RemoteLab returns raw normalized events. Connectors that want a single outbound reply should derive it on their side from those events. This repo ships a shared helper in `lib/reply-selection.mjs` for that purpose; it skips assistant-side artifacts such as Codex `todo_list` tails and can fall back past a trailing checklist-only message when an earlier substantive assistant reply exists in the same run.
+Cue returns raw normalized events. Connectors that want a single outbound reply should derive it on their side from those events. This repo ships a shared helper in `lib/reply-selection.mjs` for that purpose; it skips assistant-side artifacts such as Codex `todo_list` tails and can fall back past a trailing checklist-only message when an earlier substantive assistant reply exists in the same run.
 
 ---
 
@@ -346,7 +346,7 @@ This part is the real protocol discipline.
 - Treat every inbound upstream update as a **user message**.
 - Put only the upstream metadata that materially helps disambiguate the user message into the message body.
 - Do not restate connector-side reply-formatting rules on every message; keep turn semantics as backend-owned as possible.
-- Keep source-specific rendering, approval rules, and publishing logic outside RemoteLab.
+- Keep source-specific rendering, approval rules, and publishing logic outside Cue.
 
 ### Good message preface shape
 
@@ -406,7 +406,7 @@ There is already an email-specific completion-target path in the repo, but that 
 
 If you are integrating another tool today, the most stable approach is:
 
-1. keep your source wrapper outside RemoteLab
+1. keep your source wrapper outside Cue
 2. authenticate as the owner
 3. create or reuse one session per upstream thread
 4. submit each inbound update as a new user message
@@ -423,9 +423,9 @@ This already covers most automation surfaces, including non-standard ones like G
 
 If the target is:
 
-- RemoteLab only accepts normalized inbound messages
-- RemoteLab runs the local agent
-- RemoteLab exposes normalized event/state back out
+- Cue only accepts normalized inbound messages
+- Cue runs the local agent
+- Cue exposes normalized event/state back out
 - connectors own all platform-specific wrapping and re-submission logic
 
 then the current implementation is **mostly aligned**, but not fully complete.

@@ -70,17 +70,10 @@ async function dispatchAction(msg) {
           runState,
           viewportIntent: "session_entry",
         });
-        const queueCount = Number.isInteger(attachedSession?.activity?.queue?.count)
-          ? attachedSession.activity.queue.count
-          : 0;
-        if (queueCount > 0 && !Array.isArray(attachedSession?.queuedMessages)) {
-          await Promise.all([
-            fetchSessionState(msg.sessionId),
-            eventsPromise,
-          ]);
-        } else {
-          await eventsPromise;
-        }
+        await Promise.all([
+          fetchSessionState(msg.sessionId),
+          eventsPromise,
+        ]);
         return true;
       }
       case "create": {
@@ -466,7 +459,7 @@ function updateStatus(connState, session = getCurrentSession()) {
     statusText.textContent = "正在重连…";
     msgInput.disabled = !currentSessionId || archived;
     msgInput.placeholder = resolveComposerPlaceholder(
-      archived ? "会话已归档，恢复后继续" : "描述你要做的事，或输入 /form 打开完整表单…",
+      archived ? "会话已归档，恢复后继续" : "有什么想法，随时说给我听",
     );
     sendBtn.style.display = "";
     sendBtn.disabled = !currentSessionId || archived;
@@ -499,10 +492,10 @@ function updateStatus(connState, session = getCurrentSession()) {
   msgInput.placeholder = resolveComposerPlaceholder(archived
     ? "会话已归档，恢复后继续"
     : canBootstrapSessionFromComposer
-      ? "描述你要做的事，或输入 /form；系统会先创建会话…"
+      ? "有什么想法，随时说给我听"
     : inputBusy
       ? "后续消息排队中…"
-      : "描述你要做的事，或输入 /form 打开完整表单…");
+      : "有什么想法，随时说给我听");
   sendBtn.style.display = "";
   sendBtn.disabled = !(hasSession || canBootstrapSessionFromComposer) || archived;
   sendBtn.title = inputBusy ? "后续消息排队" : "发送";

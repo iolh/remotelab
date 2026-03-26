@@ -50,6 +50,22 @@ function collectToolNames(events = []) {
   return names;
 }
 
+function collectFileChanges(events = []) {
+  const changes = new Map();
+  for (const event of events) {
+    if (event?.type !== 'file_change') continue;
+    const filePath = typeof event.filePath === 'string' ? event.filePath.trim() : '';
+    if (!filePath) continue;
+    changes.set(filePath, {
+      filePath,
+      changeType: typeof event.changeType === 'string' && event.changeType.trim()
+        ? event.changeType.trim()
+        : 'modified',
+    });
+  }
+  return Array.from(changes.values());
+}
+
 function buildThinkingBlockLabel(hiddenEvents, state = 'completed') {
   const toolNames = collectToolNames(hiddenEvents);
   if (state === 'running') {
@@ -68,6 +84,7 @@ function buildThinkingBlockEvent(hiddenEvents, state = 'completed') {
   const first = hiddenEvents[0] || null;
   const last = hiddenEvents[hiddenEvents.length - 1] || first;
   const toolNames = collectToolNames(hiddenEvents);
+  const fileChanges = collectFileChanges(hiddenEvents);
   return {
     type: 'thinking_block',
     seq: Number.isInteger(first?.seq) ? first.seq : 0,
@@ -77,6 +94,7 @@ function buildThinkingBlockEvent(hiddenEvents, state = 'completed') {
     label: buildThinkingBlockLabel(hiddenEvents, state),
     hiddenEventCount: hiddenEvents.length,
     ...(toolNames.length > 0 ? { toolNames } : {}),
+    ...(fileChanges.length > 0 ? { fileChanges } : {}),
   };
 }
 
@@ -119,12 +137,31 @@ function findLastHiddenEventIndex(events = []) {
   return -1;
 }
 
+function hasVisibleAssistantText(events = []) {
+  return events.some(
+    (event) => event?.type === 'message' && event.role === 'assistant' && !!String(event.content || '').trim(),
+  );
+}
+
+function markTerminalThinkingBlocks(target, startIndex) {
+  if (!hasVisibleAssistantText(target.slice(startIndex))) {
+    for (let i = target.length - 1; i >= startIndex; i -= 1) {
+      if (target[i]?.type === 'thinking_block') {
+        target[i].isTurnTerminal = true;
+        break;
+      }
+    }
+  }
+}
+
 function flushTurnInto(target, turn, { sessionRunning = false } = {}) {
   if (!turn?.user) return;
   target.push(stripDeferredBodyFields(turn.user));
 
   const bodyEvents = getTurnEventsWithoutIgnoredStatuses(turn.body);
   if (bodyEvents.length === 0) return;
+
+  const bodyStartIndex = target.length;
 
   if (sessionRunning) {
     target.push(buildThinkingBlockEvent(bodyEvents, 'running'));
@@ -134,12 +171,14 @@ function flushTurnInto(target, turn, { sessionRunning = false } = {}) {
   const lastHiddenIndex = findLastHiddenEventIndex(bodyEvents);
   if (lastHiddenIndex < 0) {
     emitSegmentedTurnBody(target, bodyEvents, { sessionRunning });
+    markTerminalThinkingBlocks(target, bodyStartIndex);
     return;
   }
 
   const visibleTail = bodyEvents.slice(lastHiddenIndex + 1).filter(isVisibleEvent);
   if (visibleTail.length === 0) {
     emitSegmentedTurnBody(target, bodyEvents, { sessionRunning });
+    markTerminalThinkingBlocks(target, bodyStartIndex);
     return;
   }
 

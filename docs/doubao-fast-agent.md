@@ -2,7 +2,7 @@
 
 ## What it is
 
-`Doubao Fast Agent` is a low-latency local tool runner for RemoteLab.
+`Doubao Fast Agent` is a low-latency local tool runner for Cue.
 
 It deliberately does **not** try to be a full coding agent like Claude Code or Aider. Instead, it keeps the hot path thin:
 
@@ -16,12 +16,12 @@ That makes it a better fit for voice and quick local actions, where tool support
 ## Architecture
 
 ```text
-RemoteLab session / voice connector
+Cue session / voice connector
   -> custom tool entry (`doubao-fast`)
     -> `scripts/doubao-fast-agent.mjs`
       -> Ark OpenAI-compatible `/chat/completions`
       -> local tool executor (`bash`, file read, clipboard, app open, notification)
-      -> Claude-compatible JSON event stream back to RemoteLab
+      -> Claude-compatible JSON event stream back to Cue
 ```
 
 Key design choices:
@@ -32,7 +32,7 @@ Key design choices:
 - max tool loop default: `2`
 - small, explicit local tool surface
 
-This keeps RemoteLab compatible with the existing `claude-stream-json` runtime without requiring a full provider refactor first.
+This keeps Cue compatible with the existing `claude-stream-json` runtime without requiring a full provider refactor first.
 
 ## Why this shape
 
@@ -71,11 +71,11 @@ node scripts/install-doubao-fast-agent.mjs --api-key <ark-key> --base-url https:
 The installer:
 
 - writes config to `~/.config/remotelab/doubao-fast-agent.json`
-- registers a RemoteLab custom tool in `~/.config/remotelab/tools.json`
+- registers a Cue custom tool in `~/.config/remotelab/tools.json`
 
 If `~/.config/aider/doubao.env` already exists, the installer can reuse it.
 
-## Use in RemoteLab
+## Use in Cue
 
 After installation, choose tool `doubao-fast` when creating a session.
 

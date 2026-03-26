@@ -18,41 +18,6 @@ function getSessionVisualStatus(session, options = {}) {
   return getSessionStatusSummary(session, options).primary;
 }
 
-function getSessionBoardColumns(sessionList = getActiveSessions()) {
-  return typeof sessionStateModel.getBoardColumns === "function"
-    ? sessionStateModel.getBoardColumns(null, sessionList)
-    : [];
-}
-
-function getSessionBoardColumn(session, sessionList = getActiveSessions()) {
-  return typeof sessionStateModel.getSessionBoardColumn === "function"
-    ? sessionStateModel.getSessionBoardColumn(session, null, sessionList)
-    : {
-      key: "open",
-      label: "Open",
-      title: "Sessions that are ready for more work.",
-      emptyText: "No open sessions",
-    };
-}
-
-function getSessionBoardPriority(session) {
-  return typeof sessionStateModel.getSessionBoardPriority === "function"
-    ? sessionStateModel.getSessionBoardPriority(session)
-    : {
-      key: "medium",
-      label: "Medium",
-      rank: 2,
-      className: "board-priority-medium",
-      title: "Worth checking soon, but not urgent.",
-    };
-}
-
-function compareBoardSessions(a, b) {
-  return typeof sessionStateModel.compareBoardSessions === "function"
-    ? sessionStateModel.compareBoardSessions(a, b)
-    : 0;
-}
-
 function refreshSessionAttentionUi(sessionId = currentSessionId) {
   if (typeof renderSessionList === "function") {
     renderSessionList();
@@ -167,7 +132,7 @@ function buildNavigationUrl(state = {}) {
   url.searchParams.delete("source");
   if (nextSessionId) url.searchParams.set("session", nextSessionId);
   else url.searchParams.delete("session");
-  if (nextTab === "settings" || nextTab === "board") {
+  if (nextTab === "settings") {
     url.searchParams.set("tab", nextTab);
   } else {
     url.searchParams.delete("tab");

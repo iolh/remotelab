@@ -1,6 +1,6 @@
-# RemoteLab Project Architecture
+# Cue Project Architecture
 
-This document is the top-down map of the **current shipped architecture** of RemoteLab.
+This document is the top-down map of the **current shipped architecture** of Cue.
 
 Use it when you need to:
 
@@ -38,19 +38,19 @@ When the architecture changes materially, keep these docs aligned as part of the
 
 ---
 
-## 1. What RemoteLab is
+## 1. What Cue is
 
-RemoteLab is an **endpoint-flexible AI workbench for super-individuals coordinating AI work on a real computer**.
+Cue is an **endpoint-flexible AI workbench for super-individuals coordinating AI work on a real computer**.
 
 The core product shape is:
 
 - the user steers work from phone or desktop, whichever is most convenient
 - strong executors run on the owner’s macOS/Linux machine
-- RemoteLab sits above them as an orchestration, context-recovery, and workflow-packaging layer
+- Cue sits above them as an orchestration, context-recovery, and workflow-packaging layer
 - the agent is treated more like a person operating a full computer than a sandboxed in-browser chatbot
 - the browser is mainly a control surface and a status surface, not the system of record
 
-RemoteLab is explicitly **not** trying to be:
+Cue is explicitly **not** trying to be:
 
 - a terminal emulator
 - a traditional editor-first IDE
@@ -96,7 +96,7 @@ Then branch by the change you need:
 
 ### 3.1 Permanent service topology
 
-RemoteLab currently works as a **single chat/control plane** plus optional side subsystems:
+Cue currently works as a **single chat/control plane** plus optional side subsystems:
 
 | Service | Port | Role | Status |
 |---|---:|---|---|
@@ -135,12 +135,12 @@ chat-server.mjs  (:7690)
 
 ### 3.3 Development operating model
 
-When developing RemoteLab itself, the intended workflow is:
+When developing Cue itself, the intended workflow is:
 
 - use `7690` as the default coding/operator plane
 - rely on clean restart recovery instead of a permanent second validation plane
 
-Operationally this matters because RemoteLab optimizes for **logical continuity after restart**, not for pretending transport continuity exists while the active process restarts.
+Operationally this matters because Cue optimizes for **logical continuity after restart**, not for pretending transport continuity exists while the active process restarts.
 
 ---
 
@@ -182,7 +182,7 @@ Responsible for product semantics and long-lived business rules.
 - `chat/session-continuation.mjs`
 - `chat/session-naming.mjs`
 
-This is where RemoteLab’s actual product behavior lives.
+This is where Cue’s actual product behavior lives.
 
 ### 4.3 Runtime layer
 
@@ -256,7 +256,7 @@ remotelab/
 
 ## 6. Core persisted objects
 
-RemoteLab’s persistent model is built around a few durable objects.
+Cue’s persistent model is built around a few durable objects.
 
 ### 6.1 Auth session
 
@@ -444,7 +444,7 @@ Notes:
 
 ### 7.4 Memory layout
 
-RemoteLab has a separate memory system for model activation:
+Cue has a separate memory system for model activation:
 
 - user-level private memory: `~/.remotelab/memory/`
 - repo-level shared system memory: `memory/system.md`
@@ -607,7 +607,7 @@ The current board is intentionally session-first: workflow organization piggybac
 
 ### 9.5 Context compaction and “drop tools”
 
-RemoteLab already contains two explicit context-management mechanisms:
+Cue already contains two explicit context-management mechanisms:
 
 - **Compact**: ask the model to summarize the session into a continuation summary and store it in `context.json`
 - **Drop tools**: keep message transcript but strip past tool-result context from future continuation state
@@ -657,14 +657,14 @@ Current flow:
 4. full normalized history is materialized into the child history store
 5. copied events drop parent execution identity such as `runId` and `requestId`
 6. child session clears live execution linkage such as `activeRunId`, `activeRun`, provider resume ids, `externalTriggerId`, and `completionTargets`
-7. current context head is copied so the child starts from the same durable RemoteLab-side continuation state
+7. current context head is copied so the child starts from the same durable Cue-side continuation state
 8. parent remains open; fork is a preparation action, not an implicit context switch
 
 Current product contract:
 
 - v1 is **head fork** only: clone the session as it exists now
 - fork is **hard clone + hard isolation**, not a shared-thread branch
-- historical `Fork from here` is deferred until RemoteLab can preserve exact pre-compaction fork state without approximation
+- historical `Fork from here` is deferred until Cue can preserve exact pre-compaction fork state without approximation
 - the sidebar remains flat; lineage metadata exists, but there is no full tree UI subsystem yet
 
 ---
@@ -823,7 +823,7 @@ The current abstraction is functional, but still transitional.
 
 ## 13. Memory activation architecture
 
-RemoteLab’s model behavior is shaped not only by chat history but also by the **pointer-first memory system**.
+Cue’s model behavior is shaped not only by chat history but also by the **pointer-first memory system**.
 
 Current implementation pieces:
 
@@ -844,7 +844,7 @@ This matters because future model-driven development sessions depend on loading 
 These constraints are part of the architecture, not incidental implementation details.
 
 - the shipped architecture no longer includes a built-in terminal fallback plane
-- RemoteLab stays framework-light: Node built-ins + `ws`
+- Cue stays framework-light: Node built-ins + `ws`
 - frontend remains vanilla JS without build tooling
 - single-owner model remains the default product assumption
 - owner/visitor is a scoped access model, not full multi-user infrastructure
@@ -956,7 +956,7 @@ Use these notes when needed:
 
 If you only remember one mental model, remember this:
 
-> RemoteLab is a **filesystem-backed HTTP control plane for long-lived AI work sessions**, with **detached CLI runners**, **normalized append-only session history**, **thin WebSocket invalidation**, and a **minimal endpoint-flexible web UI** that always converges back to durable state.
+> Cue is a **filesystem-backed HTTP control plane for long-lived AI work sessions**, with **detached CLI runners**, **normalized append-only session history**, **thin WebSocket invalidation**, and a **minimal endpoint-flexible web UI** that always converges back to durable state.
 
 Everything else in the repo is either:
 

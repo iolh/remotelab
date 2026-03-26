@@ -20,7 +20,7 @@ Related notes:
 - The current board keeps pulling discussion toward columns, cards, and local UI tweaks instead of the interaction we actually want.
 - The shipped board is not mature enough to deserve product-center status.
 - Keeping it half-alive creates design gravity: people keep asking how to improve `Board` instead of whether `Board` should exist at all.
-- What RemoteLab actually wants to become is a coherent multi-session AI collaboration environment, not a kanban wrapper around chat threads.
+- What Cue actually wants to become is a coherent multi-session AI collaboration environment, not a kanban wrapper around chat threads.
 
 ## What this decision does not change
 

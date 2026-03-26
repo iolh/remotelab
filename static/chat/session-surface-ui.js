@@ -408,6 +408,10 @@ function renderSessionMessageCount(session) {
 }
 
 function getSessionMetaStatusInfo(session) {
+  const attentionStatus = getSessionAttentionStatusInfo(session);
+  if (attentionStatus) {
+    return attentionStatus;
+  }
   const liveStatus = getSessionStatusSummary(session).primary;
   if (liveStatus?.key && liveStatus.key !== "idle") {
     return liveStatus;
@@ -420,6 +424,36 @@ function getSessionMetaStatusInfo(session) {
   return workflowStatus || liveStatus;
 }
 
+function getSessionAttention(session) {
+  return typeof window !== "undefined"
+    && window.RemoteLabSessionStateModel
+    && typeof window.RemoteLabSessionStateModel.getSessionAttention === "function"
+    ? window.RemoteLabSessionStateModel.getSessionAttention(session)
+    : null;
+}
+
+function getSessionAttentionStatusInfo(session) {
+  const attention = getSessionAttention(session);
+  if (!attention || attention.fallback || attention.state === "idle") return null;
+  if (attention.type === "completed" && !shouldSurfaceCompletedAttention(session)) return null;
+  const label = typeof attention.typeLabel === "string" ? attention.typeLabel.trim() : "";
+  const titleParts = [
+    typeof attention.title === "string" ? attention.title.trim() : "",
+    typeof attention.reasonLabel === "string" ? attention.reasonLabel.trim() : "",
+    typeof attention.summary === "string" ? attention.summary.trim() : "",
+  ].filter(Boolean);
+  return {
+    key: `attention-${attention.type || "status"}`,
+    label: label || attention.reasonLabel || attention.title || "",
+    className: attention.className || "",
+    dotClass: "",
+    itemClass: attention.state === "needs_you_now"
+      ? "needs-attention"
+      : (attention.state === "blocked" ? "is-blocked" : ""),
+    title: titleParts.join(" · "),
+  };
+}
+
 function getSessionReviewStatusInfo(session) {
   return typeof window !== "undefined"
     && window.RemoteLabSessionStateModel
@@ -428,7 +462,30 @@ function getSessionReviewStatusInfo(session) {
     : null;
 }
 
+function hasSessionUnreadCompletion(session) {
+  return typeof window !== "undefined"
+    && window.RemoteLabSessionStateModel
+    && typeof window.RemoteLabSessionStateModel.hasSessionUnreadCompletion === "function"
+    ? window.RemoteLabSessionStateModel.hasSessionUnreadCompletion(session)
+    : false;
+}
+
+function shouldSurfaceCompletedAttention(session) {
+  return typeof window !== "undefined"
+    && window.RemoteLabSessionStateModel
+    && typeof window.RemoteLabSessionStateModel.shouldSurfaceCompletedAttention === "function"
+    ? window.RemoteLabSessionStateModel.shouldSurfaceCompletedAttention(session)
+    : hasSessionUnreadCompletion(session);
+}
+
 function isSessionCompleteAndReviewed(session) {
+  if (
+    typeof window !== "undefined"
+    && window.RemoteLabSessionStateModel
+    && typeof window.RemoteLabSessionStateModel.isSessionCompletedAndReviewed === "function"
+  ) {
+    return window.RemoteLabSessionStateModel.isSessionCompletedAndReviewed(session);
+  }
   return typeof window !== "undefined"
     && window.RemoteLabSessionStateModel
     && typeof window.RemoteLabSessionStateModel.isSessionCompleteAndReviewed === "function"
@@ -436,31 +493,24 @@ function isSessionCompleteAndReviewed(session) {
     : false;
 }
 
-function buildSessionMetaParts(session) {
+function buildSessionMetaParts(session, { suppressReviewBadge = false } = {}) {
   const parts = [];
-  const reviewHtml = renderSessionStatusHtml(getSessionReviewStatusInfo(session));
-  if (reviewHtml) parts.push(reviewHtml);
-  const liveStatus = getSessionStatusSummary(session).primary;
-  const statusHtml = liveStatus?.key && liveStatus.key !== "idle"
-    ? renderSessionStatusHtml(liveStatus)
-    : "";
+  const suppressCompletedReviewBadge = typeof shouldSurfaceCompletedAttention === "function"
+    ? shouldSurfaceCompletedAttention(session)
+    : false;
+  if (!suppressReviewBadge && !suppressCompletedReviewBadge) {
+    const reviewHtml = renderSessionStatusHtml(getSessionReviewStatusInfo(session));
+    if (reviewHtml) parts.push(reviewHtml);
+  }
+  const statusInfo = typeof getSessionMetaStatusInfo === "function"
+    ? getSessionMetaStatusInfo(session)
+    : getSessionStatusSummary(session).primary;
+  const statusHtml = renderSessionStatusHtml(statusInfo);
   if (statusHtml) parts.push(statusHtml);
   const worktreeHtml = renderSessionWorktreeMetaHtml(session);
   if (worktreeHtml) parts.push(worktreeHtml);
   const countHtml = renderSessionMessageCount(session);
   if (countHtml) parts.push(countHtml);
-  return parts;
-}
-
-function buildBoardCardMetaParts(session) {
-  const parts = [];
-  parts.push(...renderSessionScopeContext(session));
-  const reviewHtml = renderSessionStatusHtml(getSessionReviewStatusInfo(session));
-  if (reviewHtml) parts.push(reviewHtml);
-  const statusHtml = renderSessionStatusHtml(getSessionMetaStatusInfo(session));
-  if (statusHtml) parts.push(statusHtml);
-  const worktreeHtml = renderSessionWorktreeMetaHtml(session);
-  if (worktreeHtml) parts.push(worktreeHtml);
   return parts;
 }
 
@@ -534,129 +584,278 @@ function renderSessionStatusHtml(statusInfo) {
   return `<span class="${statusInfo.className}"${title}>● ${esc(statusInfo.label)}</span>`;
 }
 
-function formatBoardTimestampValue(stamp) {
-  const parsed = new Date(stamp || "").getTime();
-  if (!Number.isFinite(parsed)) return "";
-  return messageTimeFormatter.format(parsed);
-}
+const ATTENTION_SIGNAL_REOPEN_WINDOW_MS = 5 * 60 * 1000;
+const attentionActionHistory = new Map();
+const completedResurfaceHistory = new Map();
 
-function formatBoardSessionTimestamp(session) {
+function getSessionChangeTime(session) {
   const stamp = session?.lastEventAt || session?.updatedAt || session?.created || "";
-  return formatBoardTimestampValue(stamp);
+  const time = new Date(stamp || "").getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
-function renderBoardPriorityPill(priorityInfo) {
-  if (!priorityInfo?.label) return "";
-  const title = priorityInfo.title ? ` title="${esc(priorityInfo.title)}"` : "";
-  const className = priorityInfo.className ? ` ${priorityInfo.className}` : "";
-  return `<span class="board-priority-pill${className}"${title}>${esc(priorityInfo.label)}</span>`;
+function isActionableAttention(attention) {
+  return !!attention && (attention.state === "needs_you_now" || attention.state === "blocked");
 }
 
-function createBoardSessionCard(session) {
-  const priorityInfo = getSessionBoardPriority(session);
-  const card = document.createElement("div");
-  card.className = "board-card"
-    + (priorityInfo?.className ? ` ${priorityInfo.className}` : "")
-    + (session.id === currentSessionId ? " active" : "");
+function isOpenableAttention(attention) {
+  return isActionableAttention(attention)
+    || (!!attention && attention.state === "done" && attention.type === "completed");
+}
 
-  const displayName = getSessionDisplayName(session);
-  const metaParts = buildBoardCardMetaParts(session);
+function truncateAttentionSummary(value, maxLength = 60) {
+  const normalized = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+  if (!normalized || normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+}
 
-  const description = typeof session?.description === "string"
-    ? session.description.trim()
-    : "";
-  const timestamp = formatBoardSessionTimestamp(session);
+function getAttentionReopenKey(attention) {
+  if (!attention) return "";
+  return [
+    attention.state || "",
+    attention.type || "",
+    attention.reason || "",
+    attention.observedAt || "",
+  ].join(":");
+}
 
-  card.innerHTML = `
-    <div class="board-card-topline">
-      ${renderBoardPriorityPill(priorityInfo)}
-      ${timestamp ? `<div class="board-card-time">Updated ${esc(timestamp)}</div>` : ""}
-    </div>
-    <div class="board-card-title">${session.pinned ? `<span class="session-pin-badge" title="Pinned">${renderUiIcon("pinned")}</span>` : ""}${esc(displayName)}</div>
-    ${metaParts.length > 0 ? `<div class="board-card-meta">${metaParts.join(" · ")}</div>` : ""}
-    ${description ? `<div class="board-card-description">${esc(description)}</div>` : ""}`;
+function buildAttentionSignalPayload(signal, session, attention, details = {}) {
+  const normalizedSignal = typeof signal === "string" ? signal.trim().toLowerCase() : "";
+  const sessionId = typeof session?.id === "string" ? session.id.trim() : "";
+  if (!normalizedSignal || !sessionId || !attention) return null;
+  return {
+    signal: normalizedSignal,
+    sessionId,
+    sessionName: getSessionDisplayName(session),
+    timestamp: new Date().toISOString(),
+    attention: {
+      state: attention.state || "",
+      type: attention.type || "",
+      priority: attention.priority || "",
+      reason: attention.reason || "",
+      reasonLabel: attention.reasonLabel || "",
+      title: attention.title || "",
+      summary: truncateAttentionSummary(attention.summary || "", 240),
+      actionKind: attention.actionKind || "",
+      actionLabel: attention.actionLabel || "",
+      observedAt: attention.observedAt || "",
+    },
+    details: details && typeof details === "object"
+      ? Object.fromEntries(Object.entries(details).filter(([, value]) => (
+        typeof value === "string" ? value.trim() : value
+      )))
+      : {},
+  };
+}
 
-  card.addEventListener("click", () => {
-    attachSession(session.id, session);
-    if (!isDesktop) closeSidebarFn();
+function postAttentionSignal(payload) {
+  if (!payload || visitorMode === true || typeof fetchJsonOrRedirect !== "function") {
+    return Promise.resolve(null);
+  }
+  return fetchJsonOrRedirect("/api/attention-signals", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    revalidate: false,
   });
-
-  return card;
 }
 
-function createSessionBoardScroller(sessionList) {
-  const scroller = document.createElement("div");
-  scroller.className = "board-scroller";
+function recordAttentionSignal(signal, session, attention, details = {}) {
+  const payload = buildAttentionSignalPayload(signal, session, attention, details);
+  if (!payload) return;
+  Promise.resolve(postAttentionSignal(payload)).catch(() => {});
+}
 
-  const visibleSessions = Array.isArray(sessionList) ? sessionList : [];
-  const columns = getSessionBoardColumns(visibleSessions);
-  const grouped = new Map(columns.map((column) => [column.key, {
-    column,
-    sessions: [],
-  }]));
+function rememberAttentionActed(session, attention) {
+  const sessionId = typeof session?.id === "string" ? session.id.trim() : "";
+  if (!sessionId || !attention) return;
+  attentionActionHistory.set(sessionId, {
+    actedAt: Date.now(),
+    lastReopenedKey: "",
+    signalKey: getAttentionReopenKey(attention),
+  });
+}
 
-  for (const session of visibleSessions) {
-    const boardColumn = getSessionBoardColumn(session, visibleSessions);
-    const target = grouped.get(boardColumn.key) || grouped.get(columns[0]?.key);
-    target?.sessions.push(session);
+function maybeRecordAttentionReopened(session, previousSession = null) {
+  const sessionId = typeof session?.id === "string" ? session.id.trim() : "";
+  if (!sessionId) return;
+  const attention = getSessionAttention(session);
+  if (!isActionableAttention(attention)) return;
+  const previousAttention = previousSession ? getSessionAttention(previousSession) : null;
+  if (isActionableAttention(previousAttention)) return;
+
+  const actionState = attentionActionHistory.get(sessionId);
+  if (!actionState) return;
+  if (Date.now() - Number(actionState.actedAt || 0) > ATTENTION_SIGNAL_REOPEN_WINDOW_MS) {
+    attentionActionHistory.delete(sessionId);
+    return;
   }
 
-  for (const { column, sessions: columnSessions } of grouped.values()) {
-    columnSessions.sort(compareBoardSessions);
-    const highPriorityCount = columnSessions.filter((session) => getSessionBoardPriority(session)?.key === "high").length;
-    const columnEl = document.createElement("div");
-    columnEl.className = "board-column";
-    columnEl.dataset.column = column.key;
+  const reopenKey = getAttentionReopenKey(attention);
+  if (!reopenKey || actionState.lastReopenedKey === reopenKey) return;
+  actionState.lastReopenedKey = reopenKey;
+  attentionActionHistory.set(sessionId, actionState);
+  recordAttentionSignal("reopened", session, attention, { source: "session_update" });
+}
 
-    const header = document.createElement("div");
-    header.className = "board-column-header";
-    header.innerHTML = `
-      <span class="board-column-dot"></span>
-      <span class="board-column-title" title="${esc(column.title || column.label)}">${esc(column.label)}</span>
-      ${highPriorityCount > 0 ? `<span class="board-column-attention">${highPriorityCount} high</span>` : ""}
-      <span class="board-column-count">${columnSessions.length}</span>`;
+function maybeRecordCompletedResurfacedWithoutNewEvent(session, previousSession = null) {
+  const sessionId = typeof session?.id === "string" ? session.id.trim() : "";
+  if (!sessionId) return;
+  if (!shouldSurfaceCompletedAttention(session)) {
+    completedResurfaceHistory.delete(sessionId);
+    return;
+  }
+  if (!previousSession || !isSessionCompleteAndReviewed(previousSession)) return;
+  const currentChangeTime = getSessionChangeTime(session);
+  const previousChangeTime = getSessionChangeTime(previousSession);
+  if (!currentChangeTime || currentChangeTime > previousChangeTime) {
+    completedResurfaceHistory.delete(sessionId);
+    return;
+  }
+  const signalKey = `${currentChangeTime}:${previousChangeTime}`;
+  if (completedResurfaceHistory.get(sessionId) === signalKey) return;
+  completedResurfaceHistory.set(sessionId, signalKey);
+  const attention = getSessionAttention(session);
+  if (!attention || attention.type !== "completed") return;
+  recordAttentionSignal("completed_resurfaced_without_new_event", session, attention, {
+    source: "session_update",
+  });
+}
 
-    const body = document.createElement("div");
-    body.className = "board-column-body";
-    if (columnSessions.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "board-card-empty";
-      empty.textContent = column.emptyText || "No sessions";
-      body.appendChild(empty);
-    } else {
-      for (const session of columnSessions) {
-        body.appendChild(createBoardSessionCard(session));
-      }
+function getVisibleAttentionInboxSessions() {
+  const pinnedSessions = typeof getVisiblePinnedSessions === "function" ? getVisiblePinnedSessions() : [];
+  const activeSessions = typeof getVisibleActiveSessions === "function" ? getVisibleActiveSessions() : [];
+  return [...pinnedSessions, ...activeSessions];
+}
+
+function getTopActionableAttentionSession() {
+  return getVisibleAttentionInboxSessions().find((candidate) => {
+    if (!candidate?.id) return false;
+    return isActionableAttention(getSessionAttention(candidate));
+  }) || null;
+}
+
+function maybeRecordAttentionSkipped(selectedSession) {
+  const topSession = getTopActionableAttentionSession();
+  if (!topSession) return;
+  if (topSession.id === selectedSession?.id) return;
+  const attention = getSessionAttention(topSession);
+  if (!isActionableAttention(attention)) return;
+  recordAttentionSignal("skipped", topSession, attention, {
+    source: "session_click",
+    selectedSessionId: selectedSession?.id || "",
+  });
+}
+
+function maybeRecordAttentionOpened(session, source = "session_click") {
+  const attention = getSessionAttention(session);
+  if (!isOpenableAttention(attention)) return;
+  recordAttentionSignal("opened", session, attention, { source });
+}
+
+async function attachSessionForAttentionAction(session, { openStatusPanel = false } = {}) {
+  attachSession(session.id, session);
+  if (!isDesktop) closeSidebarFn();
+  if (!openStatusPanel) return;
+  if (typeof refreshCurrentSession === "function") {
+    try {
+      await refreshCurrentSession({ viewportIntent: "preserve" });
+    } catch {}
+  }
+  window.remotelabChromeBridge?.actions?.openStatusPanel?.();
+}
+
+function getSessionAttentionActionConfig(session) {
+  const attention = getSessionAttention(session);
+  if (!attention) return null;
+  const summary = truncateAttentionSummary(attention.summary || attention.reasonLabel || attention.title || "");
+  const title = attention.title || attention.reasonLabel || attention.typeLabel || "需要处理";
+
+  if (attention.state === "still_running") {
+    return null;
+  }
+
+  if (attention.state === "done" && attention.type === "completed") {
+    if (!shouldSurfaceCompletedAttention(session)) {
+      return null;
     }
-
-    columnEl.appendChild(header);
-    columnEl.appendChild(body);
-    scroller.appendChild(columnEl);
+    return {
+      kind: "notice",
+      tone: "done",
+      title: attention.typeLabel || "已完成",
+      summary: "查看结果",
+      buttonLabel: "",
+      openStatusPanel: false,
+    };
   }
 
-  return scroller;
+  if (!isActionableAttention(attention)) {
+    return null;
+  }
+
+  const opensStatusPanel = attention.type === "needs_decision" || attention.type === "needs_approval";
+  return {
+    kind: "action",
+    tone: attention.state === "blocked" ? "blocked" : "attention",
+    title,
+    summary,
+    buttonLabel: attention.actionLabel || (opensStatusPanel ? "Review" : "Open session"),
+    openStatusPanel: opensStatusPanel,
+  };
 }
 
-function renderSessionBoard() {
-  if (!boardPanel) return;
-  boardPanel.innerHTML = "";
-  const visibleSessions = getActiveSessions().filter((session) => matchesCurrentFilters(session));
-  boardPanel.appendChild(createSessionBoardScroller(visibleSessions));
+function renderSessionAttentionStripHtml(config) {
+  if (!config) return "";
+  const toneClass = config.tone ? ` is-${config.tone}` : "";
+  const summaryHtml = config.summary
+    ? `<div class="session-item-attention-summary">${esc(config.summary)}</div>`
+    : "";
+  if (config.kind === "notice") {
+    return `
+      <div class="session-item-attention-strip${toneClass}">
+        <div class="session-item-attention-copy">
+          <div class="session-item-attention-title">${esc(config.title)}</div>
+          ${summaryHtml}
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="session-item-attention-strip${toneClass}">
+      <div class="session-item-attention-copy">
+        <div class="session-item-attention-title">${esc(config.title)}</div>
+        ${summaryHtml}
+      </div>
+      <button class="session-attention-btn" type="button">${esc(config.buttonLabel)}</button>
+    </div>`;
+}
+
+async function handleSessionAttentionAction(session, config) {
+  const attention = getSessionAttention(session);
+  if (!config || !attention) return;
+  rememberAttentionActed(session, attention);
+  recordAttentionSignal("acted", session, attention, {
+    source: "action_strip",
+    buttonLabel: config.buttonLabel || "",
+    opensStatusPanel: config.openStatusPanel ? "true" : "false",
+  });
+  await attachSessionForAttentionAction(session, { openStatusPanel: config.openStatusPanel });
 }
 
 function createActiveSessionItem(session) {
+  const isCurrentSession = session.id === currentSessionId;
   const statusInfo = getSessionMetaStatusInfo(session);
   const completeRead = isSessionCompleteAndReviewed(session);
+  const attentionAction = isCurrentSession ? null : getSessionAttentionActionConfig(session);
   const div = document.createElement("div");
   div.className =
     "session-item"
     + (session.pinned ? " pinned" : "")
-    + (session.id === currentSessionId ? " active" : "")
+    + (isCurrentSession ? " active" : "")
     + (completeRead ? " is-complete-read" : "")
-    + (statusInfo.itemClass ? ` ${statusInfo.itemClass}` : "");
+    + (!isCurrentSession && statusInfo.itemClass ? ` ${statusInfo.itemClass}` : "");
 
   const displayName = getSessionDisplayName(session);
-  const metaParts = buildSessionMetaParts(session);
+  const metaParts = buildSessionMetaParts(session, { suppressReviewBadge: isCurrentSession });
   const metaHtml = metaParts.join(" · ");
   const pinTitle = session.pinned ? "Unpin" : "Pin";
 
@@ -664,6 +863,7 @@ function createActiveSessionItem(session) {
     <div class="session-item-info">
       <div class="session-item-name">${session.pinned ? `<span class="session-pin-badge" title="Pinned">${renderUiIcon("pinned")}</span>` : ""}${esc(displayName)}</div>
       ${metaHtml ? `<div class="session-item-meta">${metaHtml}</div>` : ""}
+      ${renderSessionAttentionStripHtml(attentionAction)}
     </div>
     <div class="session-item-actions">
       <button class="session-action-btn pin${session.pinned ? " pinned" : ""}" type="button" title="${pinTitle}" aria-label="${pinTitle}" data-id="${session.id}">${renderUiIcon(session.pinned ? "pinned" : "pin")}</button>
@@ -675,6 +875,8 @@ function createActiveSessionItem(session) {
     if (e.target.closest(".session-action-btn")) {
       return;
     }
+    maybeRecordAttentionSkipped(session);
+    maybeRecordAttentionOpened(session, "session_click");
     attachSession(session.id, session);
     if (!isDesktop) closeSidebarFn();
   });
@@ -693,6 +895,14 @@ function createActiveSessionItem(session) {
     e.stopPropagation();
     dispatchAction({ action: "archive", sessionId: session.id });
   });
+
+  const attentionBtn = div.querySelector(".session-attention-btn");
+  if (attentionBtn && attentionAction?.kind === "action") {
+    attentionBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void handleSessionAttentionAction(session, attentionAction);
+    });
+  }
 
   return div;
 }

@@ -326,7 +326,7 @@ const context = {
       getSessionBoardColumn() {
         return { key: 'open', label: 'Open', title: 'Open', emptyText: 'No sessions' };
       },
-      getSessionBoardPriority() {
+      getSessionWorkflowPriority() {
         return { key: 'medium', label: 'Medium', rank: 2, className: '', title: '' };
       },
       compareBoardSessions() {

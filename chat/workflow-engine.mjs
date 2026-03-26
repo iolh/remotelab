@@ -12,6 +12,7 @@ import {
   DEFAULT_CODEX_DEVELOPER_INSTRUCTIONS,
 } from './runtime-policy.mjs';
 import {
+  buildTemporarySessionName,
   normalizeSessionDescription,
   normalizeSessionGroup,
 } from './session-naming.mjs';
@@ -872,12 +873,12 @@ function getWorkflowSummarySource(session) {
     || '当前任务';
 }
 
-function buildWorkflowVerificationSessionName(sourceSession) {
-  return `验收 · ${clipCompactionSection(getWorkflowSummarySource(sourceSession), 40)}`;
+export function buildWorkflowVerificationSessionName(sourceSession) {
+  return `验收 · ${buildTemporarySessionName(getWorkflowSummarySource(sourceSession), 40)}`;
 }
 
-function buildWorkflowDeliberationSessionName(sourceSession) {
-  return `再议 · ${clipCompactionSection(getWorkflowSummarySource(sourceSession), 40)}`;
+export function buildWorkflowDeliberationSessionName(sourceSession) {
+  return `再议 · ${buildTemporarySessionName(getWorkflowSummarySource(sourceSession), 40)}`;
 }
 
 export function buildWorkflowDeliverySummaryInstruction() {

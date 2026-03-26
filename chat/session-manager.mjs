@@ -647,6 +647,17 @@ function parseRecordTimestamp(record) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function runHasVisibleAssistantOutput(events = []) {
+  try {
+    if (!Array.isArray(events)) return true;
+    return events.some(
+      (event) => event?.type === 'message' && event.role === 'assistant' && !!String(event.content || '').trim(),
+    );
+  } catch {
+    return true;
+  }
+}
+
 function isUserMessageEvent(event) {
   return event?.type === 'message' && event.role === 'user';
 }
@@ -2091,6 +2102,9 @@ async function finalizeDetachedRun(sessionId, run, manifest, normalizedEvents = 
   const directCompaction = manifest?.internalOperation === 'context_compaction';
   const workerCompaction = manifest?.internalOperation === 'context_compaction_worker';
   const compacting = directCompaction || workerCompaction;
+  const lastRunHasVisibleOutput = run.state === 'completed'
+    ? runHasVisibleAssistantOutput(normalizedEvents)
+    : null;
   const compactionTargetSessionId = typeof manifest?.compactionTargetSessionId === 'string'
     ? manifest.compactionTargetSessionId
     : '';
@@ -2166,6 +2180,10 @@ async function finalizeDetachedRun(sessionId, run, manifest, normalizedEvents = 
   const finalizedMeta = await mutateSessionMeta(sessionId, (session) => {
     let changed = false;
     const codexTranscriptOnly = session.codexResumeMode === 'transcript_only';
+    if (run.state === 'completed' && session.lastRunHasVisibleOutput !== lastRunHasVisibleOutput) {
+      session.lastRunHasVisibleOutput = lastRunHasVisibleOutput;
+      changed = true;
+    }
     if (session.activeRunId === run.id) {
       delete session.activeRunId;
       changed = true;

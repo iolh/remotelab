@@ -19,7 +19,7 @@ function setWorkflowComposerPlaceholderOverride(value = "") {
 
 function focusWorkflowComposerEntry(options = {}) {
   const {
-    placeholder = "描述你要做的事，或输入 /form 打开完整表单…",
+    placeholder = "有什么想法，随时说给我听",
     preserveValue = true,
   } = options || {};
 
@@ -535,35 +535,12 @@ let activeTab = normalizeSidebarTab(
   pendingNavigationState.tab ||
     localStorage.getItem(ACTIVE_SIDEBAR_TAB_STORAGE_KEY) ||
     "sessions",
-); // "sessions" | "board" | "settings"
+); // "sessions" | "settings"
 
-let boardSidebarExpanded = false;
-
-function canExpandBoardSidebar() {
-  return !visitorMode && isDesktop && activeTab === "board";
-}
-
-function setBoardSidebarExpanded(expanded) {
-  const nextExpanded = canExpandBoardSidebar() && expanded === true;
-  if (boardSidebarExpanded === nextExpanded) return;
-  boardSidebarExpanded = nextExpanded;
-  document.body.classList.toggle("board-tab-expanded", nextExpanded);
-}
-
-function syncBoardSidebarExpansion({ expandBoard = false } = {}) {
-  if (!canExpandBoardSidebar()) {
-    setBoardSidebarExpanded(false);
-    return;
-  }
-  setBoardSidebarExpanded(expandBoard);
-}
-
-function switchTab(tab, { syncState = true, expandBoard = false } = {}) {
+function switchTab(tab, { syncState = true } = {}) {
   activeTab = normalizeSidebarTab(tab);
   const showingSessions = activeTab === "sessions";
-  const showingBoard = activeTab === "board";
   tabSessions.classList.toggle("active", activeTab === "sessions");
-  tabBoard?.classList.toggle("active", activeTab === "board");
   tabSettings.classList.toggle("active", activeTab === "settings");
   if (typeof syncSidebarFiltersVisibility === "function") {
     syncSidebarFiltersVisibility(showingSessions);
@@ -571,10 +548,7 @@ function switchTab(tab, { syncState = true, expandBoard = false } = {}) {
     sidebarFilters.classList.toggle("hidden", !showingSessions);
   }
   sessionList.style.display = showingSessions ? "" : "none";
-  boardPanel?.classList.toggle("visible", showingBoard);
   settingsPanel.classList.toggle("visible", activeTab === "settings");
-  document.body.classList.toggle("board-tab-active", showingBoard);
-  syncBoardSidebarExpansion({ expandBoard: showingBoard && expandBoard });
   sessionListFooter.classList.toggle("hidden", activeTab === "settings");
   newAppBtn.classList.toggle("hidden", activeTab === "settings");
   newSessionBtn.classList.toggle("hidden", activeTab === "settings");
@@ -594,21 +568,6 @@ function switchTab(tab, { syncState = true, expandBoard = false } = {}) {
 }
 
 tabSessions.addEventListener("click", () => switchTab("sessions"));
-tabBoard?.addEventListener("click", () => switchTab("board", { expandBoard: true }));
 tabSettings.addEventListener("click", () => switchTab("settings"));
-
-sidebarOverlay?.addEventListener("pointerenter", () => {
-  if (!canExpandBoardSidebar()) return;
-  setBoardSidebarExpanded(true);
-});
-
-sidebarOverlay?.addEventListener("pointerleave", () => {
-  if (!canExpandBoardSidebar()) return;
-  setBoardSidebarExpanded(false);
-});
-
-window.matchMedia?.("(min-width: 768px)")?.addEventListener?.("change", () => {
-  syncBoardSidebarExpansion({ expandBoard: false });
-});
 
 switchTab(activeTab, { syncState: false });

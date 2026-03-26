@@ -494,13 +494,26 @@
 }
 
 .chrome-status-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: min(70dvh, 520px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 
 .chrome-status-popover {
   width: min(calc(100vw - 20px), 368px);
+  max-height: var(--radix-popover-content-available-height, min(80dvh, 600px));
   border-radius: 16px;
   box-shadow: var(--modal-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chrome-status-popover > .chrome-status-scroll {
+  max-height: none;
 }
 
 .chrome-status-dialog {
@@ -509,6 +522,10 @@
   padding: 0;
   border-radius: 16px;
   overflow: hidden;
+}
+
+.chrome-status-dialog > .chrome-status-scroll {
+  max-height: none;
 }
 
 .chrome-status-dialog > button[aria-label="关闭"] {

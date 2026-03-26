@@ -1,13 +1,13 @@
 # Feishu Bot Setup Contract (Prompt-First)
 
-This document is the rollout contract for asking an AI agent on the RemoteLab machine to wire a Feishu connector.
+This document is the rollout contract for asking an AI agent on the Cue machine to wire a Feishu connector.
 
 The human should mostly stay in one conversation with that agent, hand over the needed context in one concentrated round, and only leave the chat for explicit `[HUMAN]` console or client steps.
 
 ## Copy this prompt
 
 ```text
-I want you to set up a RemoteLab-backed Feishu bot on this machine.
+I want you to set up a Cue-backed Feishu bot on this machine.
 
 Follow `docs/feishu-bot-setup.md` in this repository as the setup contract.
 Keep the workflow inside this chat.
@@ -25,7 +25,7 @@ By the end of this flow you should have:
 - one subscribed inbound event: `im.message.receive_v1`
 - one local `feishu-connector` using persistent connection
 - one working private-chat validation path
-- RemoteLab sessions created or reused behind the bot
+- Cue sessions created or reused behind the bot
 
 This rollout stays intentionally narrow at first:
 
@@ -41,7 +41,7 @@ The AI should try to confirm the whole packet below in one early exchange.
 
 - region: `feishu-cn` for `open.feishu.cn` or `lark-global` for `open.larksuite.com`
 - the first validation user is in the same Feishu tenant as the app
-- which RemoteLab session tool should back the bot by default
+- which Cue session tool should back the bot by default
 - whether V0 should start with `allow_all` or `whitelist`
 
 If the app does not exist yet, the AI should tell the human in one pass which console outputs it will need back later, rather than asking for them one at a time.
@@ -79,7 +79,7 @@ Prefer one Feishu-console visit that covers app creation, permissions, event sub
 
 ## AI execution contract
 
-- ensure the RemoteLab chat server is running at `http://127.0.0.1:7690`
+- ensure the Cue chat server is running at `http://127.0.0.1:7690`
 - front-load all missing context and expected return payloads so the human can finish the console work in as few interruptions as possible
 - create `~/.config/remotelab/feishu-connector/config.json`
 - use `npm run feishu:connect:instance` to start the connector
@@ -131,8 +131,8 @@ Notes:
 
 - the connector log contains `persistent connection ready`
 - the tester can search the bot and open a private chat
-- an inbound message reaches RemoteLab
-- RemoteLab creates or reuses the matching session
+- an inbound message reaches Cue
+- Cue creates or reuses the matching session
 - the bot sends a reply back into Feishu
 
 ## After V0

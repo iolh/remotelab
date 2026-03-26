@@ -103,33 +103,11 @@ const renameFailedStatus = model.getSessionStatusSummary(renameFailedSession);
 assert.equal(renameFailedStatus.primary.key, 'rename-failed');
 assert.equal(renameFailedStatus.primary.title, 'rename crashed');
 
-assert.equal(
-  JSON.stringify(Array.from(model.getBoardColumns(null, [runningSession, queuedSession, makeSession({ workflowState: 'waiting_user' })]), (column) => column.key)),
-  JSON.stringify(['active_now', 'waiting_user']),
-  'board columns should be derived from live session state in left-to-right order',
-);
-
-const fallbackBoardColumn = model.getSessionBoardColumn(makeSession(), null, []);
-assert.equal(fallbackBoardColumn.key, 'open');
-
-const waitingBoardColumn = model.getSessionBoardColumn(
-  makeSession({
-    workflowState: 'waiting_user',
-  }),
-  null,
-);
-assert.equal(waitingBoardColumn.key, 'waiting_user');
-
 const legacyPendingIntakeSession = makeSession({
   pendingIntake: true,
 });
 assert.equal(
-  model.getSessionBoardColumn(legacyPendingIntakeSession, null).key,
-  'open',
-  'legacy pendingIntake metadata should no longer affect board routing',
-);
-assert.equal(
-  model.getSessionBoardPriority(legacyPendingIntakeSession)?.key,
+  model.getSessionWorkflowPriority(legacyPendingIntakeSession)?.key,
   'medium',
   'legacy pendingIntake metadata should no longer elevate session priority',
 );
@@ -161,11 +139,34 @@ assert.equal(
   'unknown workflow states should not synthesize fake status badges',
 );
 
-const explicitHighPriority = model.getSessionBoardPriority(makeSession({ workflowPriority: 'urgent' }));
+const explicitAttention = model.getSessionAttention(makeSession({
+  attention: {
+    state: 'needs_you_now',
+    type: 'needs_decision',
+    priority: 'high',
+    reasonLabel: '辅助结论需要你决策',
+    title: '验收结果',
+  },
+}));
+assert.equal(explicitAttention.state, 'needs_you_now');
+assert.equal(explicitAttention.type, 'needs_decision');
+assert.equal(explicitAttention.typeLabel, '需要决策');
+assert.equal(explicitAttention.fallback, false);
+
+const fallbackAttention = model.getSessionAttention(makeSession({
+  workflowState: 'done',
+  lastEventAt: '2026-03-14T13:00:00.000Z',
+  lastReviewedAt: '2026-03-14T12:00:00.000Z',
+}));
+assert.equal(fallbackAttention.state, 'done');
+assert.equal(fallbackAttention.type, 'completed');
+assert.equal(fallbackAttention.fallback, true);
+
+const explicitHighPriority = model.getSessionWorkflowPriority(makeSession({ workflowPriority: 'urgent' }));
 assert.equal(explicitHighPriority.key, 'high');
 assert.equal(explicitHighPriority.rank, 3);
 
-const workflowPriorityFallback = model.getSessionBoardPriority(
+const workflowPriorityFallback = model.getSessionWorkflowPriority(
   makeSession({ workflowPriority: 'done-later' }),
 );
 assert.equal(workflowPriorityFallback.key, 'medium', 'unknown priority strings should fall back to medium attention');
@@ -176,6 +177,7 @@ const unreadDoneSession = makeSession({
   lastReviewedAt: '2026-03-14T12:00:00.000Z',
 });
 assert.equal(model.hasSessionUnreadUpdate(unreadDoneSession), true, 'idle sessions updated after review should be marked unread');
+assert.equal(model.hasSessionUnreadCompletion(unreadDoneSession), true, 'completed unread sessions should be surfaced through a dedicated completion predicate');
 assert.equal(model.getSessionReviewStatusInfo(unreadDoneSession)?.key, 'unread', 'unread sessions should expose a dedicated review badge');
 
 const completeAndReviewed = makeSession({
@@ -184,6 +186,61 @@ const completeAndReviewed = makeSession({
   lastReviewedAt: '2026-03-14T13:00:00.000Z',
 });
 assert.equal(model.isSessionCompleteAndReviewed(completeAndReviewed), true, 'completed sessions with no unseen updates should be de-emphasized');
+assert.equal(model.isSessionCompletedAndReviewed(completeAndReviewed), true, 'completed_read should be exposed as a first-class semantic');
+assert.equal(model.shouldSurfaceCompletedAttention(completeAndReviewed), false, 'completed_read sessions should leave the attention surface');
+
+const toolOnlyAttentionSession = makeSession({
+  workflowState: 'done',
+  lastEventAt: '2026-03-14T13:00:00.000Z',
+  lastReviewedAt: '2026-03-14T12:00:00.000Z',
+  attention: {
+    state: 'done',
+    type: 'completed',
+    priority: 'medium',
+    reason: 'completion_tool_only',
+    title: 'Completed',
+  },
+});
+assert.equal(model.shouldSurfaceCompletedAttention(toolOnlyAttentionSession), false, 'tool-only completions should stay passive when the backend marks them explicitly');
+assert.equal(model.getSessionReviewStatusInfo(toolOnlyAttentionSession), null, 'tool-only completions should not show the new review badge');
+
+const surfacedCompletionSession = makeSession({
+  workflowState: 'done',
+  lastEventAt: '2026-03-14T13:00:00.000Z',
+  lastReviewedAt: '2026-03-14T12:00:00.000Z',
+  attention: {
+    state: 'done',
+    type: 'completed',
+    priority: 'medium',
+    reason: 'completion_with_conclusion',
+    title: 'Completed',
+  },
+});
+assert.equal(model.shouldSurfaceCompletedAttention(surfacedCompletionSession), true, 'completed runs with a visible conclusion should still surface once');
+assert.equal(model.getSessionReviewStatusInfo(surfacedCompletionSession)?.key, 'unread', 'visible completions should keep the review badge');
+
+const legacyFallbackCompletionSession = makeSession({
+  workflowState: 'done',
+  lastEventAt: '2026-03-14T13:00:00.000Z',
+  lastReviewedAt: '2026-03-14T12:00:00.000Z',
+});
+assert.equal(model.shouldSurfaceCompletedAttention(legacyFallbackCompletionSession), true, 'missing backend attention should stay conservative and surface the completion');
+
+const completedReadAttention = model.getSessionAttention(makeSession({
+  workflowState: 'done',
+  lastEventAt: '2026-03-14T13:00:00.000Z',
+  lastReviewedAt: '2026-03-14T13:00:00.000Z',
+  attention: {
+    state: 'done',
+    type: 'completed',
+    priority: 'medium',
+    reason: 'unread_completion',
+    title: 'Completed',
+  },
+}));
+assert.equal(completedReadAttention.state, 'idle', 'completed_read sessions should fall back to passive attention');
+assert.equal(completedReadAttention.type, 'completed');
+assert.equal(completedReadAttention.fallback, true);
 
 const runningUnreadCandidate = makeSession({
   lastEventAt: '2026-03-14T13:00:00.000Z',
@@ -199,28 +256,33 @@ const runningUnreadCandidate = makeSession({
 });
 assert.equal(model.hasSessionUnreadUpdate(runningUnreadCandidate), false, 'running sessions should not constantly become unread while streaming');
 
-assert.ok(
-  model.compareBoardSessions(
-    makeSession({ workflowPriority: 'high', updatedAt: '2026-03-14T12:00:00.000Z' }),
-    makeSession({ workflowPriority: 'low', updatedAt: '2026-03-14T13:00:00.000Z' }),
-  ) < 0,
-  'higher derived priority should sort sessions before lower priority',
+const nonCompletedUnreadSession = makeSession({
+  workflowState: 'parked',
+  lastEventAt: '2026-03-14T13:00:00.000Z',
+  lastReviewedAt: '2026-03-14T12:00:00.000Z',
+});
+assert.equal(
+  model.getSessionReviewStatusInfo(nonCompletedUnreadSession),
+  null,
+  'non-completed unread sessions should not consume the dedicated completion review badge',
 );
 
-assert.ok(
-  model.compareBoardSessions(
-    makeSession({ pinned: true, workflowPriority: 'medium', updatedAt: '2026-03-14T12:00:00.000Z' }),
-    makeSession({ workflowPriority: 'medium', updatedAt: '2026-03-14T13:00:00.000Z' }),
-  ) < 0,
-  'pinned sessions should break ties before recency when priority ties',
-);
-
-assert.ok(
-  model.compareBoardSessions(
-    makeSession({ workflowPriority: 'medium', updatedAt: '2026-03-14T12:00:00.000Z' }),
-    makeSession({ workflowPriority: 'medium', updatedAt: '2026-03-14T13:00:00.000Z' }),
-  ) > 0,
-  'more recent sessions should sort first when priority and pin state tie',
+const completedWhileOpen = makeSession({
+  workflowState: 'done',
+  lastEventAt: '2026-03-14T13:04:00.000Z',
+  localReviewedAt: '2026-03-14T13:05:00.000Z',
+  attention: {
+    state: 'done',
+    type: 'completed',
+    priority: 'medium',
+    reason: 'unread_completion',
+    title: 'Completed',
+  },
+});
+assert.equal(
+  model.getSessionAttention(completedWhileOpen).state,
+  'idle',
+  'sessions that complete while already being viewed should land directly in completed_read',
 );
 
 assert.ok(
@@ -243,6 +305,39 @@ assert.ok(
     }),
   ) < 0,
   'unread completed work should sort ahead of currently running sessions',
+);
+
+assert.ok(
+  model.compareSessionListSessions(
+    makeSession({
+      workflowState: 'done',
+      lastEventAt: '2026-03-14T13:00:00.000Z',
+      lastReviewedAt: '2026-03-14T12:00:00.000Z',
+      attention: {
+        state: 'done',
+        type: 'completed',
+        priority: 'medium',
+        reason: 'unread_completion',
+      },
+    }),
+    makeSession({
+      attention: {
+        state: 'still_running',
+        type: 'fyi',
+        priority: 'medium',
+      },
+      lastEventAt: '2026-03-14T13:30:00.000Z',
+      activity: makeActivity({
+        run: {
+          state: 'running',
+          phase: 'running',
+          startedAt: '2026-03-14T11:00:00.000Z',
+          runId: 'run-explicit-comparison',
+        },
+      }),
+    }),
+  ) < 0,
+  'backend completed attention should also sort ahead of still-running sessions',
 );
 
 assert.ok(
@@ -271,6 +366,28 @@ assert.ok(
     }),
   ) > 0,
   'running-session ordering should stay anchored to run start time instead of the latest streamed token time',
+);
+
+assert.ok(
+  model.compareSessionListSessions(
+    makeSession({
+      attention: {
+        state: 'needs_you_now',
+        type: 'needs_decision',
+        priority: 'high',
+      },
+      updatedAt: '2026-03-14T12:00:00.000Z',
+    }),
+    makeSession({
+      attention: {
+        state: 'still_running',
+        type: 'fyi',
+        priority: 'medium',
+      },
+      updatedAt: '2026-03-14T13:00:00.000Z',
+    }),
+  ) < 0,
+  'typed attention should sort sessions by backend-derived state before recency',
 );
 
 const toolFallbackStatus = model.getSessionStatusSummary(

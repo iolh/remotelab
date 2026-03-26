@@ -2,7 +2,7 @@
 
 这次调整解决的不是某一句 prompt 的问题，而是 manager 状态如何在续聊中持续生效的问题。
 
-我们把这件事拆成三层。第一层是全局 manager policy，也就是那些跨 session、跨 provider 都应该成立的基础规则，比如 RemoteLab 拥有默认 reply style，provider runtime 只是执行器，不应该把自己的 house style 反向投射成用户看到的表达。第二层是 session 级的 active agreements，也就是在当前会话里已经明确达成、并且应该继续生效的工作约定。第三层才是更重的历史、模板上下文、fork context 和压缩 handoff，这些仍然按需激活，而不是每轮都塞进 prompt。
+我们把这件事拆成三层。第一层是全局 manager policy，也就是那些跨 session、跨 provider 都应该成立的基础规则，比如 Cue 拥有默认 reply style，provider runtime 只是执行器，不应该把自己的 house style 反向投射成用户看到的表达。第二层是 session 级的 active agreements，也就是在当前会话里已经明确达成、并且应该继续生效的工作约定。第三层才是更重的历史、模板上下文、fork context 和压缩 handoff，这些仍然按需激活，而不是每轮都塞进 prompt。
 
 当前落地的实现重点放在前两层。全局 manager policy 继续由 manager 自己在每轮 default prompt 中薄注入，避免续聊时完全退回 provider 默认风格。与此同时，session 新增 `activeAgreements` 元数据字段，用来持久化当前会话里已经成立的短约定；这些约定会在每轮 default prompt 中重新激活，但会严格限制条数和长度，避免把“持续提醒”重新做成一块很重的背景上下文。
 

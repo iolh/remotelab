@@ -4,7 +4,7 @@
 
 ## Current baseline
 
-RemoteLab now uses a small VS Code Codicons-derived subset for the high-friction control surfaces:
+Cue now uses a small VS Code Codicons-derived subset for the high-friction control surfaces:
 
 - header and sidebar chrome
 - session actions such as pin, rename, archive, and restore

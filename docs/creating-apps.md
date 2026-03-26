@@ -15,20 +15,20 @@ The visitor doesn't need to know anything about prompts, tools, or configuration
 
 ## How to Create an App
 
-RemoteLab now ships two built-in App starting points out of the box:
+Cue now ships two built-in App starting points out of the box:
 
-- **Basic Chat** — the default owner-side app for normal RemoteLab conversations; this is the baseline app layer for everyday sessions
+- **Basic Chat** — the default owner-side app for normal Cue conversations; this is the baseline app layer for everyday sessions
 - **Create App** — a built-in app-building assistant; the sidebar `+ New App` shortcut simply creates a normal owner session under this app so the AI can turn a workflow/SOP into a finished App and share link
 
 Domain workflows like video cutting should just be regular Apps, not product built-ins.
 
-If you open the sidebar **Settings** tab, RemoteLab also shows an **Apps** panel where you can:
+If you open the sidebar **Settings** tab, Cue also shows an **Apps** panel where you can:
 
 - open a fresh owner session for an app
 - copy the public share link for any shareable app you create, such as a video-cut workflow
 - open that share link directly for testing
 
-RemoteLab also has a lightweight **Users** panel where you can:
+Cue also has a lightweight **Users** panel where you can:
 
 - create extra owner-side identities
 - choose which apps each user can access
@@ -79,10 +79,10 @@ In any regular session, you can say:
 
 - Apps are stored in `~/.config/remotelab/apps.json`
 - Each App has a unique `shareToken` used in the URL
-- Saved session templates carry source-session freshness metadata so RemoteLab can warn the model when the original source session has drifted since capture
+- Saved session templates carry source-session freshness metadata so Cue can warn the model when the original source session has drifted since capture
 - Visitor sessions are isolated — visitors can't see each other's conversations
 - The owner's session list defaults to owner-only, but the owner can opt into an all-users view when they need to inspect shared-app sessions
 - Share-link visitors are restricted to their assigned WebSocket session; owner APIs for sessions, tools, models, filesystem browsing, settings, sidebar state, and push registration stay unavailable to them
-- Assistant output can wrap model-visible but UI-hidden content in `<private>...</private>` or `<hide>...</hide>`; RemoteLab hides those blocks in chat while preserving the raw text in session context
+- Assistant output can wrap model-visible but UI-hidden content in `<private>...</private>` or `<hide>...</hide>`; Cue hides those blocks in chat while preserving the raw text in session context
 - App CRUD API: `GET/POST/PATCH/DELETE /api/apps` (owner auth required)
 - Visitor entry: `GET /app/{shareToken}` (no auth needed)

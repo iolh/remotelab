@@ -5,7 +5,7 @@
 ## 复制给 AI 的 prompt
 
 ```text
-我想在这台机器上配置 RemoteLab 的 GitHub Auto Triage，用来自动接住仓库里的 issue / PR / 跟进评论更新。
+我想在这台机器上配置 Cue 的 GitHub Auto Triage，用来自动接住仓库里的 issue / PR / 跟进评论更新。
 
 请把 `docs/github-auto-triage.md` 当作 rollout 契约。
 后续流程都留在这个对话里。

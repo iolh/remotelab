@@ -65,7 +65,7 @@
 
 /* ---- Messages ---- */
 .messages {
-  flex: 1; overflow-y: auto; padding: 20px var(--chat-gutter);
+  flex: 1; overflow-y: auto; overflow-x: hidden; padding: 20px var(--chat-gutter);
   min-height: 0;
   -webkit-overflow-scrolling: touch;
 }
@@ -73,6 +73,7 @@
   width: 100%;
   min-width: 0;
   max-width: 100%;
+  overflow-x: hidden;
 }
 .empty-state {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -80,6 +81,8 @@
 }
 .empty-state h2 { font-size: 22px; margin-bottom: 10px; color: var(--text); font-weight: 600; }
 .empty-state p { font-size: 14px; line-height: 1.6; max-width: 320px; }
+.empty-state .empty-state-lead { font-size: 15px; color: var(--text); font-weight: 500; margin-bottom: 6px; }
+.empty-state .empty-state-sub { font-size: 13px; color: var(--text-muted); font-weight: 400; }
 .empty-state-actions {
   margin-top: 18px;
   display: flex;
@@ -106,6 +109,7 @@
   font-size: 15px;
   line-height: 1.5;
   word-wrap: break-word;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
   max-width: 80%;
   color: var(--text);
@@ -195,7 +199,17 @@
   line-height: 1.65;
   color: var(--text);
   word-wrap: break-word;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
+  overflow-x: hidden;
+}
+.msg-assistant-body {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .msg-assistant-footer {
   margin-top: 10px;
@@ -274,7 +288,7 @@
 }
 
 /* Markdown rendered content */
-.md-content { white-space: normal; }
+.md-content { white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
 .md-content p { margin-bottom: 0.75em; }
 .md-content p:last-child { margin-bottom: 0; }
 .md-content h1, .md-content h2, .md-content h3,
@@ -297,6 +311,8 @@
   padding: 1px 5px; font-size: 0.88em;
   font-family: 'SF Mono', Monaco, Consolas, monospace;
   color: var(--text);
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 .md-content pre {
   background: var(--bg-tertiary); border-radius: 8px;
@@ -346,13 +362,15 @@
 }
 .md-content pre code {
   background: none; padding: 0; font-size: 0.85em; border-radius: 0;
+  word-break: normal;
+  overflow-wrap: normal;
 }
 .md-content blockquote {
   border-left: 3px solid var(--border-strong);
   margin: 0 0 0.75em; padding: 2px 0 2px 12px;
   color: var(--text-secondary);
 }
-.md-content a { color: var(--text); text-decoration: underline; }
+.md-content a { color: var(--text); text-decoration: underline; overflow-wrap: anywhere; word-break: break-all; }
 .md-content a:hover { opacity: 0.75; }
 .md-content hr {
   border: none; border-top: 1px solid var(--border);
@@ -361,6 +379,9 @@
 .md-content table {
   border-collapse: collapse; width: 100%; margin-bottom: 0.75em;
   font-size: 0.9em;
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .md-content th, .md-content td {
   border: 1px solid var(--border); padding: 6px 10px; text-align: left;
@@ -376,6 +397,10 @@
   color: var(--text-muted);
   margin: 8px 0;
   animation: fadeIn 0.1s ease;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .context-barrier {
@@ -388,6 +413,7 @@
   border-radius: 12px;
   background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
   max-width: min(92%, 720px);
+  overflow-wrap: anywhere;
 }
 
 /* Usage tokens */
@@ -408,7 +434,7 @@
 }
 .thinking-header:hover { color: var(--text); }
 .thinking-icon { font-size: 14px; flex-shrink: 0; }
-.thinking-label { flex: 1; font-style: italic; }
+.thinking-label { flex: 1; font-style: italic; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thinking-chevron {
   font-size: 9px; transition: transform 0.2s; color: var(--text-muted);
   display: inline-flex; align-items: center; justify-content: center;
@@ -419,8 +445,33 @@
   margin-left: 5px;
   padding-left: 14px;
   padding-top: 4px;
+  min-width: 0;
+  overflow: hidden;
 }
 .thinking-block.collapsed .thinking-body { display: none; }
+
+/* File change summary for terminal thinking blocks (no assistant text follows) */
+.thinking-file-changes {
+  margin: 4px 0 2px 22px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.thinking-file-changes-heading {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.thinking-file-change-item {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thinking-file-change-item .file-change-dir {
+  color: var(--text-muted);
+}
 
 .turn-collapse-drawer {
   margin: 8px 0 14px;
@@ -476,7 +527,7 @@
   display: inline-flex; align-items: center; justify-content: center;
 }
 .tool-header.expanded .tool-toggle { transform: rotate(90deg); }
-.tool-body { display: none; padding: 0 10px 8px; }
+.tool-body { display: none; padding: 0 10px 8px; min-width: 0; overflow: hidden; }
 .tool-body.expanded { display: block; }
 .tool-body pre {
   background: var(--bg-tertiary); padding: 8px; border-radius: 5px; font-size: 11px;

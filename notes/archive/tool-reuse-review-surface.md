@@ -1,7 +1,7 @@
 # Tool Reuse Review Surface — Session-First Direction
 
 > Status: corrected design draft after product-model review.
-> Purpose: define how the existing offline tool-call analyzer should integrate into RemoteLab while preserving the app's core abstraction: layered session lists plus Markdown-native interaction.
+> Purpose: define how the existing offline tool-call analyzer should integrate into Cue while preserving the app's core abstraction: layered session lists plus Markdown-native interaction.
 
 ---
 
@@ -29,7 +29,7 @@ That means the review experience should stay inside the same product grammar the
 
 ## Why This Matters
 
-RemoteLab's cleanest abstraction is not "many specialized surfaces".
+Cue's cleanest abstraction is not "many specialized surfaces".
 
 It is:
 
@@ -101,7 +101,7 @@ The current analyzer already provides:
 
 ### Product layer
 
-RemoteLab already provides:
+Cue already provides:
 
 - session creation
 - session naming
@@ -122,7 +122,7 @@ The analyzer core should stay:
 
 - offline
 - file-based
-- reusable outside RemoteLab
+- reusable outside Cue
 - focused only on extracting patterns from tool calls
 
 It should continue to emit:
@@ -132,7 +132,7 @@ It should continue to emit:
 
 ### 2. Treat the report as a session, not a new entity type
 
-A report should be created as an ordinary RemoteLab session with:
+A report should be created as an ordinary Cue session with:
 
 - a normal session title
 - a stable display group
@@ -210,7 +210,7 @@ But that metadata should support the session experience, not replace it.
 
 1. server-owned workflow triggers the analyzer
 2. analyzer produces sidecar artifacts
-3. RemoteLab opens or updates a report session
+3. Cue opens or updates a report session
 4. the agent writes a Markdown daily report into that session
 5. the session appears under the report layer in the normal session list
 6. the user opens it later and reviews it like any other conversation
@@ -294,7 +294,7 @@ But the trigger path still belongs in the server-owned workflow because that ena
 The right split is therefore:
 
 - **portable**: extraction, clustering, sequence analysis, artifact generation
-- **RemoteLab-native**: job triggering, session creation, group placement, Markdown publication
+- **Cue-native**: job triggering, session creation, group placement, Markdown publication
 
 ---
 
@@ -398,4 +398,4 @@ That preserves the product's cleanest abstraction:
 - session as the review container
 - Markdown as the primary interaction medium
 
-This is lighter, more coherent, and more aligned with RemoteLab's existing product model than introducing a separate report surface.
+This is lighter, more coherent, and more aligned with Cue's existing product model than introducing a separate report surface.

@@ -1,11 +1,11 @@
 # Pointer-First Memory Validation Prompt
 
-Use this in a fresh RemoteLab session to audit whether the startup memory path stays compressed, relevant, and task-scoped.
+Use this in a fresh Cue session to audit whether the startup memory path stays compressed, relevant, and task-scoped.
 
 ```text
-We are validating RemoteLab's pointer-first memory activation. This session is a memory-loading audit, not a real project task.
+We are validating Cue's pointer-first memory activation. This session is a memory-loading audit, not a real project task.
 
-Current scope: RemoteLab memory architecture only.
+Current scope: Cue memory architecture only.
 
 Follow this exact process:
 1. Before reading anything else, state what startup context you already have.

@@ -1,6 +1,6 @@
 # Trigger Control Plane v0
 
-RemoteLab now has a first server-owned trigger control plane for narrow deferred wake-ups.
+Cue now has a first server-owned trigger control plane for narrow deferred wake-ups.
 
 This is intentionally small.
 The goal is not to ship a general workflow engine or scheduler DSL.
@@ -12,7 +12,7 @@ v0 supports exactly one trigger shape:
 
 - trigger type: `at_time`
 - action type: `session_message`
-- target: an existing RemoteLab session
+- target: an existing Cue session
 - delivery: inject one canonical message into that session through the normal session/run pipeline
 
 The system stays session-first:
@@ -89,7 +89,7 @@ Owner-only routes:
 
 ## CLI convenience
 
-Inside a normal RemoteLab session runtime, prefer the CLI wrapper instead of hand-written HTTP:
+Inside a normal Cue session runtime, prefer the CLI wrapper instead of hand-written HTTP:
 
 ```bash
 remotelab trigger create --in 2h --text "Follow up on this later" --json

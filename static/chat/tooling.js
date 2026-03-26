@@ -199,7 +199,7 @@ function buildProviderBasePrompt() {
     ? `${draft.reasoning.kind} (${draft.reasoning.levels.join(", ")})`
     : draft.reasoning.kind;
   return [
-    `I want to add a new agent/provider to RemoteLab.`,
+    `I want to add a new agent/provider to Cue.`,
     ``,
     `Target tool`,
     `- Name: ${draft.name}`,
@@ -210,7 +210,7 @@ function buildProviderBasePrompt() {
     `- Models:`,
     modelLines,
     ``,
-    `Work in the RemoteLab repo root (usually \`~/code/remotelab\`; adjust if your checkout lives elsewhere).`,
+    `Work in the Cue repo root (usually \`~/code/remotelab\`; adjust if your checkout lives elsewhere).`,
     `Read \`AGENTS.md\` (legacy \`CLAUDE.md\` is only a compatibility shim) and \`notes/directional/provider-architecture.md\` first.`,
     ``,
     `Please:`,

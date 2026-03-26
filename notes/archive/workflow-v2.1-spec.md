@@ -2,7 +2,7 @@
 > This state-machine-era workflow spec has been superseded by `notes/current/workflow-simplified.md` and the event-driven handoff implementation in `chat/workflow-engine.mjs`.
 > Keep this file only as historical reference.
 
-# RemoteLab AI 协作工作流 — 正式规格 v2.1
+# Cue AI 协作工作流 — 正式规格 v2.1
 
 > 状态：**规格草案 v2.1**
 >
@@ -215,7 +215,7 @@
 
 **阶段性策略**
 
-如果当前 RemoteLab 还不支持 runtime 权限模板，先把这条作为明确规格保留；后续优先实现。
+如果当前 Cue 还不支持 runtime 权限模板，先把这条作为明确规格保留；后续优先实现。
 
 ### 4.2 深度裁决的冷启动协议
 

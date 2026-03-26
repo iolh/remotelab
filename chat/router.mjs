@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'fs/promises';
+import { appendFile, readFile, readdir } from 'fs/promises';
 import { readFileSync, readdirSync, statSync, watch } from 'fs';
 import { homedir } from 'os';
 import { join, resolve, dirname, basename, extname, relative, isAbsolute, sep } from 'path';
@@ -100,7 +100,7 @@ import {
   getClientIp, isRateLimited, recordFailedAttempt, clearFailedAttempts,
   setSecurityHeaders, generateNonce, requireAuth,
 } from './middleware.mjs';
-import { pathExists, statOrNull } from './fs-utils.mjs';
+import { createSerialTaskQueue, ensureDir, pathExists, statOrNull } from './fs-utils.mjs';
 import { broadcastAll } from './ws-clients.mjs';
 import { handlePublicRoutes } from './router-public-routes.mjs';
 import { handleAdminRoutes } from './router-admin-routes.mjs';
@@ -140,9 +140,63 @@ const VISITOR_BROWSER_COOKIE_NAME = 'visitor_browser_id';
 const VISITOR_BROWSER_COOKIE_MAX_AGE_MS = 5 * 365 * 24 * 60 * 60 * 1000;
 const VISITOR_BROWSER_COOKIE_MAX_AGE_SECONDS = Math.max(1, Math.floor(VISITOR_BROWSER_COOKIE_MAX_AGE_MS / 1000));
 const VISITOR_BROWSER_COOKIE_SAME_SITE = 'Lax';
+const ATTENTION_SIGNALS_FILE = join(homedir(), '.config', 'remotelab', 'attention-signals.jsonl');
+const appendAttentionSignalEntryTask = createSerialTaskQueue();
 let cachedPageBuildInfo = null;
 const frontendBuildWatchers = [];
 let frontendBuildInvalidationTimer = null;
+
+function normalizeAttentionSignalType(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return [
+    'opened',
+    'acted',
+    'skipped',
+    'reopened',
+    'completed_resurfaced_without_new_event',
+  ].includes(normalized) ? normalized : '';
+}
+
+function trimJsonString(value, maxLength = 512) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? normalized.slice(0, maxLength) : '';
+}
+
+function normalizeAttentionSignalMap(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, entry]) => [trimJsonString(key, 64), trimJsonString(entry, 512)])
+      .filter(([key, entry]) => key && entry),
+  );
+}
+
+function normalizeAttentionSignalPayload(payload = {}) {
+  const signal = normalizeAttentionSignalType(payload?.signal);
+  const sessionId = trimJsonString(payload?.sessionId, 128);
+  if (!signal || !sessionId) return null;
+  return {
+    signal,
+    sessionId,
+    sessionName: trimJsonString(payload?.sessionName, 256),
+    timestamp: trimJsonString(payload?.timestamp, 64) || new Date().toISOString(),
+    attention: normalizeAttentionSignalMap(payload?.attention),
+    details: normalizeAttentionSignalMap(payload?.details),
+  };
+}
+
+async function appendAttentionSignalEntry(payload = {}) {
+  const entry = normalizeAttentionSignalPayload(payload);
+  if (!entry) {
+    throw new Error('Invalid attention signal payload');
+  }
+  entry.recordedAt = new Date().toISOString();
+  await appendAttentionSignalEntryTask(async () => {
+    await ensureDir(dirname(ATTENTION_SIGNALS_FILE));
+    await appendFile(ATTENTION_SIGNALS_FILE, `${JSON.stringify(entry)}\n`, 'utf8');
+  });
+  return entry;
+}
 
 async function listSessionsForClient(options = {}) {
   const sessions = await listSessions(options);
@@ -1110,6 +1164,7 @@ function isOwnerOnlyRoute(pathname, method) {
   if (pathname.startsWith('/api/sessions/') && method === 'PATCH') return true;
   if (pathname === '/api/models' && method === 'GET') return true;
   if (pathname === '/api/tools' && (method === 'GET' || method === 'POST')) return true;
+  if (pathname === '/api/attention-signals' && method === 'POST') return true;
   if (pathname === '/api/autocomplete' && method === 'GET') return true;
   if (pathname === '/api/browse' && method === 'GET') return true;
   if (pathname === '/api/push/vapid-public-key' && method === 'GET') return true;
@@ -2368,6 +2423,32 @@ export async function handleRequest(req, res) {
       writeJson(res, 200, { selection });
     } catch (error) {
       writeJson(res, 400, { error: error.message || 'Failed to save runtime selection' });
+    }
+    return;
+  }
+
+  if (pathname === '/api/attention-signals' && req.method === 'POST') {
+    if (authSession?.role === 'visitor') {
+      writeJson(res, 403, { error: 'Owner access required' });
+      return;
+    }
+    let body;
+    try { body = await readBody(req, 16384); } catch (err) {
+      writeJson(res, err.code === 'BODY_TOO_LARGE' ? 413 : 400, { error: err.code === 'BODY_TOO_LARGE' ? 'Request body too large' : 'Bad request' });
+      return;
+    }
+    let payload;
+    try {
+      payload = body ? JSON.parse(body) : {};
+    } catch {
+      writeJson(res, 400, { error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const entry = await appendAttentionSignalEntry(payload || {});
+      writeJson(res, 202, { ok: true, signal: entry.signal, sessionId: entry.sessionId });
+    } catch (error) {
+      writeJson(res, 400, { error: error.message || 'Failed to record attention signal' });
     }
     return;
   }

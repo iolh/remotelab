@@ -1,13 +1,13 @@
 # Session-First Workflow Surfaces
 
 > Status: current baseline.
-> Purpose: freeze the organization model for session list / board / group / task-like workflow views so RemoteLab does not drift into parallel domain objects before they are truly needed.
+> Purpose: freeze the organization model for session list / board / group / task-like workflow views so Cue does not drift into parallel domain objects before they are truly needed.
 
 ---
 
 ## Core Decision
 
-For the current RemoteLab architecture:
+For the current Cue architecture:
 
 > `Session` is the only durable work object.
 
@@ -159,7 +159,7 @@ Three hard constraints should hold:
 
 ## When A Second Layer Becomes Legitimate
 
-It is reasonable that RemoteLab may eventually need something above sessions.
+It is reasonable that Cue may eventually need something above sessions.
 
 But that should happen only when the product has a real need for a cross-session work object, for example when one unit of work needs:
 
@@ -184,7 +184,7 @@ BoardCard/Task becomes the hidden real object
 and Session becomes a chat attachment hanging off it
 ```
 
-In other words: if RemoteLab grows a second layer, it should be an explicit parent above sessions, not a shadow board entity beside sessions.
+In other words: if Cue grows a second layer, it should be an explicit parent above sessions, not a shadow board entity beside sessions.
 
 ---
 
@@ -197,6 +197,6 @@ For current feature work, these defaults should hold:
 - if the owner wants easier attention management, improve workflow projection first
 - if a proposal needs its own object, ask whether it truly survives beyond any one session
 
-This keeps RemoteLab aligned with its core product identity:
+This keeps Cue aligned with its core product identity:
 
 > durable AI work is centered on sessions, and workflow organization is built around them rather than replacing them.

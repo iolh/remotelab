@@ -112,4 +112,56 @@ assert.deepEqual(
   'expanded folded blocks should still expose manager context when explicitly opened',
 );
 
+// --- fileChanges & isTurnTerminal ---
+
+const toolOnlyHistory = [
+  { seq: 1, type: 'message', role: 'user', content: 'Fix the CSS bug' },
+  { seq: 2, type: 'reasoning', role: 'assistant', content: 'Looking at styles' },
+  { seq: 3, type: 'tool_use', role: 'assistant', toolName: 'read', toolInput: 'src/app.css' },
+  { seq: 4, type: 'tool_result', role: 'system', output: 'body { color: red }', exitCode: 0 },
+  { seq: 5, type: 'tool_use', role: 'assistant', toolName: 'edit', toolInput: 'src/app.css' },
+  { seq: 6, type: 'file_change', role: 'system', filePath: 'src/app.css', changeType: 'modified' },
+  { seq: 7, type: 'tool_result', role: 'system', output: 'ok', exitCode: 0 },
+  { seq: 8, type: 'file_change', role: 'system', filePath: 'src/app.css', changeType: 'deleted' },
+  { seq: 9, type: 'file_change', role: 'system', filePath: 'src/layout.css', changeType: 'modified' },
+];
+
+const toolOnlyDisplay = buildSessionDisplayEvents(toolOnlyHistory, { sessionRunning: false });
+const terminalBlock = toolOnlyDisplay.find((e) => e.type === 'thinking_block');
+assert.ok(terminalBlock, 'tool-only turn should produce a thinking block');
+assert.ok(terminalBlock.isTurnTerminal, 'thinking block should be marked isTurnTerminal when no assistant text follows');
+assert.ok(Array.isArray(terminalBlock.fileChanges), 'thinking block should carry fileChanges');
+assert.equal(terminalBlock.fileChanges.length, 2, 'fileChanges should deduplicate by filePath');
+assert.equal(terminalBlock.fileChanges[0].filePath, 'src/app.css');
+assert.equal(terminalBlock.fileChanges[0].changeType, 'deleted', 'fileChanges should keep the last changeType for a repeated path');
+assert.equal(terminalBlock.fileChanges[1].filePath, 'src/layout.css');
+
+const withTextHistory = [
+  { seq: 1, type: 'message', role: 'user', content: 'Fix the CSS bug' },
+  { seq: 2, type: 'tool_use', role: 'assistant', toolName: 'edit', toolInput: 'src/app.css' },
+  { seq: 3, type: 'file_change', role: 'system', filePath: 'src/app.css', changeType: 'modified' },
+  { seq: 4, type: 'tool_result', role: 'system', output: 'ok', exitCode: 0 },
+  { seq: 5, type: 'message', role: 'assistant', content: 'Fixed the color.' },
+];
+
+const withTextDisplay = buildSessionDisplayEvents(withTextHistory, { sessionRunning: false });
+const normalBlock = withTextDisplay.find((e) => e.type === 'thinking_block');
+assert.ok(normalBlock, 'turn with text should still have a thinking block');
+assert.ok(!normalBlock.isTurnTerminal, 'thinking block should NOT be isTurnTerminal when assistant text follows');
+assert.ok(Array.isArray(normalBlock.fileChanges), 'fileChanges should still be present even when not terminal');
+assert.equal(normalBlock.fileChanges.length, 1);
+
+const runningFileChangeHistory = [
+  { seq: 1, type: 'message', role: 'user', content: 'Refactor layout' },
+  { seq: 2, type: 'tool_use', role: 'assistant', toolName: 'edit', toolInput: 'src/layout.css' },
+  { seq: 3, type: 'file_change', role: 'system', filePath: 'src/layout.css', changeType: 'modified' },
+  { seq: 4, type: 'tool_result', role: 'system', output: 'ok', exitCode: 0 },
+];
+
+const runningFileChangeDisplay = buildSessionDisplayEvents(runningFileChangeHistory, { sessionRunning: true });
+const runningTerminalCandidate = runningFileChangeDisplay.find((e) => e.type === 'thinking_block');
+assert.ok(runningTerminalCandidate, 'running turn should still produce a thinking block');
+assert.ok(!runningTerminalCandidate.isTurnTerminal, 'running turns should not be marked terminal even when fileChanges exist');
+assert.equal(runningTerminalCandidate.state, 'running');
+
 console.log('test-session-display-events: ok');

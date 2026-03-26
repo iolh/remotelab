@@ -29,7 +29,7 @@ Goal: separate durable server truth from frontend-only display state before anot
 
 ### Durable session metadata
 
-RemoteLab stores session metadata in `chat-sessions.json`.
+Cue stores session metadata in `chat-sessions.json`.
 
 The fields that currently matter for state are:
 

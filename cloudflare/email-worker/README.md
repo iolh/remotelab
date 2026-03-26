@@ -1,4 +1,4 @@
-# RemoteLab Cloudflare Email Worker
+# Cue Cloudflare Email Worker
 
 Minimal Cloudflare edge for a mailbox such as `agent@example.com`.
 
@@ -6,7 +6,7 @@ Operator flow is model-first and prompt-first: ask an AI agent on the host machi
 
 Flow:
 
-`Internet -> Cloudflare Email Routing -> Email Worker(email) -> local mailbox bridge -> local agent-mail-worker -> RemoteLab -> completion target -> Email Worker(fetch) -> Cloudflare send_email`
+`Internet -> Cloudflare Email Routing -> Email Worker(email) -> local mailbox bridge -> local agent-mail-worker -> Cue -> completion target -> Email Worker(fetch) -> Cloudflare send_email`
 
 ## Design goal
 
@@ -18,7 +18,7 @@ Flow:
 
 1. receive inbound mail from Cloudflare Email Routing
 2. forward the raw message to the local mailbox bridge webhook
-3. accept authenticated `POST /api/send-email` requests from RemoteLab completion targets
+3. accept authenticated `POST /api/send-email` requests from Cue completion targets
 4. send replies through Cloudflare `send_email`
 
 ## Required config
@@ -46,4 +46,4 @@ The deploy script reads the local mailbox config, uploads the needed secrets, an
 ## Endpoints
 
 - `GET /healthz` — lightweight health check
-- `POST /api/send-email` — authenticated outbound sender used by RemoteLab completion targets
+- `POST /api/send-email` — authenticated outbound sender used by Cue completion targets

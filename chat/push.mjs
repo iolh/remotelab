@@ -2,6 +2,7 @@ import webpush from 'web-push';
 import { dirname } from 'path';
 import { VAPID_KEYS_FILE, PUSH_SUBSCRIPTIONS_FILE } from '../lib/config.mjs';
 import { createSerialTaskQueue, ensureDir, readJson, writeJsonAtomic } from './fs-utils.mjs';
+import { getAttentionReasonLabel } from './session-attention-contract.mjs';
 
 let ready = false;
 let initPromise = null;
@@ -131,16 +132,6 @@ function buildSessionUrl(session) {
   return query ? `/?${query}` : '/';
 }
 
-const DECISION_REASON_LABELS = {
-  handoff_requires_decision: '辅助结论需要你确认',
-  handoff_missing_structured_result: '辅助结论缺少结构化结果，请手动检查',
-  handoff_invalid_structured_payload: '辅助结论数据不完整，已转人工确认',
-  auto_absorb_failed: '自动吸收失败，需要你确认',
-  final_confirmation_required: '工作流即将完成，请确认最终结论',
-  final_closeout_missing_summary: '收口未产出摘要，请手动确认',
-  final_closeout_failed: '收口自动执行失败，请确认',
-};
-
 async function broadcastPush(payloadObj) {
   await init();
   const subs = await loadSubs();
@@ -204,7 +195,7 @@ export async function sendCompletionPush(session) {
 export async function sendDecisionPush(session, reason = '') {
   const folder = (session?.folder || '').split('/').pop() || 'Session';
   const name = session?.name || folder;
-  const reasonLabel = DECISION_REASON_LABELS[reason] || '需要你的确认';
+  const reasonLabel = getAttentionReasonLabel(reason, '需要你的确认');
   await broadcastPush({
     title: 'RemoteLab',
     body: `${name} — ${reasonLabel}`,

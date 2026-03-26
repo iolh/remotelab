@@ -11,6 +11,7 @@ const tempBin = join(tempHome, 'bin');
 const configDir = join(tempHome, '.config', 'remotelab');
 const memoryDir = join(tempHome, '.remotelab', 'memory');
 const promptLogPath = join(tempHome, 'label-prompt.log');
+const invocationLogPath = join(tempHome, 'label-invocation.log');
 
 mkdirSync(tempBin, { recursive: true });
 mkdirSync(configDir, { recursive: true });
@@ -50,6 +51,9 @@ const delayMs = isLabelPrompt ? 50 : 220;
 
 if (isLabelPrompt && process.env.PROMPT_LOG_FILE) {
   fs.appendFileSync(process.env.PROMPT_LOG_FILE, prompt + String.fromCharCode(10) + '---PROMPT---' + String.fromCharCode(10), 'utf8');
+}
+if (isLabelPrompt && process.env.INVOCATION_LOG_FILE) {
+  fs.appendFileSync(process.env.INVOCATION_LOG_FILE, process.argv.slice(2).join(' ') + String.fromCharCode(10), 'utf8');
 }
 
 const text = isLabelPrompt
@@ -100,8 +104,8 @@ writeFileSync(
         reasoning: {
           kind: 'enum',
           label: 'Reasoning',
-          levels: ['low'],
-          default: 'low',
+          levels: ['low', 'high'],
+          default: 'high',
         },
       },
     ],
@@ -114,6 +118,7 @@ writeFileSync(
 process.env.HOME = tempHome;
 process.env.PATH = `${tempBin}:${process.env.PATH}`;
 process.env.PROMPT_LOG_FILE = promptLogPath;
+process.env.INVOCATION_LOG_FILE = invocationLogPath;
 
 const sessionManager = await import(
   pathToFileURL(join(repoRoot, 'chat', 'session-manager.mjs')).href
@@ -162,7 +167,7 @@ try {
   await sendMessage(target.id, 'Make it feel natural and avoid creating a brand new group every time.', [], {
     tool: 'fake-codex',
     model: 'fake-model',
-    effort: 'low',
+    effort: 'high',
   });
 
   await waitFor(
@@ -184,6 +189,18 @@ try {
   assert.match(promptLog, /- RemoteLab — code repo/);
   assert.match(promptLog, /\[RemoteLab\] Naming Flow — Refactor session naming and grouping\./);
   assert.match(promptLog, /\[Video Workflow\] Rough Cut Review — Review edit decisions for the current draft\./);
+
+  const invocationLog = readFileSync(invocationLogPath, 'utf8');
+  assert.match(
+    invocationLog,
+    /model_reasoning_effort=low/,
+    'session label suggestions should downgrade codex-family auxiliary work to the efficient tier',
+  );
+  assert.doesNotMatch(
+    invocationLog,
+    /model_reasoning_effort=high/,
+    'session label suggestions should not inherit the main run reasoning effort',
+  );
 
   await waitFor(
     async () => (await getSession(target.id))?.activity?.run?.state === 'idle',

@@ -1,3 +1,7 @@
+import { deriveSessionAttention } from './session-attention-contract.mjs';
+import { deriveSessionCheckpoint } from './session-checkpoint-contract.mjs';
+import { buildSessionRawEventLogContract } from './session-event-log-contract.mjs';
+
 function cloneJson(value) {
   if (value === null || value === undefined) return value;
   return JSON.parse(JSON.stringify(value));
@@ -31,6 +35,7 @@ export function createSessionListItem(session) {
   delete item.workflowMode;
   delete item.workflowAutoTriggerDisabled;
   delete item.pendingIntake;
+  item.attention = deriveSessionAttention(item);
   return item;
 }
 
@@ -49,5 +54,8 @@ export function createSessionDetail(session) {
   delete detail.workflowMode;
   delete detail.workflowAutoTriggerDisabled;
   delete detail.pendingIntake;
+  detail.attention = deriveSessionAttention(detail);
+  detail.checkpoint = deriveSessionCheckpoint(detail);
+  detail.rawEventLog = buildSessionRawEventLogContract(detail);
   return detail;
 }

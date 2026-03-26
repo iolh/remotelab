@@ -56,11 +56,11 @@ For setup, deployment, connector, and feature-rollout docs, assume the operator 
 
 - `automation-apps.md` — automation-as-App pattern for owner-side recurring workflows and review sessions
 - `cloudflare-email-worker.md` — model-first Cloudflare Email Worker deployment contract
-- `feishu-bot-setup.md` — model-first operator + console contract for the RemoteLab Feishu connector
+- `feishu-bot-setup.md` — model-first operator + console contract for the Cue Feishu connector
 - `github-auto-triage.md` — model-first GitHub intake and auto-reply rollout contract
-- `remote-capability-monitor.md` — remote-agent capability monitoring backed by a RemoteLab App and review session
+- `remote-capability-monitor.md` — remote-agent capability monitoring backed by a Cue App and review session
 - `tunnel-diagnostics.md` — Cloudflare Tunnel latency probe workflow for separating app cost from edge/tunnel cost
-- `voice-connector.md` — model-first wake-word speaker/microphone connector contract for RemoteLab
+- `voice-connector.md` — model-first wake-word speaker/microphone connector contract for Cue
 
 ## What Lives In `notes/`
 

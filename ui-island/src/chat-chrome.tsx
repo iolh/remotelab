@@ -106,6 +106,7 @@ type WorkflowOpenDetail = {
 } | null;
 
 type ResolvedTheme = "light" | "dark";
+const CHROME_STATUS_OPEN_EVENT = "remotelab:chrome-status-open";
 
 declare global {
   interface Window {
@@ -120,6 +121,7 @@ declare global {
         acceptWorkflowSuggestion?: () => Promise<void> | void;
         dismissWorkflowSuggestion?: () => Promise<void> | void;
         createParallelSessionsFromConclusion?: (conclusionId: string) => Promise<void> | void;
+        openStatusPanel?: () => void;
       };
     };
     remotelabToastBridge?: {
@@ -328,6 +330,7 @@ function WorkflowStatusButton({
   const hasNotice = !!suggestion || decisions.length > 0 || pending.length > 0;
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [desktopOpen, setDesktopOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth <= 640);
 
   useEffect(() => {
@@ -339,6 +342,19 @@ function WorkflowStatusButton({
     window.addEventListener("resize", syncViewportMode);
     return () => window.removeEventListener("resize", syncViewportMode);
   }, []);
+
+  useEffect(() => {
+    function handleOpenStatusPanel() {
+      if (isMobile) {
+        setMobileOpen(true);
+        return;
+      }
+      setDesktopOpen(true);
+    }
+
+    window.addEventListener(CHROME_STATUS_OPEN_EVENT, handleOpenStatusPanel);
+    return () => window.removeEventListener(CHROME_STATUS_OPEN_EVENT, handleOpenStatusPanel);
+  }, [isMobile]);
 
   async function handleConclusionAction(conclusionId: string, status: string) {
     const run = window.remotelabChromeBridge?.actions?.workflowConclusionStatus;
@@ -474,16 +490,16 @@ function WorkflowStatusButton({
                         {normalizeText(conclusion.status === "needs_decision" ? "待决策" : "待处理")}
                       </Badge>
                       <span className="chrome-status-card-source">来自 {getConclusionSource(conclusion)}</span>
+                      {(() => {
+                        const recBadge = getRecommendationBadge(conclusion);
+                        if (!recBadge) return null;
+                        return (
+                          <Badge variant="outline" className={`chrome-status-badge ${recBadge.className}`}>
+                            {recBadge.text}
+                          </Badge>
+                        );
+                      })()}
                     </div>
-                    {(() => {
-                      const recBadge = getRecommendationBadge(conclusion);
-                      if (!recBadge) return null;
-                      return (
-                        <Badge variant="outline" className={`chrome-status-badge ${recBadge.className}`}>
-                          {recBadge.text}
-                        </Badge>
-                      );
-                    })()}
                     <div className="chrome-status-card-text">
                       {normalizeText(conclusion.summary) || "暂无摘要"}
                     </div>
@@ -566,7 +582,7 @@ function WorkflowStatusButton({
   }
 
   return (
-    <Popover>
+    <Popover open={desktopOpen} onOpenChange={setDesktopOpen}>
       <PopoverTrigger asChild>
         {triggerButton}
       </PopoverTrigger>

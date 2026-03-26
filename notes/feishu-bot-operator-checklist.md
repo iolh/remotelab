@@ -11,7 +11,7 @@ See also: `notes/feishu-bot-setup-lessons.md` for the practical rollout pitfalls
 
 We should register **one Feishu bot only**.
 
-That bot is the same RemoteLab agent identity:
+That bot is the same Cue agent identity:
 
 - private chat with the bot = direct 1:1 conversation
 - group with the bot = separate shared session surface
@@ -148,7 +148,7 @@ Once you provide the credentials and confirm the app is reachable from your Feis
 - the local **Feishu connector process**
 - Feishu long-connection event intake using the Node SDK
 - quick dedupe and background job handling
-- RemoteLab auth bootstrap using the owner token
+- Cue auth bootstrap using the owner token
 - session create/reuse via `externalTriggerId`
 - message submission via `requestId`
 - run polling and assistant-reply extraction
@@ -252,7 +252,7 @@ As soon as you send the values above, my implementation track is:
 1. build a local `feishu-connector` process
 2. connect with Feishu long connection
 3. handle p2p message events
-4. map one Feishu chat to one RemoteLab session
+4. map one Feishu chat to one Cue session
 5. reply with the final assistant message back into Feishu
 
 That gives us the first clean end-to-end validation.

@@ -1,13 +1,13 @@
 # GitHub CI Auto Repair
 
-`scripts/github-ci-auto-repair.mjs` watches the latest GitHub Actions runs for selected branches and starts a RemoteLab repair session when the newest matching branch CI run is red.
+`scripts/github-ci-auto-repair.mjs` watches the latest GitHub Actions runs for selected branches and starts a Cue repair session when the newest matching branch CI run is red.
 
 ## Why this shape
 
 For this machine, a **local poller** is the simplest reliable default:
 
 - no extra public webhook surface needs to be exposed from GitHub into the laptop
-- it reuses the existing local `gh` auth and RemoteLab owner auth
+- it reuses the existing local `gh` auth and Cue owner auth
 - it can enrich the repair prompt with local repo paths, workflow context, failed jobs, and log excerpts before the model starts working
 
 The monitor is intentionally conservative:
@@ -20,7 +20,7 @@ The monitor is intentionally conservative:
 
 ## Typical usage
 
-For the RemoteLab repo itself:
+For the Cue repo itself:
 
 ```bash
 npm run github:ci:repair -- \
@@ -81,7 +81,7 @@ Default behavior on this machine:
 - watches branches `main` and `master`
 - watches workflow `CI`
 - does **not** start model work during healthy polls
-- only starts a RemoteLab repair session once the latest matching branch CI run is actually red
+- only starts a Cue repair session once the latest matching branch CI run is actually red
 
 Edit `~/.config/remotelab/github-ci-auto-repair/config.json` if you want to change the poll interval, branches, workflows, or session runtime.
 

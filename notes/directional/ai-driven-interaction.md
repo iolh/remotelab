@@ -34,7 +34,7 @@ The minimal new primitive is a **deferred trigger**.
 Conceptually:
 
 - the model writes a future message or wake-up condition
-- RemoteLab stores it durably
+- Cue stores it durably
 - the system delivers it back into the target session later
 - the resulting work still appears as normal session activity
 

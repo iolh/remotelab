@@ -1,27 +1,27 @@
 # Voice Hardware Connector (Prompt-First)
 
-This document is the rollout contract for wiring a wake-word voice connector to RemoteLab.
+This document is the rollout contract for wiring a wake-word voice connector to Cue.
 
 The design goal is simple:
 
 - microphone + wake-word detection live outside the core server
-- the connector turns one spoken request into one normal RemoteLab message
-- RemoteLab runs the selected local agent as usual
+- the connector turns one spoken request into one normal Cue message
+- Cue runs the selected local agent as usual
 - the connector converts the final assistant reply back into speaker audio
 
 That keeps voice as just another thin connector on top of the existing session/run/event architecture.
 
 ## Copyable Prompt
 
-Use this when handing the setup to an AI coding agent on the RemoteLab machine:
+Use this when handing the setup to an AI coding agent on the Cue machine:
 
 ```text
-I want you to wire a wake-word voice connector for RemoteLab on this machine.
+I want you to wire a wake-word voice connector for Cue on this machine.
 
 Target behavior:
 - a local microphone listens for a wake phrase
 - transcribe wake audio locally
-- send it into RemoteLab as one user message
+- send it into Cue as one user message
 - wait for the assistant reply
 - speak the reply back through the local speaker
 
@@ -38,14 +38,14 @@ Pipeline choices:
 - STT layer: <mlx_whisper / whisper.cpp / faster-whisper / cloud API / custom>
 - TTS layer: <macOS say / espeak / Piper / cloud API / custom>
 
-RemoteLab session choices:
+Cue session choices:
 - tool: <codex / claude / other>
 - model: <optional>
 - effort: <optional>
 - thinking: <true/false>
 
 Constraints:
-- keep RemoteLab as the shared runtime and conversation engine
+- keep Cue as the shared runtime and conversation engine
 - keep platform-specific audio handling inside the connector
 - prefer a stable per-device voice session using externalTriggerId
 - keep replies short and speech-friendly
@@ -66,7 +66,7 @@ When the setup is complete, the machine should have:
 - one local `voice-connector` process
 - one wake pipeline that emits activations
 - one local audio/transcribe pipeline, either direct wake-to-transcript or wake + capture + STT
-- one durable RemoteLab session per connector/device
+- one durable Cue session per connector/device
 - one TTS path back to the speaker
 
 The expected session scope is:
@@ -177,7 +177,7 @@ This one-stage setup is the simplest validation path:
 - `ffmpeg` reads the microphone
 - `mlx_whisper` transcribes each short chunk locally
 - the wake loop emits a JSON event that already includes `transcript`
-- `scripts/voice-connector.mjs` sends that transcript straight into a new RemoteLab session
+- `scripts/voice-connector.mjs` sends that transcript straight into a new Cue session
 
 `capture.command` and `stt.command` stay available for more advanced flows, but they are not required for the first hello-world demo.
 
@@ -185,7 +185,7 @@ This one-stage setup is the simplest validation path:
 
 This repo now ships a generic Python wake path that keeps the core logic outside the main server and outside platform-specific app code:
 
-- `scripts/voice-utterance-loop.py` — passive always-on utterance listener; any detected full utterance becomes one RemoteLab message
+- `scripts/voice-utterance-loop.py` — passive always-on utterance listener; any detected full utterance becomes one Cue message
 - `scripts/voice-wake-loop.py` — always-on wake listener using short microphone chunks plus local `mlx_whisper`
 - `scripts/voice-capture-until-silence.py` — one-shot follow-up capture that waits for speech and stops after trailing silence
 - `scripts/voice-record-once.py` — one-shot microphone capture helper using `sounddevice` when available, with `ffmpeg` fallback
@@ -203,7 +203,7 @@ In passive speech mode:
 - the connector continuously listens for any utterance
 - once speech starts, it keeps recording until trailing silence
 - the whole utterance is transcribed locally
-- that transcript is sent into a fresh RemoteLab session turn
+- that transcript is sent into a fresh Cue session turn
 
 This mode is intentionally simple and good for evaluation, but it will also react to background human speech or other nearby voice audio. It is a demo path, not yet a production-grade wake-word filter.
 
@@ -217,7 +217,7 @@ In this mode:
 - the full utterance is transcribed locally first
 - only utterances that start with the configured wake phrase are accepted
 - the wake phrase can match fuzzily within a small edit distance
-- only the trailing content after the wake phrase is sent into RemoteLab
+- only the trailing content after the wake phrase is sent into Cue
 
 Example:
 
@@ -306,7 +306,7 @@ npm run voice:connect -- --config ~/.config/remotelab/voice-connector/config.jso
 
 Expected outcome:
 
-- a `Voice` session is created or reused in RemoteLab
+- a `Voice` session is created or reused in Cue
 - the spoken text appears as a normal user message in that session
 - the assistant reply is short and speech-friendly
 - if TTS is enabled, the reply is spoken through the configured TTS path
@@ -317,7 +317,7 @@ This connector does not require a new core runtime model.
 
 It follows the same contract as Feishu, GitHub, and other external connectors:
 
-1. authenticate to RemoteLab
+1. authenticate to Cue
 2. create or reuse a session
 3. submit one normalized message
 4. wait for the run to complete

@@ -1,6 +1,6 @@
-# System-Level Memory — RemoteLab
+# System-Level Memory — Cue
 
-Universal learnings and patterns that apply to all RemoteLab deployments, regardless of who runs it or on which machine. This file lives in the code repo and is shared with all users.
+Universal learnings and patterns that apply to all Cue deployments, regardless of who runs it or on which machine. This file lives in the code repo and is shared with all users.
 
 ## What Belongs Here
 
@@ -34,12 +34,12 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 
 ### Long-Lived Connectors Must Re-Read Owner Tokens On Auth Refresh (2026-03-13)
 - A connector can look healthy for hours while reusing a cached owner session cookie, then suddenly start failing every upstream request after that cookie expires or the owner rotates `auth.json`.
-- If forced re-auth keeps reusing the connector's in-memory owner token, `/?token=...` can redirect to `/login` without a new `Set-Cookie`, and the connector surfaces misleading downstream errors even though RemoteLab itself is up.
+- If forced re-auth keeps reusing the connector's in-memory owner token, `/?token=...` can redirect to `/login` without a new `Set-Cookie`, and the connector surfaces misleading downstream errors even though Cue itself is up.
 - On forced auth refresh, clear both the cached cookie and the cached owner token, reread the current owner token from disk, then log in again before retrying the API request.
 - Keep a regression test that starts from a stale in-memory token and verifies that refresh re-reads the latest token instead of trusting cached state.
 
 ### Memory Bootstrap Hygiene (2026-03-06)
-- Fresh or partially initialized RemoteLab setups may be missing `~/.remotelab/memory/skills.md`.
+- Fresh or partially initialized Cue setups may be missing `~/.remotelab/memory/skills.md`.
 - If session startup expects that file, create a minimal placeholder index instead of treating the absence as a hard failure.
 
 ### Context Continuity Across Restarts (2026-03-06)
@@ -54,7 +54,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 - Use node WebSocket client for API testing — match the actual protocol (`action` field, attach-before-send flow).
 
 ### Similar UI Totals Often Have Separate Code Paths (2026-03-11)
-- In RemoteLab, session row counts, folder counts, archive counts, and app-filter totals can look like one product concept while still coming from different frontend functions.
+- In Cue, session row counts, folder counts, archive counts, and app-filter totals can look like one product concept while still coming from different frontend functions.
 - When a screenshot reports a "count bug", first identify the exact UI surface and trace that specific DOM/data path; fixing an adjacent counter can create false confidence while the real bug remains.
 - For the session sidebar specifically, per-session row counts live in `static/chat/ui.js`, while the app-filter totals are computed separately in `static/chat/bootstrap.js`.
 
@@ -72,15 +72,15 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 
 ### Codex Home Directory Trust Check (2026-03-06)
 - `codex exec` can hard-fail with `Not inside a trusted directory and --skip-git-repo-check was not specified.` when `cwd` is the user's home directory, even if approvals/sandbox are already bypassed.
-- In RemoteLab, this presents as a "silent" or "no response" Codex session because the process exits before emitting JSON events; Claude does not have this constraint, so the mismatch looks path-specific.
+- In Cue, this presents as a "silent" or "no response" Codex session because the process exits before emitting JSON events; Claude does not have this constraint, so the mismatch looks path-specific.
 - If the product intentionally launches agents from `~` or other non-repo roots, pass `--skip-git-repo-check` in the Codex adapter (or explicitly trust that directory in Codex config).
 
 ### Codex Reply-Style Steering Is Most Reliable Via `developer_instructions` (2026-03-18)
 - In current ChatGPT-authenticated `codex exec` runs, Codex's official `developer_instructions` config path reliably changes reply style, including suppressing default heading/list-heavy answers in favor of connected prose.
 - On the same setup, the documented top-level `instructions` and `model_instructions_file` controls did not materially change trivial `codex exec` outputs in smoke tests, even though the open-source code and schema suggest they should affect base instructions.
-- For manager-controlled style shaping in wrappers like RemoteLab, prefer passing `-c developer_instructions=...` on each Codex invocation over relying on prompt prefixes alone.
-- RemoteLab now benefits from a lightweight default Codex developer instruction that frames Codex as a runtime under manager-owned workflow/style policy, while still allowing explicit per-run override or opt-out for niche cases.
-- To keep manager policy canonical, RemoteLab-managed Codex runs should prefer a dedicated `CODEX_HOME` that shares auth but omits user-global `config.toml` personality/style settings and other local Codex-specific drift.
+- For manager-controlled style shaping in wrappers like Cue, prefer passing `-c developer_instructions=...` on each Codex invocation over relying on prompt prefixes alone.
+- Cue now benefits from a lightweight default Codex developer instruction that frames Codex as a runtime under manager-owned workflow/style policy, while still allowing explicit per-run override or opt-out for niche cases.
+- To keep manager policy canonical, Cue-managed Codex runs should prefer a dedicated `CODEX_HOME` that shares auth but omits user-global `config.toml` personality/style settings and other local Codex-specific drift.
 - When refreshing that managed `CODEX_HOME`, do not blindly overwrite `config.toml`: keep the manager-owned minimal boundary, but preserve existing `[mcp_servers.*]` sections so MCP registrations added inside the managed home survive future runs without re-importing full personal Codex drift.
 
 ### KYC / Account Registration Requests (2026-03-06)
@@ -90,7 +90,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 
 ### Provider Abstractions Must Own Runtime + Models (2026-03-06)
 - If command discovery, model catalogs, reasoning controls, and runtime spawning live in separate hardcoded switches, "custom tool" support becomes fake: the dropdown works, but model selection and execution do not.
-- RemoteLab should treat a provider as the single source of truth for command availability, model catalog, reasoning schema, runtime adapter, and resume key.
+- Cue should treat a provider as the single source of truth for command availability, model catalog, reasoning schema, runtime adapter, and resume key.
 - Use the same provider contract for two extension paths: local static JSON for hardcoded catalogs, and JS modules for dynamic probing / PR-worthy integrations.
 
 ### Provider Extensibility Works Best as Preset + Form + Code (2026-03-06)
@@ -105,7 +105,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 - A local JSON/simple provider that stores only a single `command` cannot directly express CLI integrations that require a fixed subcommand or bootstrap argv, such as `mc --code`.
 - The lowest-friction private-integration path is a tiny local wrapper executable that normalizes the real invocation into one stable command, then bind that wrapper to an existing runtime family in local provider/tool config.
 - Treat "binary resolves on PATH" and "provider auth/session is actually ready" as separate checks. A private CLI can look available to the picker while still failing every run until its local login/token state exists.
-- Some private Claude-flavored CLIs are not truly drop-in compatible with RemoteLab's default multiline preamble. `mc --code` accepted short single-line prompts but misbehaved on multiline prompts, emitted only raw stderr/stdout, and left RemoteLab with zero normalized events.
+- Some private Claude-flavored CLIs are not truly drop-in compatible with Cue's default multiline preamble. `mc --code` accepted short single-line prompts but misbehaved on multiline prompts, emitted only raw stderr/stdout, and left Cue with zero normalized events.
 - Local provider config therefore needs lightweight prompt-shaping controls, not just `command`/`runtimeFamily`. A practical minimum is `promptMode: "bare-user"` plus `flattenPrompt: true` so a brittle private CLI can receive only the user text in a single line.
 - When a structured runtime exits with code 0 but produces zero normalized events, surface the raw output as a run failure instead of silently marking it completed. That makes provider-contract breaks debuggable immediately.
 
@@ -116,10 +116,10 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 - Exclude the just-sent user message from the reconstructed transcript, or the new provider sees that message twice.
 
 ### Private Cross-Device Context Needs Its Own Layer (2026-03-06)
-- A simple split between repo-shared memory and machine-local memory breaks down when the same user runs RemoteLab on multiple computers.
+- A simple split between repo-shared memory and machine-local memory breaks down when the same user runs Cue on multiple computers.
 - Keep universal prompt/memory in the repo, keep machine facts local, and maintain a separate private portable layer for user-specific but cross-device principles.
 - The portable layer should contain stable collaboration preferences and execution principles, not local paths, ports, logs, launchd/systemd details, or secrets.
-- Reliable bootstrap flow: install RemoteLab first, then import the portable layer into `~/.remotelab/memory/global.md` as a synced block, and let each machine maintain its own local notes around that block.
+- Reliable bootstrap flow: install Cue first, then import the portable layer into `~/.remotelab/memory/global.md` as a synced block, and let each machine maintain its own local notes around that block.
 - For ongoing multi-machine use, sync the portable layer through its own git repo; do not sync the whole machine-memory directory.
 - A public repo is only appropriate if the portable layer is intentionally curated as publishable and is audited for machine-local or secret-like content before push.
 - If the sync repo is private, include bootstrap/helper scripts in the repo as well so a newly provisioned machine can clone once and self-bootstrap without relying on an out-of-band bundle.
@@ -158,7 +158,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 - If quick-add stays lightweight, document its compatibility boundary explicitly in the UI: family-compatible CLIs can be saved live; anything with custom flag semantics should take the advanced path.
 
 ### Owner / Visitor Splits Must Be Enforced Per Route (2026-03-06)
-- In RemoteLab, "authenticated" is not a sufficient authorization boundary once share-link visitors exist; a visitor session cookie is still a valid authenticated session.
+- In Cue, "authenticated" is not a sufficient authorization boundary once share-link visitors exist; a visitor session cookie is still a valid authenticated session.
 - Every HTTP route and WebSocket action must explicitly decide whether it is owner-only, visitor-scoped, or public. Relying on UI hiding or a generic `requireAuth` check lets share-link visitors reach owner surfaces.
 - High-risk examples are session CRUD/listing, filesystem browse/autocomplete, global settings/sidebar state, and push-subscription endpoints; those leak host metadata or allow state changes even when visitors cannot fully attach to owner sessions over WebSocket.
 - A safe regression pattern is to boot the server under a temporary `HOME` with `SECURE_COOKIES=0` on an isolated port, create both owner and visitor cookies, and verify each route class with `curl`/WebSocket probes without touching the live config.
@@ -215,12 +215,12 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 ### Deferred Event Bodies Must Stay User-Triggered (2026-03-10)
 - If thinking/tool bodies are deferred behind `GET /api/sessions/:sessionId/events/:seq/body`, the frontend should only fetch them when the user explicitly expands the corresponding UI block.
 - Do not auto-hydrate deferred bodies just because a tool exited non-zero or because the session initially rendered; that silently defeats the lazy-loading contract and creates request bursts on session open.
-- For RemoteLab chat history, prefer the simple model: load the full normalized event list in one `GET /api/sessions/:sessionId/events`, keep heavy bodies deferred, and ignore pagination-style query params unless the product truly needs them.
+- For Cue chat history, prefer the simple model: load the full normalized event list in one `GET /api/sessions/:sessionId/events`, keep heavy bodies deferred, and ignore pagination-style query params unless the product truly needs them.
 
 ### Private Skill Knowledge Stays Out Of Shared Memory (2026-03-06)
 - Repo-shared system memory must not store operational notes for private or org-specific skills/integrations, even if the pattern feels broadly useful inside one company's environment.
 - Put that knowledge in the skill's own docs when the skill is private/local, or in user-level memory on the relevant machine if it is an operator-specific workaround.
-- Reserve shared system memory for truths that still help a generic RemoteLab deployment with no access to the private skill at all.
+- Reserve shared system memory for truths that still help a generic Cue deployment with no access to the private skill at all.
 
 ### Always-On Memory Should Be Tiny And Ranked (2026-03-06)
 - If hard rules, user preferences, long memory notes, skill catalogs, and operator guidance are all injected at session start, important constraints lose salience and the model falls back to generic heuristics.
@@ -243,7 +243,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 
 ### PWA Frontend Freshness Needs Dynamic Asset Fingerprints (2026-03-12)
 - Reading HTML templates from disk on every request is not enough if the page injects a build or asset version that was frozen when the server process started.
-- For RemoteLab's no-build-step frontend, compute a page asset fingerprint from the latest mtime under `templates/` and `static/`, and inject that per request into HTML so script, icon, manifest, and service-worker URLs change as soon as frontend files change.
+- For Cue's no-build-step frontend, compute a page asset fingerprint from the latest mtime under `templates/` and `static/`, and inject that per request into HTML so script, icon, manifest, and service-worker URLs change as soon as frontend files change.
 - When the app already keeps a WebSocket open, prefer sending the current page build info on socket connect and rebroadcasting it on frontend file changes; existing pages can then reload from push without adding extra focus/visibility polling.
 - Keep versioned static asset URLs (`?v=` or hashed filenames) on long-lived immutable caching, and let only non-versioned assets or `sw.js` stay on revalidation/no-store policies.
 
@@ -261,7 +261,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 - Archive or trim stale task notes once they stop improving future execution.
 
 ### Boot Memory Should Stay Pointer-Sized (2026-03-06)
-- In RemoteLab, the built-in boot prompt should stay a small pointer/index that tells the agent which memory files exist; do not inline full memory documents there.
+- In Cue, the built-in boot prompt should stay a small pointer/index that tells the agent which memory files exist; do not inline full memory documents there.
 - Default context bloat usually comes from the agent explicitly reading large memory files and from accumulated chat/tool history, not from `buildSystemContext()` itself.
 - Practical rule: keep bootstrap memory tiny, split large notes into topical files, and read deep context on demand instead of every session.
 
@@ -270,7 +270,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 - Keep the router broad enough to cover both repos and non-repo task families, with trigger phrases and the next file, skill, or path to open.
 - The filename can stay `projects.md` for compatibility, but its job is scope routing rather than a strict repo catalog.
 
-### Existing RemoteLab Push State Can Power One-Off Reminders (2026-03-06)
+### Existing Cue Push State Can Power One-Off Reminders (2026-03-06)
 - If a deployment already has active web-push subscriptions, you can send ad hoc reminders without touching app code by reading `~/.config/remotelab/vapid-keys.json` and `~/.config/remotelab/push-subscriptions.json` from a local script and using the repo's `web-push` dependency directly.
 - This is useful for operator-scheduled reminders or out-of-band alerts, but it still depends on the host machine being awake and online at send time; pair it with a local fallback notification and, when appropriate, temporary `caffeinate`.
 
@@ -373,12 +373,12 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 - Remote runtimes and system prompts should explicitly tell agents to look for `AGENTS.md` first and fall back to legacy tool-specific files only when needed.
 
 ### Tunnel Health Checks Should Hit Public Login Pages Directly (2026-03-09)
-- For RemoteLab-style self-hosted apps behind auth, a lightweight external health check can target `/login` directly instead of `/`; this avoids redirect-specific false negatives while still proving DNS + edge + tunnel + app reachability.
+- For Cue-style self-hosted apps behind auth, a lightweight external health check can target `/login` directly instead of `/`; this avoids redirect-specific false negatives while still proving DNS + edge + tunnel + app reachability.
 - Validate more than the status code: expect a `200` plus a stable HTML marker such as the sign-in page title so a generic CDN error page does not count as healthy.
 - Pair the external domain probe with a local `127.0.0.1` probe in the same job; when external fails but local succeeds, the likely fault domain is the tunnel, VPN, or upstream network rather than the app itself.
 
 ### Healthy Ping Does Not Rule Out Codex Backend Failures (2026-03-09)
-- RemoteLab/Codex sessions can feel slow even when local network checks look perfect; ICMP ping to public hosts may stay low-latency with zero loss while backend requests to `https://chatgpt.com/backend-api/codex/responses` still fail intermittently.
+- Cue/Codex sessions can feel slow even when local network checks look perfect; ICMP ping to public hosts may stay low-latency with zero loss while backend requests to `https://chatgpt.com/backend-api/codex/responses` still fail intermittently.
 - When diagnosing user-visible slowness, inspect `~/Library/Logs/chat-server*.log` for `codex_api::endpoint::responses` errors and `Reconnecting...` events before blaming the user's LAN or Wi-Fi.
 
 ### Auto-Rename Latency Can Be Hidden Behind The Main Run (2026-03-09)
@@ -421,7 +421,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 - For quick smoke tests of local Node servers on macOS, prefer `cmd & pid=$!; sleep N; ...; kill $pid` over `timeout cmd` when you only need to confirm startup logs or listening ports.
 
 ### Invalidation-Only WebSockets Should Refresh The Smallest HTTP Surface (2026-03-09)
-- In RemoteLab's invalidation-only realtime model, a `session_invalidated` event should refresh only the affected session (`/api/sessions/:id`, plus `/events` when that session is open), not the entire owner session list.
+- In Cue's invalidation-only realtime model, a `session_invalidated` event should refresh only the affected session (`/api/sessions/:id`, plus `/events` when that session is open), not the entire owner session list.
 - Reserve whole-list refreshes like `sessions_invalidated` for collection-shape changes such as create, archive, or unarchive; rename/group/tool/status changes can be reconciled with a per-session refresh and local sidebar rerender.
 - Coalesce repeated per-session invalidations client-side so active runs do not fan out into bursts of overlapping sidebar requests.
 - For collection-shape actions with noticeable latency, such as archive/unarchive, optimistic sidebar hide/show on click makes the UI feel immediate as long as the client can roll back cleanly if the HTTP mutation fails.
@@ -441,7 +441,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 - If the pressure contract is still unsettled, prefer disabling automatic compaction by default (`Inf`) rather than firing on a threshold that users may mistake for a trustworthy saturation signal.
 
 ### Mobile Input Toolbars Should Scroll Horizontally When Controls Accumulate (2026-03-10)
-- In RemoteLab, the chat input control row naturally grows over time as tool/model/thinking/status/resume/compact actions are added.
+- In Cue, the chat input control row naturally grows over time as tool/model/thinking/status/resume/compact actions are added.
 - On mobile, wrapping or clipping these controls is worse than horizontal scrolling because the right-side actions become unreachable precisely when they matter most.
 - A robust pattern is: keep the row single-line, split it into left/right flex groups with `min-width: max-content`, and make the parent row `overflow-x: auto` with touch scrolling enabled.
 
@@ -454,7 +454,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 ### Installed PWAs Should Avoid A Manifest Orientation Policy Unless They Intend To Override Device Rotation (2026-03-12)
 - In Android, rotation issues that appear only in the installed PWA shell but not in a normal browser tab are often caused by the web app manifest, not by chat UI layout code.
 - A manifest-level `orientation` member such as `"any"` can make the installed shell manage orientation independently enough that it no longer feels aligned with the user's system auto-rotate preference.
-- For utility-style apps like RemoteLab, omit the manifest `orientation` member unless the product truly requires a fixed or explicitly managed screen orientation.
+- For utility-style apps like Cue, omit the manifest `orientation` member unless the product truly requires a fixed or explicitly managed screen orientation.
 
 ### Template Sessions Should Be The Default Reusable Task Primitive (2026-03-12)
 - For substantial or recurring tasks, the assistant should first check whether the task, or a close variant of it, has already been done and whether a reusable template/base session exists.
@@ -475,7 +475,7 @@ Universal learnings and patterns that apply to all RemoteLab deployments, regard
 - A reliable pattern is: receive event -> dedupe / enqueue immediately -> acknowledge the provider -> run the canonical session/message/run flow in background -> publish the final assistant reply afterward.
 
 ### Desktop-Only Local File Links Should Stay Client-Side (2026-03-12)
-- In RemoteLab-style remote UIs, local absolute file links are fundamentally a desktop operator workflow; mobile users can understand that they are unsupported.
+- In Cue-style remote UIs, local absolute file links are fundamentally a desktop operator workflow; mobile users can understand that they are unsupported.
 - Prefer rewriting these links client-side to `vscode://file/...` for desktop-capable browsers, and degrade on mobile/visitor surfaces by disabling the link with a clear tooltip.
 - Avoid adding server routes that execute `code --goto` on the host just to make phone-originated clicks work; that adds auth and execution surface area for a scenario the product does not need to support.
 

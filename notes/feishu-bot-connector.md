@@ -1,6 +1,6 @@
 # Feishu Bot Connector Research
 
-> Created 2026-03-10 to decide the fastest way to add Feishu as a RemoteLab external surface.
+> Created 2026-03-10 to decide the fastest way to add Feishu as a Cue external surface.
 > Status: proposal / implementation guide.
 > Use this together with `docs/external-message-protocol.md`.
 > Operator handoff checklist: `notes/feishu-bot-operator-checklist.md`.
@@ -10,20 +10,20 @@
 
 ## Conclusion
 
-If we want a **real Feishu connector** for RemoteLab, the right path is:
+If we want a **real Feishu connector** for Cue, the right path is:
 
 - build a **Feishu self-built app**
 - enable **bot** capability
 - subscribe to **`im.message.receive_v1`**
 - receive events through **Feishu long connection** using the Node SDK
-- map each Feishu chat thread to a normal RemoteLab session
+- map each Feishu chat thread to a normal Cue session
 - send the final assistant reply back through Feishu IM APIs
 
 This is the fastest end-to-end path because it preserves our current architecture:
 
 - Feishu stays a thin source adapter
-- RemoteLab stays the canonical session/run/event engine
-- the connector remains outside RemoteLab core
+- Cue stays the canonical session/run/event engine
+- the connector remains outside Cue core
 
 It is also the fastest Feishu-native implementation path because Feishu’s official docs explicitly position **long connection** as the “about 5 minutes” route for event handling, avoiding public webhook setup, signature verification, and decryption work.
 
@@ -41,7 +41,7 @@ It owns:
 
 - source-specific receive path
 - source-specific auth / SDK / webhook handling
-- message normalization into RemoteLab sessions/messages/runs
+- message normalization into Cue sessions/messages/runs
 - source-specific outbound delivery back to that platform
 
 Examples:
@@ -67,13 +67,13 @@ So:
 
 ### 3. Channel binding
 
-A **channel binding** is the stable mapping between an upstream conversation identity and a RemoteLab session.
+A **channel binding** is the stable mapping between an upstream conversation identity and a Cue session.
 
 For Feishu, this should usually mean:
 
 - one Feishu chat / DM thread / group thread key
 - maps to one `externalTriggerId`
-- which maps to one RemoteLab session
+- which maps to one Cue session
 
 ### 4. Completion target
 
@@ -104,7 +104,7 @@ This is useful for:
 - alarms
 - delivery-only integrations
 
-This is **not** the right foundation for a RemoteLab connector because Feishu’s own docs say custom bots:
+This is **not** the right foundation for a Cue connector because Feishu’s own docs say custom bots:
 
 - only work inside the current group
 - do not have data access permissions
@@ -114,7 +114,7 @@ So this should be treated as a **Feishu delivery target**, not as a full connect
 
 ### Option B — app bot inside a self-built Feishu app
 
-This is the right model for RemoteLab.
+This is the right model for Cue.
 
 It supports:
 
@@ -141,22 +141,22 @@ Why:
 
 1. It does not require a public callback URL.
 2. It does not require signature verification or decryption logic.
-3. It fits a local connector process running on the same machine as RemoteLab.
-4. It keeps Feishu-specific transport logic out of RemoteLab core.
+3. It fits a local connector process running on the same machine as Cue.
+4. It keeps Feishu-specific transport logic out of Cue core.
 5. It is already documented with Node SDK examples.
 
-This is especially attractive for a local-first product like RemoteLab, where the connector can live beside the server and call RemoteLab over `127.0.0.1` or the local chat plane.
+This is especially attractive for a local-first product like Cue, where the connector can live beside the server and call Cue over `127.0.0.1` or the local chat plane.
 
 ---
 
-## Architectural fit with RemoteLab
+## Architectural fit with Cue
 
-The current RemoteLab direction already says external systems should be reduced to a standard message flow.
+The current Cue direction already says external systems should be reduced to a standard message flow.
 
 That maps well to Feishu:
 
-- Feishu DM or group context → RemoteLab session
-- one incoming Feishu message → one RemoteLab message submission
+- Feishu DM or group context → Cue session
+- one incoming Feishu message → one Cue message submission
 - Feishu message ID → `requestId`
 - Feishu chat identity → `externalTriggerId`
 - final assistant message → Feishu reply
@@ -206,7 +206,7 @@ Recommended initial session metadata:
 
 - `group`: `Feishu`
 - `name`: `Feishu: <chat name or user display name>`
-- `description`: short source-facing description such as `Inbound Feishu chat bridged into RemoteLab.`
+- `description`: short source-facing description such as `Inbound Feishu chat bridged into Cue.`
 
 ### Normalized message preface
 
@@ -261,7 +261,7 @@ This is the recommended first real implementation.
    - derive `externalTriggerId`
    - derive `requestId`
    - normalize text
-   - create or reuse RemoteLab session
+   - create or reuse Cue session
    - submit message
    - background-poll run completion
    - send final assistant message back to Feishu
@@ -287,7 +287,7 @@ The official docs say:
 - event handling must complete within **3 seconds**
 - otherwise Feishu may retry / treat it as timeout
 
-This means the connector must **not** wait for a full RemoteLab run inside the Feishu event callback.
+This means the connector must **not** wait for a full Cue run inside the Feishu event callback.
 
 The right shape is:
 
@@ -295,7 +295,7 @@ The right shape is:
 2. Validate / dedupe quickly.
 3. Persist or enqueue a local job immediately.
 4. Return success to Feishu.
-5. Let a background task do the RemoteLab run + Feishu reply.
+5. Let a background task do the Cue run + Feishu reply.
 
 This is the key architectural adjustment for IM-style connectors.
 
@@ -316,7 +316,7 @@ To move fast, the first version should be intentionally narrow.
 - subscribe only `im.message.receive_v1`
 - dedupe by `message.message_id`
 - send replies with `im.v1.message.create`
-- one Feishu chat → one RemoteLab session
+- one Feishu chat → one Cue session
 
 ### V1
 
@@ -336,22 +336,22 @@ This avoids over-design before the basic session bridge is proven.
 
 ## Node implementation sketch
 
-Because RemoteLab is already Node-based, the simplest connector process is also Node-based.
+Because Cue is already Node-based, the simplest connector process is also Node-based.
 
 Suggested stack:
 
 - package: `@larksuiteoapi/node-sdk`
 - Feishu inbound: `WSClient`
 - Feishu outbound: SDK `client.im.v1.message.create` and `client.im.v1.message.reply`
-- RemoteLab auth: bootstrap owner cookie via `GET /?token=...`
-- RemoteLab calls: plain `fetch`
+- Cue auth: bootstrap owner cookie via `GET /?token=...`
+- Cue calls: plain `fetch`
 
 High-level flow:
 
 ```text
 Feishu WS event
   -> quick dedupe / enqueue
-  -> create or reuse RemoteLab session
+  -> create or reuse Cue session
   -> submit message with requestId
   -> poll run
   -> load assistant message event
@@ -380,7 +380,7 @@ That keeps the bot conservative and easier to reason about.
 
 ## Official docs worth using
 
-### RemoteLab docs
+### Cue docs
 
 - External message protocol: `docs/external-message-protocol.md`
 - Transport rationale and connector direction: `notes/message-transport-architecture.md`
@@ -419,7 +419,7 @@ If we implement this next, the smallest worthwhile slice is:
 1. add a standalone local `feishu-connector` process
 2. use long connection + `im.message.receive_v1`
 3. support only p2p chats first
-4. bridge into RemoteLab using the existing external-message protocol
+4. bridge into Cue using the existing external-message protocol
 5. reply with plain text first
 
-That should get us to the first real Feishu connector without changing RemoteLab core semantics.
+That should get us to the first real Feishu connector without changing Cue core semantics.

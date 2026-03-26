@@ -1,12 +1,12 @@
 # Remote Capability Monitor
 
-The remote capability monitor is a recurring RemoteLab automation App that scouts the remote-control coding-agent space and feeds the result back into a reviewable RemoteLab session.
+The remote capability monitor is a recurring Cue automation App that scouts the remote-control coding-agent space and feeds the result back into a reviewable Cue session.
 
 It is meant to answer a focused question continuously:
 
 - what are direct competitors and adjacent tools shipping for remote control of local coding agents,
 - what changed recently,
-- and which of those changes are worth adapting inside RemoteLab.
+- and which of those changes are worth adapting inside Cue.
 
 ## Primary tracked surfaces
 
@@ -25,7 +25,7 @@ The `Happy` project matters here because it is an explicit remote-control produc
 - `slopus/happy` — mobile and web client for Claude Code and Codex
 - `slopus/happy-cli` — local CLI bridge / wrapper for remote control of local coding tools
 
-## How it fits RemoteLab
+## How it fits Cue
 
 This monitor should not stop at local logs or standalone notifications.
 
@@ -33,12 +33,12 @@ The intended flow is:
 
 1. fetch and score source updates
 2. write a local report and JSON summary
-3. create or reuse a stable RemoteLab review session under an automation App
+3. create or reuse a stable Cue review session under an automation App
 4. submit the digest into that session
-5. let the AI produce the review/proposal inside RemoteLab
+5. let the AI produce the review/proposal inside Cue
 6. optionally notify the owner with a deep link into that session
 
-That makes the real review surface a normal RemoteLab session instead of an external dashboard.
+That makes the real review surface a normal Cue session instead of an external dashboard.
 
 ## App pattern
 
@@ -118,11 +118,11 @@ Typical outputs are:
 
 - state in `~/.config/remotelab/remote-capability-monitor/`
 - reports in `~/.remotelab/research/remote-capability-monitor/`
-- a stable RemoteLab review session for the automation
+- a stable Cue review session for the automation
 - optional deep-link notifications
 
 ## Operational rule
 
-When the monitor is connected to a RemoteLab review session, that session should be treated as the primary review surface.
+When the monitor is connected to a Cue review session, that session should be treated as the primary review surface.
 
 Notifications are helpful, but they should point back to the session rather than replace it.

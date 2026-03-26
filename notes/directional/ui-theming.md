@@ -4,7 +4,7 @@
 
 ## Current baseline
 
-RemoteLab should follow the operator's browser / OS `prefers-color-scheme` automatically.
+Cue should follow the operator's browser / OS `prefers-color-scheme` automatically.
 
 For now that baseline is intentionally simple:
 
@@ -15,6 +15,6 @@ For now that baseline is intentionally simple:
 ## Deferred TODO
 
 - keep the semantic token layer stable so future named themes can remap the same UI surfaces cleanly
-- when we expand beyond light/dark, prefer importing or adapting VS Code OSS theme/token definitions instead of inventing a one-off RemoteLab palette format
+- when we expand beyond light/dark, prefer importing or adapting VS Code OSS theme/token definitions instead of inventing a one-off Cue palette format
 - treat a manual theme picker as a follow-up, not a prerequisite for the current baseline
 - revisit PWA shell / splash theming later if we want installed-app polish to match future named themes perfectly

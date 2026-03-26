@@ -4,10 +4,6 @@
     --chat-column-width: 70%;
   }
 
-  body.board-tab-expanded {
-    --sidebar-width: var(--sidebar-width-expanded);
-  }
-
   .header #menuBtn { display: none; }
 
   .sidebar-overlay {

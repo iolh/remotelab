@@ -106,7 +106,7 @@ function getBootstrapShareSnapshot() {
 }
 
 console.info(
-  "RemoteLab build",
+  "Cue build",
   buildInfo.title || buildInfo.serviceTitle || buildAssetVersion,
 );
 
@@ -145,7 +145,7 @@ async function reloadForFreshBuild(nextBuildInfo) {
   buildRefreshScheduled = true;
   refreshFrontendBtn?.setAttribute("aria-busy", "true");
   console.info(
-    "RemoteLab frontend updated; reloading",
+    "Cue frontend updated; reloading",
     nextBuildInfo?.title ||
       newerBuildInfo?.title ||
       nextBuildInfo?.assetVersion ||
@@ -235,12 +235,10 @@ const sessionTemplateRow = document.getElementById("sessionTemplateRow");
 const sessionTemplateSelect = document.getElementById("sessionTemplateSelect");
 const sessionTemplateStatus = document.getElementById("sessionTemplateStatus");
 const tabSessions = document.getElementById("tabSessions");
-const tabBoard = document.getElementById("tabBoard");
 const tabSettings = document.getElementById("tabSettings");
 const sourceFilterSelect = document.getElementById("sourceFilterSelect");
 const sessionAppFilterSelect = document.getElementById("sessionAppFilterSelect");
 const userFilterSelect = document.getElementById("userFilterSelect");
-const boardPanel = document.getElementById("boardPanel");
 const settingsPanel = document.getElementById("settingsPanel");
 const inputArea = document.getElementById("inputArea");
 const composerPendingState = document.getElementById("composerPendingState");
@@ -272,6 +270,7 @@ const addToolStatus = document.getElementById("addToolStatus");
 const providerPromptCode = document.getElementById("providerPromptCode");
 const saveToolConfigBtn = document.getElementById("saveToolConfigBtn");
 const copyProviderPromptBtn = document.getElementById("copyProviderPromptBtn");
+const CHROME_STATUS_OPEN_EVENT = "remotelab:chrome-status-open";
 
 let chromeBridgeListeners = new Set();
 let lastChromeBridgeState = null;
@@ -626,6 +625,10 @@ function emitChromeBridgeState() {
   window.dispatchEvent(new CustomEvent("remotelab:chrome-state", { detail: lastChromeBridgeState }));
 }
 
+function openChromeStatusPanel() {
+  window.dispatchEvent(new CustomEvent(CHROME_STATUS_OPEN_EVENT));
+}
+
 window.remotelabChromeBridge = {
   getState() {
     if (!lastChromeBridgeState) {
@@ -649,6 +652,7 @@ window.remotelabChromeBridge = {
     acceptWorkflowSuggestion: () => runChromeWorkflowSuggestionAction("accept"),
     dismissWorkflowSuggestion: () => runChromeWorkflowSuggestionAction("dismiss"),
     createParallelSessionsFromConclusion: (conclusionId) => createParallelSessionsFromConclusion(conclusionId),
+    openStatusPanel: () => openChromeStatusPanel(),
   },
 };
 
@@ -858,7 +862,6 @@ if (!sessionStateModel) {
 }
 
 function normalizeSidebarTab(tab) {
-  if (tab === "board" || tab === "progress") return "board";
   if (tab === "settings") return "settings";
   return "sessions";
 }

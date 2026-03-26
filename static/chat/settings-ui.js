@@ -21,7 +21,7 @@ function buildAppShareUrl(app) {
 
 function summarizeAppDescription(app) {
   if (app?.id === BASIC_CHAT_TEMPLATE_APP_ID) {
-    return "默认的日常对话应用，适合普通 RemoteLab 会话。";
+    return "默认的日常对话应用，适合普通 Cue 会话。";
   }
   if (app?.id === IMPORT_SESSION_TEMPLATE_APP_ID) {
     return "显式导入已有 Codex 会话，会先要求你填写 thread id。";
@@ -133,7 +133,7 @@ function describeThemeStatus(preference, theme) {
   if (preference === "dark") {
     return "当前固定为深色主题，会立即作用于整个界面。";
   }
-  return `当前跟随系统，正在使用${theme === "dark" ? "深色" : "浅色"}主题；如果系统按时间自动切换，RemoteLab 会一起切换。`;
+  return `当前跟随系统，正在使用${theme === "dark" ? "深色" : "浅色"}主题；如果系统按时间自动切换，Cue 会一起切换。`;
 }
 
 function syncThemeSettingsControls(detail = null) {
